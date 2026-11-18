@@ -1,0 +1,61 @@
+# Player-only decisions to become (and stop being) the Privada.
+privada_become_decision = {
+	picture = {
+		reference = "gfx/interface/illustrations/decisions/decision_misc.dds"
+	}
+	desc = privada_become_decision_desc
+	selection_tooltip = privada_become_decision_tooltip
+	confirm_text = privada_become_decision_confirm
+
+	ai_check_interval = 0
+
+	is_shown = {
+		is_ai = no
+		NOT = { has_trait = privada }
+	}
+
+	is_valid_showing_failures_only = {
+		is_imprisoned = no
+	}
+
+	effect = {
+		add_trait = privada
+		trigger_event = privada.0001
+	}
+
+	ai_potential = {
+		always = no
+	}
+
+	ai_will_do = {
+		base = 0
+	}
+}
+
+privada_unbecome_decision = {
+	picture = {
+		reference = "gfx/interface/illustrations/decisions/decision_misc.dds"
+	}
+	desc = privada_unbecome_decision_desc
+	selection_tooltip = privada_unbecome_decision_tooltip
+	confirm_text = privada_unbecome_decision_confirm
+
+	ai_check_interval = 0
+
+	is_shown = {
+		is_ai = no
+		has_trait = privada
+	}
+
+	effect = {
+		remove_trait = privada
+	}
+
+	ai_potential = {
+		always = no
+	}
+
+	ai_will_do = {
+		base = 0
+	}
+}

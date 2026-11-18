@@ -1,0 +1,19 @@
+# New special accessory gene (merged into vanilla special_genes; no vanilla gene is replaced).
+# Only applied by the portrait modifier in gfx/portraits/portrait_modifiers/zz_privada.txt.
+special_genes = {
+	accessory_genes = {
+		privada_body = {
+			privada = {
+				index = 0
+				male = {
+					1 = privada_male
+				}
+				female = {
+					1 = privada_female
+				}
+				boy = male
+				girl = female
+			}
+		}
+	}
+}

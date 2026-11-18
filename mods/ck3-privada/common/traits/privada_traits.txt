@@ -1,0 +1,26 @@
+# Privada: the character BECOMES the royal toilet (portrait: gfx/portraits/portrait_modifiers/zz_privada.txt).
+privada = {
+	category = fame
+	shown_in_ruler_designer = no
+
+	diplomacy = 1
+	prowess = -2
+	monthly_prestige = 0.5
+	stress_gain_mult = -0.25
+	same_opinion = 25
+
+	desc = {
+		first_valid = {
+			triggered_desc = {
+				trigger = {
+					NOT = { exists = this }
+				}
+				desc = trait_privada_desc
+			}
+			desc = trait_privada_character_desc
+		}
+	}
+
+	ai_boldness = low_positive_ai_value
+	ai_sociability = low_positive_ai_value
+}

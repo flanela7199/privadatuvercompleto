@@ -1,0 +1,18 @@
+﻿l_english:
+ trait_privada:0 "Rei Privada"
+ trait_privada_desc:0 "This character has become the Privada: a porcelain throne with googly eyes, a golden crown and a magnificent handlebar mustache."
+ trait_privada_character_desc:0 "[ROOT.GetCharacter.GetFirstNameNoTooltip] has become the Privada: a porcelain throne with googly eyes, a golden crown and a magnificent handlebar mustache."
+
+ privada_become_decision:0 "Tornar-se a Privada"
+ privada_become_decision_desc:0 "Every king sits on a throne. A true king BECOMES one."
+ privada_become_decision_tooltip:0 "You will become the Privada, the royal toilet."
+ privada_become_decision_confirm:0 "Flush!"
+
+ privada_unbecome_decision:0 "Deixar de ser a Privada"
+ privada_unbecome_decision_desc:0 "Enough porcelain. Return to flesh and bone."
+ privada_unbecome_decision_tooltip:0 "You will lose the trait $trait_privada$."
+ privada_unbecome_decision_confirm:0 "Back to normal"
+
+ privada.0001.t:0 "Long Live the Privada!"
+ privada.0001.desc:0 "With a mighty gurgle, [ROOT.Char.GetFirstNameNoTooltip] is no longer a mere mortal. Porcelain gleams, the crown sits proudly upon the tank, and the mustache curls with royal dignity."
+ privada.0001.a:0 "Viva o Rei Privada!"

@@ -1,0 +1,18 @@
+namespace = privada
+
+# Shown after taking the decision "Tornar-se a Privada".
+privada.0001 = {
+	type = character_event
+	title = privada.0001.t
+	desc = privada.0001.desc
+	theme = crown
+	left_portrait = {
+		character = root
+		animation = happiness
+	}
+
+	option = {
+		name = privada.0001.a
+		add_prestige = 50
+	}
+}

@@ -1,0 +1,9 @@
+version="1.0.0"
+tags={
+	"Portraits"
+	"Decisions"
+	"Events"
+}
+name="Privada"
+picture="thumbnail.png"
+supported_version="1.21.*"

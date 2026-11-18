@@ -1,0 +1,9 @@
+# The toilet mesh is skinned to the portrait HEAD skeleton (head_root / bn_h_head), like headgear,
+# so it shares the head's pose (gfx/models/portraits/privada/privada.asset).
+privada_male = {
+	entity = { required_tags = ""		shared_pose_entity = head		entity = "privada_male_entity" }
+}
+
+privada_female = {
+	entity = { required_tags = ""		shared_pose_entity = head		entity = "privada_female_entity" }
+}
