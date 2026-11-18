@@ -158,3 +158,9 @@ table.hk select.input { width: 100%; }
 
 /* ---------- Animations */
 .anim-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--s2); max-width: 900px; }
+
+/* ---------- Skeleton (thumbnail placeholder) */
+.skel { background: linear-gradient(100deg, #17181e 30%, #252832 50%, #17181e 70%) !important; background-size: 300% 100% !important; animation: shimmer 1.3s linear infinite; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+header .btn.primary { height: 30px; }
+#preview img { width: 100%; height: 100%; object-fit: contain; display: block; user-select: none; }

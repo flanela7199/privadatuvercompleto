@@ -7,14 +7,18 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; user-select: none; -webkit-user-select: none; }
   canvas { display: block; outline: none; }
-  body.grab canvas { cursor: grab; }
-  body.dragging canvas { cursor: grabbing; }
+  /* window mode: invisible 24px drag strip on top (Tauri drag region), subtle handle on hover */
+  #drag { position: fixed; left: 0; right: 0; top: 0; height: 24px; z-index: 10; display: none; cursor: move; }
+  body.windowed #drag { display: block; }
+  #drag span { position: absolute; left: 50%; top: 8px; width: 64px; height: 6px; margin-left: -32px; border-radius: 3px;
+               background: rgba(255,255,255,.55); box-shadow: 0 0 0 1px rgba(0,0,0,.25); opacity: 0; transition: opacity .2s; }
+  #drag:hover span { opacity: 1; }
 </style>
 <script type="importmap">
 { "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
 </script>
 </head>
-<body>
+<body class="windowed">
 <script type="module" src="./src/app/avatar.js"></script>
 </body>
 </html>

@@ -51,6 +51,29 @@ impl Rng {
     }
 }
 
+/// Area-weighted vertex normals for an indexed triangle list, exactly like three.js
+/// `BufferGeometry.computeVertexNormals()` (cb x ab per face, summed, normalized).
+/// Only the vertices `0..nverts` are touched.
+pub fn vertex_normals(pos: &[f32], nrm: &mut [f32], nverts: usize, tris: impl Iterator<Item = [usize; 3]>) {
+    nrm[..nverts * 3].fill(0.0);
+    let p = |i: usize| glam::Vec3::new(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]);
+    for [a, b, c] in tris {
+        let (pa, pb, pc) = (p(a), p(b), p(c));
+        let n = (pc - pb).cross(pa - pb);
+        for i in [a, b, c] {
+            nrm[i * 3] += n.x;
+            nrm[i * 3 + 1] += n.y;
+            nrm[i * 3 + 2] += n.z;
+        }
+    }
+    for i in 0..nverts {
+        let v = glam::Vec3::new(nrm[i * 3], nrm[i * 3 + 1], nrm[i * 3 + 2]);
+        let l = v.length();
+        let v = if l > 0.0 { v / l } else { v };
+        nrm[i * 3..i * 3 + 3].copy_from_slice(&[v.x, v.y, v.z]);
+    }
+}
+
 #[inline]
 pub fn clamp(x: f32, a: f32, b: f32) -> f32 {
     x.max(a).min(b)

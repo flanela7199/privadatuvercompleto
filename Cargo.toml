@@ -13,4 +13,4 @@ lto = "thin"
 codegen-units = 1
 
 [profile.release.package.privada-wasm]
-opt-level = "s"
+opt-level = 3

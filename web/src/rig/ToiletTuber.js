@@ -17,7 +17,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { MaterialLib } from './materials.js';
-import { swirlTexture, clamp, eggify, eggRevolve, lidProfile, seatProfile } from './geo.js';
+import { swirlTexture, clamp, smooth as smoothstep, eggify, eggRevolve, lidProfile, seatProfile } from './geo.js';
 import { buildAccessory } from '../accessories/index.js';
 import { Spring } from '../anim/spring.js';
 import { ACTIONS } from '../anim/actions.js';
@@ -68,7 +68,10 @@ export class ToiletTuber {
       lift: new Spring(200, 18), squash: new Spring(260, 10), eyeScale: new Spring(200, 12),
       handle: new Spring(400, 20),
       smile: new Spring(220, 18), pucker: new Spring(220, 18), arch: new Spring(200, 14),
+      lean: new Spring(60, 11),
     };
+    // total look range (body + head): body ~55% of yaw / 30% of pitch, head the rest
+    this.lookLimits = { yaw: (80 * Math.PI) / 180, pitch: (35 * Math.PI) / 180 };
     this.mouthVec = { open: 0, round: 0, wide: 0, closed: 0, sib: 0 };
     this.rust = WASM ? new WasmRig(WASM, (Math.random() * 4294967295) >>> 0) : null;
     this.restOpen = DIM.mouth.rest;
@@ -80,6 +83,11 @@ export class ToiletTuber {
 
   /** true when the Rust/wasm rig drives the character */
   get usesRust() { return !!this.rust; }
+  /** total look range in radians (default 80° yaw, 35° pitch) */
+  setLookLimits(maxYaw, maxPitch) {
+    this.lookLimits = { yaw: clamp(maxYaw, 0, 1.6), pitch: clamp(maxPitch, 0, 0.9) };
+    this.rust?.r.set_look_limits(maxYaw, maxPitch);
+  }
   get restOpen() { return this._restOpen; }
   set restOpen(v) { this._restOpen = v; this.rust?.r.set_rest(v); }
 
@@ -447,13 +455,24 @@ export class ToiletTuber {
     }
     // hinge with collision clamp against the tank (binary search on the angle)
     let hinge = Math.min(Math.max(0, open, this.s.seat.x + 0.006), DIM.lid.maxHinge);
-    if (hinge > 0.3 && this.lidHitsHead(hinge)) {
+    if (this.lidHitsHead(hinge)) {
       let lo = 0, hi = hinge;
       for (let it = 0; it < 7; it++) {
         const mid = (lo + hi) / 2;
         this.lidHitsHead(mid) ? (hi = mid) : (lo = mid);
       }
       hinge = lo;
+      if (this.lidHitsHead(hinge)) {
+        // head tilted onto the (nearly) closed lid at extreme look angles: ease its pitch
+        const [hx, hy, hz] = this.headE, base = Math.min(hx, 0);
+        let lf = 0, hf = 1;
+        for (let it = 0; it < 8; it++) {
+          const f = (lf + hf) / 2;
+          this.head.rotation.set(base + (hx - base) * f, hy, hz); this.head.updateMatrixWorld(true);
+          this.lidHitsHead(hinge) ? (hf = f) : (lf = f);
+        }
+        this.head.rotation.set(base + (hx - base) * lf, hy, hz);
+      }
       if (!this.lidTouching && this.s.lid.v > 2) this.emit('sfx', { type: 'clack', v: this.s.lid.v * 0.5 });
       this.lidTouching = true;
     } else this.lidTouching = false;
@@ -540,11 +559,12 @@ export class ToiletTuber {
     J.foam.mesh.instanceMatrix.array.set(R.view(BUF.FOAM)); J.foam.mesh.instanceMatrix.needsUpdate = true;
     const streamOn = S[SC.STREAM_VISIBLE] > 0.5;
     J.stream.visible = streamOn;
-    if (streamOn) {
+    if (streamOn) {   // positions, normals (computed in Rust) and uvs: no computeVertexNormals here
       const g = J.stream.geometry;
+      if (!g.attributes.normal) g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 3), 3));
       g.attributes.position.array.set(R.view(BUF.STREAM_POS)); g.attributes.position.needsUpdate = true;
+      g.attributes.normal.array.set(R.view(BUF.STREAM_NRM)); g.attributes.normal.needsUpdate = true;
       g.attributes.uv.array.set(R.view(BUF.STREAM_UV)); g.attributes.uv.needsUpdate = true;
-      g.computeVertexNormals();
     }
     const RP = R.view(BUF.RIPPLES);
     J.ripples.forEach((m, i) => {
@@ -567,29 +587,37 @@ export class ToiletTuber {
     }
 
     // paper strips
-    const strip = (ps, pos, uv, perf, count, np, op) => {
+    const strip = (ps, pos, nrm, uv, perf, count, np, op) => {
       const n = S[count] | 0, nperf = S[np] | 0;
-      ps.geo.attributes.position.array.set(R.view(pos)); ps.geo.attributes.position.needsUpdate = true;
-      ps.geo.attributes.uv.array.set(R.view(uv)); ps.geo.attributes.uv.needsUpdate = true;
-      ps.geo.setDrawRange(0, Math.max(0, n - 1) * 6);
-      if (n > 1) ps.geo.computeVertexNormals();
-      ps.perfGeo.attributes.position.array.set(R.view(perf)); ps.perfGeo.attributes.position.needsUpdate = true;
+      if (n === 0 && ps._rustN === 0) return;          // empty and already cleared
+      ps._rustN = n;
+      const g = ps.geo;
+      if (!g.attributes.normal) g.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 3), 3));
+      if (n > 0) {   // copy only the live part of the ribbon; normals come from Rust
+        g.attributes.position.array.set(R.view(pos).subarray(0, n * 6)); g.attributes.position.needsUpdate = true;
+        g.attributes.normal.array.set(R.view(nrm).subarray(0, n * 6)); g.attributes.normal.needsUpdate = true;
+        g.attributes.uv.array.set(R.view(uv).subarray(0, n * 4)); g.attributes.uv.needsUpdate = true;
+      }
+      g.setDrawRange(0, Math.max(0, n - 1) * 6);
+      if (nperf) {
+        ps.perfGeo.attributes.position.array.set(R.view(perf).subarray(0, nperf * 6)); ps.perfGeo.attributes.position.needsUpdate = true;
+        ps.perf.computeLineDistances();
+      }
       ps.perfGeo.setDrawRange(0, nperf * 2);
-      if (nperf) ps.perf.computeLineDistances();
       ps.mat.opacity = S[op];
       ps.perfMat.opacity = S[op] * 0.9;
     };
-    strip(this.paper, BUF.PAPER_POS, BUF.PAPER_UV, BUF.PAPER_PERF, SC.PAPER_COUNT, SC.PAPER_PERF, SC.PAPER_OPACITY);
-    strip(this.torn, BUF.TORN_POS, BUF.TORN_UV, BUF.TORN_PERF, SC.TORN_COUNT, SC.TORN_PERF, SC.TORN_OPACITY);
+    strip(this.paper, BUF.PAPER_POS, BUF.PAPER_NRM, BUF.PAPER_UV, BUF.PAPER_PERF, SC.PAPER_COUNT, SC.PAPER_PERF, SC.PAPER_OPACITY);
+    strip(this.torn, BUF.TORN_POS, BUF.TORN_NRM, BUF.TORN_UV, BUF.TORN_PERF, SC.TORN_COUNT, SC.TORN_PERF, SC.TORN_OPACITY);
 
-    // sound events
-    const ev = r.drain_events();
-    if (ev) for (const e of ev.split(String.fromCharCode(10))) {
-      if (e.startsWith('clack:')) this.emit('sfx', { type: 'clack', v: parseFloat(e.slice(6)) });
-      else this.emit('sfx', e);
+    // sound events (no string allocation on the common empty frame)
+    if (r.pending_events() > 0) {
+      for (const e of r.drain_events().split(String.fromCharCode(10))) {
+        if (e.startsWith('clack:')) this.emit('sfx', { type: 'clack', v: parseFloat(e.slice(6)) });
+        else this.emit('sfx', e);
+      }
     }
   }
-
   /* ----------------------------------------------------------- update */
   update(dtRaw, input) {
     if (this.rust) return this.updateRust(dtRaw, input);
@@ -613,11 +641,14 @@ export class ToiletTuber {
     this.talkAmt = Math.max(m.open, m.round, m.wide, m.sib);
     const rest = o.mouth != null ? 0 : this.restOpen * (1 - m.closed);
 
-    S.yaw.target = lx * 0.5;
-    S.pitch.target = -ly * 0.1;
-    S.hYaw.target = lx * 0.28 + o.headYaw;
-    S.hPitch.target = -ly * 0.22 + o.headPitch;
-    S.hRoll.target = -lx * 0.06;
+    const LL = this.lookLimits;
+    S.yaw.target = lx * LL.yaw * 0.55;
+    S.pitch.target = -ly * LL.pitch * 0.3;
+    S.hYaw.target = lx * LL.yaw * 0.45 + o.headYaw;
+    S.hPitch.target = -ly * LL.pitch * 0.7 + o.headPitch;
+    const side = smoothstep(0.55, 1, Math.abs(lx)) * Math.sign(lx);   // lean toward the side near the extremes
+    S.lean.target = -side * 0.07;
+    S.hRoll.target = -lx * 0.06 - side * 0.05;
     S.lid.target = o.mouth != null && o.mouth > 0.9 ? 1.45
       : Math.max(0, rest + m.open * 0.9 + m.round * 0.12 + m.sib * 0.04);
     S.smile.target = m.wide * 0.9 - m.round * 0.3;
@@ -647,15 +678,17 @@ export class ToiletTuber {
     const talk = clamp(S.lid.x, 0, 1.6);
     const sq = S.squash.x + breath + talk * 0.015;
     this.body.scale.set(1 - sq * 0.5, 1 + sq, 1 - sq * 0.5);
-    this.body.rotation.set(S.pitch.x + o.flip, S.yaw.x + o.spin, 0);
+    this.body.rotation.set(S.pitch.x + o.flip, S.yaw.x + o.spin, S.lean.x);
     // flips rotate around the center of mass (~0.75 up), not around the floor
     const cm = 0.75, fy = cm - cm * Math.cos(o.flip), fz = -cm * Math.sin(o.flip);
     this.body.position.set(Math.sin(this.time * 63) * 0.008 * o.shake, S.lift.x + (o.flip ? fy + o.flipLift : 0),
       Math.cos(this.time * 51) * 0.005 * o.shake + (o.flip ? fz : 0));
 
     // head
-    this.head.rotation.set(S.hPitch.x - talk * 0.1 + Math.sin(this.time * 70) * 0.02 * o.shake,
-      S.hYaw.x, S.hRoll.x + Math.sin(this.time * 1.3) * 0.015);
+    this.headE = [S.hPitch.x - talk * 0.1 + Math.sin(this.time * 70) * 0.02 * o.shake,
+      S.hYaw.x, S.hRoll.x + Math.sin(this.time * 1.3) * 0.015];
+    this.head.rotation.set(...this.headE);
+    this.root.updateMatrixWorld(true);   // collision checks use this frame's body/head (as in Rust)
     this.head.position.y = DIM.headY + talk * 0.025;
 
     // mouth
@@ -663,8 +696,9 @@ export class ToiletTuber {
     this.nodes.seatPivot.rotation.x = -Math.max(0, S.seat.x);
 
     // eyes (googly: springy pupils that sag a bit with gravity)
-    S.px.target = lx * 0.9 - S.hYaw.v * 0.05;
-    S.py.target = ly * 0.9 - 0.15 + S.hPitch.v * 0.05 - S.lift.v * 0.3;
+    const lead = (v) => Math.tanh(v * 2.2) / Math.tanh(2.2);   // pupils lead and saturate early
+    S.px.target = lead(lx) * 0.95 - S.hYaw.v * 0.05;
+    S.py.target = lead(ly) * 0.9 - 0.15 + S.hPitch.v * 0.05 - S.lift.v * 0.3;
     let blink = o.blink;
     if (blink == null) {
       this.blinkTimer -= dt;

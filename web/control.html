@@ -3,61 +3,11 @@
 <head>
 <meta charset="utf-8" />
 <title>Privada Tuber — Painel</title>
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<link rel="stylesheet" href="./src/app/control.css" />
-<script type="importmap">
-{ "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
-</script>
+<!-- The control panel is the React app in ui/ (built into web/panel/). -->
+<meta http-equiv="refresh" content="0; url=./panel/index.html" />
+<script>location.replace('./panel/index.html' + location.search);</script>
 </head>
-<body>
-<header>
-  <div class="logo">🚽 Privada Tuber</div>
-  <nav class="tabs" id="tabs">
-    <button data-tab="visual" class="sel">👔 Visual</button>
-    <button data-tab="presets">⭐ Presets</button>
-    <button data-tab="scenes">🎬 Cenas</button>
-    <button data-tab="obs">📺 Saída OBS</button>
-    <button data-tab="hotkeys">⌨ Atalhos</button>
-    <button data-tab="mic">🎤 Microfone</button>
-    <button data-tab="anims">💧 Animações</button>
-    <button data-tab="settings">⚙ Configurações</button>
-  </nav>
-  <div class="grow"></div>
-  <div id="status"><span class="dot"></span>carregando…</div>
-</header>
-<main>
-  <section class="tab sel" id="tab-visual">
-    <div>
-      <div id="preview"><div class="hint">arraste para girar · roda = zoom</div></div>
-      <div class="card"><h3 style="margin-top:0">Cores do corpo</h3><div class="mats" id="mats"></div></div>
-      <div class="card"><h3 style="margin-top:0">Modelo próprio (.glb)</h3><p class="mut" style="margin-bottom:8px">Qualquer modelo 3D vira acessório no lugar escolhido acima da grade.</p><input type="file" id="glbFile" class="file" accept=".glb,.gltf" /></div>
-    </div>
-    <div>
-      <div class="chips" id="cats"></div>
-      <div class="bar">
-        <input type="search" class="input" id="search" placeholder="Buscar acessório…" />
-        <select class="input" id="sockSel" title="Onde colocar o próximo acessório" style="flex:none;width:190px"></select>
-      </div>
-      <div class="grid" id="accGrid"></div>
-    </div>
-    <div>
-      <div class="card">
-        <div class="sec-h row" style="margin-bottom:8px"><h2>Equipados</h2><span class="mut" id="wornCount"></span><div class="grow"></div><span id="clearAllSlot"></span></div>
-        <div class="worn-list" id="worn"></div>
-      </div>
-      <div class="card adj" id="adjust"></div>
-    </div>
-  </section>
-  <section class="tab" id="tab-presets"><div class="page" id="presetsPage" style="max-width:1200px"></div></section>
-  <section class="tab" id="tab-scenes"><div class="scenes" id="scenesPage"></div></section>
-  <section class="tab" id="tab-obs"><div class="page" id="obsPage"></div></section>
-  <section class="tab" id="tab-hotkeys"><div class="page" id="hkPage" style="max-width:980px"></div></section>
-  <section class="tab" id="tab-mic"><div class="page" id="micPage"></div></section>
-  <section class="tab" id="tab-anims"><div class="page" id="animPage" style="max-width:980px"></div></section>
-  <section class="tab" id="tab-settings"><div class="page" id="settingsPage"></div></section>
-</main>
-<div id="toasts"></div>
-<input type="file" id="hiddenFile" accept=".json" hidden />
-<script type="module" src="./src/app/control.js"></script>
+<body style="background:#121318;color:#9095a6;font:13px system-ui;padding:24px">
+Abrindo o painel… Se não abrir, rode <code>npm run build</code> em <code>ui/</code>.
 </body>
 </html>

@@ -6,6 +6,7 @@
 export const BUF = {
   POSE: 0, DROPS: 1, FOAM: 2, STREAM_POS: 3, STREAM_UV: 4, RIPPLES: 5, PUDDLE: 6, PUDDLE_RADIAL: 7,
   PAPER_POS: 8, PAPER_UV: 9, PAPER_PERF: 10, TORN_POS: 11, TORN_UV: 12, TORN_PERF: 13, SCALARS: 14, MORPHS: 15,
+  STREAM_NRM: 16, PAPER_NRM: 17, TORN_NRM: 18,
 };
 // mirror of privada_core::rig::sc
 export const SC = {
@@ -34,9 +35,13 @@ export class WasmRig {
     this.mod = mod;
     this.r = new mod.pkg.Rig(seed >>> 0);
     this.order = this.r.node_order().split(',');
+    this.views = [];
+    this.buffer = null;
   }
-  /** zero-copy view (recreated each call: wasm memory can grow and detach old views) */
+  /** cached zero-copy view; rebuilt only when wasm memory grows (old views detach) */
   view(id) {
-    return new Float32Array(this.mod.memory.buffer, this.r.buf_ptr(id), this.r.buf_len(id));
+    const buf = this.mod.memory.buffer;
+    if (buf !== this.buffer) { this.buffer = buf; this.views = []; }
+    return this.views[id] ||= new Float32Array(buf, this.r.buf_ptr(id), this.r.buf_len(id));
   }
 }

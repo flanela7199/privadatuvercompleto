@@ -1,10 +1,14 @@
-//! Global cursor polling (60 Hz, works while unfocused/occluded) + click-through for the
-//! desktop overlay: in `auto` mode the overlay ignores the mouse except over the character's
-//! hit rectangle (reported by the page), toggled only when the state changes.
+//! Global cursor polling (60 Hz, works while unfocused/occluded) in VIRTUAL-DESKTOP physical px,
+//! sent together with the avatar window's rectangle so the page can aim across monitors:
+//!   `cursor` { x, y, win: { x, y, w, h, scale, ix, iy, iw, ih } | null }
+//!   (x,y,w,h = outer rect, ix,iy,iw,ih = client area; all physical px)
+//! Also: click-through for the optional desktop overlay (`auto`: ignore the mouse except over the
+//! character's hit rect), and debounced saving of the avatar window rect.
+use crate::winstate::WinState;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Default)]
 pub struct Rect {
@@ -30,9 +34,23 @@ pub struct Pointer {
 }
 
 #[derive(Serialize, Clone, Copy, PartialEq)]
+pub struct WinRect {
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+    pub scale: f64,
+    pub ix: i32,
+    pub iy: i32,
+    pub iw: u32,
+    pub ih: u32,
+}
+
+#[derive(Serialize, Clone, Copy, PartialEq)]
 struct CursorEvent {
     x: i32,
     y: i32,
+    win: Option<WinRect>,
 }
 
 #[cfg(windows)]
@@ -50,6 +68,14 @@ fn cursor_pos() -> Option<(i32, i32)> {
     None
 }
 
+pub fn win_rect(w: &WebviewWindow) -> Option<WinRect> {
+    let op = w.outer_position().ok()?;
+    let os = w.outer_size().ok()?;
+    let ip = w.inner_position().ok()?;
+    let is = w.inner_size().ok()?;
+    Some(WinRect { x: op.x, y: op.y, w: os.width, h: os.height, scale: w.scale_factor().ok()?, ix: ip.x, iy: ip.y, iw: is.width, ih: is.height })
+}
+
 pub fn start(app: AppHandle) {
     std::thread::Builder::new()
         .name("privada-cursor".into())
@@ -59,46 +85,49 @@ pub fn start(app: AppHandle) {
             let mut since_emit = 0u32;
             loop {
                 if let Some((x, y)) = cursor_pos() {
-                    let ev = CursorEvent { x, y };
+                    let avatar = app.get_webview_window("avatar");
+                    let win = avatar.as_ref().and_then(win_rect);
+                    let ev = CursorEvent { x, y, win };
                     since_emit += 1;
-                    // emit on movement, and at least ~2x/s so late listeners get a value
+                    // emit on any change (cursor or window moved), and ~2x/s for late listeners
                     if last != Some(ev) || since_emit >= 30 {
                         let _ = app.emit("cursor", ev);
                         last = Some(ev);
                         since_emit = 0;
                     }
-                    update_click_through(&app, x, y, &mut ignoring);
+                    if let (Some(w), Some(r)) = (avatar.as_ref(), win) {
+                        update_click_through(&app, w, x, y, r, &mut ignoring);
+                    }
                 }
+                app.state::<WinState>().flush_if_due();
                 std::thread::sleep(Duration::from_millis(16));
             }
         })
         .expect("cursor thread");
 }
 
-fn update_click_through(app: &AppHandle, x: i32, y: i32, ignoring: &mut Option<bool>) {
-    let Some(win) = app.get_webview_window("avatar") else { return };
-    let ptr = app.state::<Pointer>();
-    let mode = *ptr.mode.lock().unwrap();
-    let want = match mode {
-        ClickMode::On => true,
-        ClickMode::Off => false,
-        ClickMode::Auto => {
-            let rect = *ptr.hit_rect.lock().unwrap();
-            match (rect, win.outer_position(), win.scale_factor()) {
-                (Some(r), Ok(pos), Ok(scale)) => {
-                    // hit rect is logical px inside the window
-                    let lx = (x - pos.x) as f64 / scale;
-                    let ly = (y - pos.y) as f64 / scale;
-                    !(lx >= r.x && lx <= r.x + r.w && ly >= r.y && ly <= r.y + r.h)
+fn update_click_through(app: &AppHandle, win: &WebviewWindow, x: i32, y: i32, r: WinRect, ignoring: &mut Option<bool>) {
+    let want = if app.state::<WinState>().is_window_mode() {
+        false // a normal window always takes the mouse
+    } else {
+        let ptr = app.state::<Pointer>();
+        let mode = *ptr.mode.lock().unwrap();
+        match mode {
+            ClickMode::On => true,
+            ClickMode::Off => false,
+            ClickMode::Auto => match *ptr.hit_rect.lock().unwrap() {
+                // hit rect is logical px inside the client area
+                Some(h) => {
+                    let lx = (x - r.ix) as f64 / r.scale;
+                    let ly = (y - r.iy) as f64 / r.scale;
+                    !(lx >= h.x && lx <= h.x + h.w && ly >= h.y && ly <= h.y + h.h)
                 }
-                _ => true, // no character on screen yet: let clicks through
-            }
+                None => true, // no character on screen yet: let clicks through
+            },
         }
     };
-    if *ignoring != Some(want) {
-        if win.set_ignore_cursor_events(want).is_ok() {
-            *ignoring = Some(want);
-            let _ = app.emit("click-through", want);
-        }
+    if *ignoring != Some(want) && win.set_ignore_cursor_events(want).is_ok() {
+        *ignoring = Some(want);
+        let _ = app.emit("click-through", want);
     }
 }

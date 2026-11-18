@@ -12,6 +12,13 @@ use crate::util::{clamp, Rng, Spring};
 use crate::water::WaterJet;
 use glam::{Mat4, Quat, Vec3};
 
+/// Default look range: 80° yaw, 35° pitch (body + head together).
+pub const DEFAULT_MAX_YAW: f32 = 80.0 * std::f32::consts::PI / 180.0;
+pub const DEFAULT_MAX_PITCH: f32 = 35.0 * std::f32::consts::PI / 180.0;
+/// share of the yaw / pitch done by the body (the head does the rest)
+pub const BODY_YAW_SHARE: f32 = 0.55;
+pub const BODY_PITCH_SHARE: f32 = 0.3;
+
 /// Animated nodes, in pose-buffer order. Each entry is 10 floats of LOCAL transform:
 /// `[px, py, pz, qx, qy, qz, qw, sx, sy, sz]`.
 pub const NODE_ORDER: [&str; 19] = [
@@ -74,6 +81,7 @@ struct Springs {
     smile: Spring,
     pucker: Spring,
     arch: Spring,
+    lean: Spring,
 }
 
 impl Springs {
@@ -96,6 +104,7 @@ impl Springs {
             smile: Spring::new(220.0, 18.0),
             pucker: Spring::new(220.0, 18.0),
             arch: Spring::new(200.0, 14.0),
+            lean: Spring::new(60.0, 11.0),
         }
     }
     /// same order as `for (const k in S)` in the JS rig
@@ -104,7 +113,7 @@ impl Springs {
             &mut self.yaw, &mut self.pitch, &mut self.h_yaw, &mut self.h_pitch, &mut self.h_roll,
             &mut self.lid, &mut self.seat, &mut self.px, &mut self.py, &mut self.lift,
             &mut self.squash, &mut self.eye_scale, &mut self.handle, &mut self.smile,
-            &mut self.pucker, &mut self.arch,
+            &mut self.pucker, &mut self.arch, &mut self.lean,
         ] {
             s.step(h);
         }
@@ -141,6 +150,9 @@ pub struct Rig {
     mouth: Mouth,
     talk_amt: f32,
     pub rest_open: f32,
+    /// total look range (body + head), radians; see [`Rig::set_look_limits`]
+    max_yaw: f32,
+    max_pitch: f32,
     blink_timer: f32,
     blink_t: f32,
     swirl_speed: f32,
@@ -149,6 +161,8 @@ pub struct Rig {
     roll_rot: f32,
     lid_touching: bool,
     hinge: f32,
+    /// head euler (x, y, z) of this frame, before the head-vs-lid guard
+    head_e: (f32, f32, f32),
     rng: Rng,
     // nodes (local transforms)
     body: Trs,
@@ -198,6 +212,8 @@ impl Rig {
             mouth: Mouth::default(),
             talk_amt: 0.0,
             rest_open: MOUTH_REST,
+            max_yaw: DEFAULT_MAX_YAW,
+            max_pitch: DEFAULT_MAX_PITCH,
             blink_timer,
             blink_t: -1.0,
             swirl_speed: 0.0,
@@ -206,6 +222,7 @@ impl Rig {
             roll_rot: 0.0,
             lid_touching: false,
             hinge: 0.0,
+            head_e: (0.0, 0.0, 0.0),
             rng,
             body: Trs::ID,
             head: Trs::at(Vec3::new(0.0, HEAD_Y, PIPE_Z)),
@@ -254,6 +271,9 @@ impl Rig {
     pub fn is_playing(&self) -> bool {
         !self.active.is_empty()
     }
+    pub fn pending_events(&self) -> usize {
+        self.events.len()
+    }
     pub fn drain_events(&mut self) -> Vec<String> {
         std::mem::take(&mut self.events)
     }
@@ -269,6 +289,15 @@ impl Rig {
     }
     pub fn hinge(&self) -> f32 {
         self.hinge
+    }
+    /// Total look range in radians (body + head). Body takes ~55% of the yaw and ~30% of
+    /// the pitch, the head the rest; the pupils lead and saturate first.
+    pub fn set_look_limits(&mut self, max_yaw: f32, max_pitch: f32) {
+        self.max_yaw = max_yaw.clamp(0.0, 1.6);
+        self.max_pitch = max_pitch.clamp(0.0, 0.9);
+    }
+    pub fn look_limits(&self) -> (f32, f32) {
+        (self.max_yaw, self.max_pitch)
     }
 
     /* ----------------------------------------------- transform helpers */
@@ -352,7 +381,7 @@ impl Rig {
             self.bones[i + 1].q = Quat::from_rotation_x(-s.x);
         }
         let mut hinge = open.max(0.0).max(self.s.seat.x + 0.006).min(LID_MAX_HINGE);
-        if hinge > 0.3 && self.lid_hits_head(hinge) {
+        if self.lid_hits_head(hinge) {
             let (mut lo, mut hi) = (0.0f32, hinge);
             for _ in 0..7 {
                 let mid = (lo + hi) / 2.0;
@@ -363,6 +392,18 @@ impl Rig {
                 }
             }
             hinge = lo;
+            if self.lid_hits_head(hinge) {
+                // even (nearly) closed the lid touches: the head is tilted onto it
+                // (extreme look down / sideways). Ease the head's forward pitch until clear.
+                let (hx, hy, hz) = self.head_e;
+                let (mut lo_f, mut hi_f) = (0.0f32, 1.0f32);
+                for _ in 0..8 {
+                    let f = (lo_f + hi_f) / 2.0;
+                    self.head.q = euler_xyz(hx.min(0.0) + (hx - hx.min(0.0)) * f, hy, hz);
+                    if self.lid_hits_head(hinge) { hi_f = f } else { lo_f = f }
+                }
+                self.head.q = euler_xyz(hx.min(0.0) + (hx - hx.min(0.0)) * lo_f, hy, hz);
+            }
             if !self.lid_touching && self.s.lid.v > 2.0 {
                 self.events.push(format!("clack:{:.2}", self.s.lid.v * 0.5));
             }
@@ -413,12 +454,17 @@ impl Rig {
         let rest = if o.mouth.is_some() { 0.0 } else { self.rest_open * (1.0 - m.closed) };
         let full = o.mouth.is_some_and(|v| v > 0.9);
 
+        let (my, mp) = (self.max_yaw, self.max_pitch);
         let s = &mut self.s;
-        s.yaw.target = lx * 0.5;
-        s.pitch.target = -ly * 0.1;
-        s.h_yaw.target = lx * 0.28 + o.head_yaw;
-        s.h_pitch.target = -ly * 0.22 + o.head_pitch;
-        s.h_roll.target = -lx * 0.06;
+        // body turns first part of the way, the head does the rest (lags via springs)
+        s.yaw.target = lx * my * BODY_YAW_SHARE;
+        s.pitch.target = -ly * mp * BODY_PITCH_SHARE;
+        s.h_yaw.target = lx * my * (1.0 - BODY_YAW_SHARE) + o.head_yaw;
+        s.h_pitch.target = -ly * mp * (1.0 - BODY_PITCH_SHARE) + o.head_pitch;
+        // near the extremes he leans / tilts toward the side he looks at
+        let side = crate::util::smooth(0.55, 1.0, lx.abs()) * lx.signum();
+        s.lean.target = -side * 0.07;
+        s.h_roll.target = -lx * 0.06 - side * 0.05;
         s.lid.target = if full { 1.45 } else { (rest + m.open * 0.9 + m.round * 0.12 + m.sib * 0.04).max(0.0) };
         s.smile.target = m.wide * 0.9 - m.round * 0.3;
         s.pucker.target = m.round;
@@ -449,7 +495,7 @@ impl Rig {
         let talk = clamp(s.lid.x, 0.0, 1.6);
         let sq = s.squash.x + breath + talk * 0.015;
         self.body.s = Vec3::new(1.0 - sq * 0.5, 1.0 + sq, 1.0 - sq * 0.5);
-        self.body.q = euler_xyz(s.pitch.x + o.flip, s.yaw.x + o.spin, 0.0);
+        self.body.q = euler_xyz(s.pitch.x + o.flip, s.yaw.x + o.spin, s.lean.x);
         let cm = 0.75;
         let (fy, fz) = (cm - cm * o.flip.cos(), -cm * o.flip.sin());
         let flipping = o.flip != 0.0;
@@ -460,11 +506,12 @@ impl Rig {
         );
 
         // head
-        self.head.q = euler_xyz(
+        self.head_e = (
             s.h_pitch.x - talk * 0.1 + (self.time * 70.0).sin() * 0.02 * o.shake,
             s.h_yaw.x,
             s.h_roll.x + (self.time * 1.3).sin() * 0.015,
         );
+        self.head.q = euler_xyz(self.head_e.0, self.head_e.1, self.head_e.2);
         self.head.p.y = HEAD_Y + talk * 0.025;
 
         // mouth
@@ -472,9 +519,10 @@ impl Rig {
         let s = &mut self.s;
         self.seat_pivot.q = Quat::from_rotation_x(-s.seat.x.max(0.0));
 
-        // eyes (googly: springy pupils that sag a bit with gravity)
-        s.px.target = lx * 0.9 - s.h_yaw.v * 0.05;
-        s.py.target = ly * 0.9 - 0.15 + s.h_pitch.v * 0.05 - s.lift.v * 0.3;
+        // eyes (googly: springy pupils lead the turn and saturate early, sag with gravity)
+        let lead = |v: f32| (v * 2.2).tanh() / 2.2f32.tanh();
+        s.px.target = lead(lx) * 0.95 - s.h_yaw.v * 0.05;
+        s.py.target = lead(ly) * 0.9 - 0.15 + s.h_pitch.v * 0.05 - s.lift.v * 0.3;
         let blink = match o.blink {
             Some(b) => b,
             None => {
@@ -636,6 +684,38 @@ mod tests {
             r.update(DT, (0.0, -1.0), Mouth::default());
             assert!(!r.lid_hits_head(r.hinge()), "flush frame {i}");
         }
+    }
+
+    #[test]
+    fn lid_clamp_holds_at_extreme_look_angles() {
+        let mut r = Rig::new(8);
+        r.set_look_limits(1.6, 0.9); // beyond the defaults (clamped max)
+        let open = Mouth { open: 1.0, round: 1.0, ..Default::default() };
+        for (lx, ly) in [(1.0, 1.0), (-1.0, 1.0), (1.0, -1.0), (-1.0, -1.0), (0.0, -1.0), (0.0, 1.0)] {
+            for i in 0..240 {
+                r.update(DT, (lx, ly), open);
+                assert!(!r.lid_hits_head(r.hinge()), "look ({lx},{ly}) frame {i}");
+            }
+        }
+        r.play("flush");
+        for i in 0..330 {
+            r.update(DT, (1.0, -1.0), Mouth::default());
+            assert!(!r.lid_hits_head(r.hinge()), "flush at extreme, frame {i}");
+        }
+        assert!(r.pose().iter().all(|x| x.is_finite()));
+    }
+
+    #[test]
+    fn look_range_is_configurable_and_split_body_head() {
+        let mut r = Rig::new(4);
+        run(&mut r, 300, (1.0, 0.0), Mouth::default());
+        let total = r.s.yaw.x + r.s.h_yaw.x;
+        assert!((total - DEFAULT_MAX_YAW).abs() < 0.05, "total yaw {total}");
+        assert!(r.s.yaw.x > r.s.h_yaw.x, "body does ~55%");
+        assert!(r.s.lean.x < -0.05, "leans toward the side");
+        r.set_look_limits(0.5, 0.2);
+        run(&mut r, 300, (1.0, 0.0), Mouth::default());
+        assert!((r.s.yaw.x + r.s.h_yaw.x - 0.5).abs() < 0.03);
     }
 
     #[test]

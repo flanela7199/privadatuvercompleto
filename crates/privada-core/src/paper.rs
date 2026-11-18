@@ -1,7 +1,7 @@
 //! Toilet-paper strip (port of web/src/fx/paperStrip.js): verlet chain pinned to the roll,
 //! output as a twisting ribbon with perforation lines.
 //!
-//! Render outputs: `pos` (MAX_PTS*2 x 3), `uv` (MAX_PTS*2 x 2), `count` (points; draw
+//! Render outputs: `pos` (MAX_PTS*2 x 3), `nrm` (normals, same layout), `uv` (MAX_PTS*2 x 2), `count` (points; draw
 //! `(count-1)*6` indices), `perf` (MAX_PERF*2 segments x 2 points x 3), `perf_count`
 //! (segments), `opacity`, `perf_opacity`.
 use glam::Vec3;
@@ -46,6 +46,7 @@ pub struct PaperStrip {
     cells: HashMap<i32, u32>,
 
     pub pos: Vec<f32>,
+    pub nrm: Vec<f32>,
     pub uv: Vec<f32>,
     pub count: usize,
     pub perf: Vec<f32>,
@@ -74,6 +75,7 @@ impl PaperStrip {
             roll_radius_scale: 1.0,
             cells: HashMap::new(),
             pos: vec![0.0; MAX_PTS * 6],
+            nrm: vec![0.0; MAX_PTS * 6],
             uv: vec![0.0; MAX_PTS * 4],
             count: 0,
             perf: vec![0.0; MAX_PERF * 12],
@@ -302,6 +304,12 @@ impl PaperStrip {
                 }
             }
         }
+        // ribbon normals (same index layout as paperStrip.js: a,a+1,a+2 / a+1,a+3,a+2)
+        let tris = (0..n.saturating_sub(1)).flat_map(|i| {
+            let a = i * 2;
+            [[a, a + 1, a + 2], [a + 1, a + 3, a + 2]]
+        });
+        crate::util::vertex_normals(&self.pos, &mut self.nrm, n * 2, tris);
         self.count = n;
         self.perf_count = np;
         let op = if self.anchored { self.fade } else { (self.fade * 2.5).clamp(0.0, 1.0) };

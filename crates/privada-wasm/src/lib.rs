@@ -17,9 +17,15 @@
 //! | 11/12/13 | torn pos / uv / perf | same |
 //! | 14 | scalars | see privada_core::rig::sc (hinge, accessory state, counts...) |
 //! | 15 | morphs | [smile, pucker, arch] |
+//! | 16 | stream_nrm | 49*13 x 3 (vertex normals, computed in Rust) |
+//! | 17/18 | paper / torn nrm | 150*2 x 3 (only the first `count*2` vertices are valid) |
 use privada_core::rig::{self, Mouth, NODE_ORDER};
 use privada_core::toss;
 use wasm_bindgen::prelude::*;
+
+mod geo;
+#[allow(unused_imports)]
+pub use geo::*;
 
 #[wasm_bindgen]
 pub struct Rig {
@@ -41,6 +47,10 @@ impl Rig {
     pub fn set_input(&mut self, look_x: f32, look_y: f32, open: f32, round: f32, wide: f32, closed: f32, sib: f32) {
         self.look = (look_x, look_y);
         self.mouth = Mouth { open, round, wide, closed, sib };
+    }
+    /// total look range in radians (body + head); default 80° yaw, 35° pitch
+    pub fn set_look_limits(&mut self, max_yaw_rad: f32, max_pitch_rad: f32) {
+        self.inner.set_look_limits(max_yaw_rad, max_pitch_rad);
     }
     /// lips slightly apart at rest (default 0.05 rad)
     pub fn set_rest(&mut self, v: f32) {
@@ -71,6 +81,10 @@ impl Rig {
     }
     pub fn scalars(&self) -> Vec<f32> {
         self.inner.scalars().to_vec()
+    }
+    /// number of queued sound events (check this first: no string alloc when 0)
+    pub fn pending_events(&self) -> u32 {
+        self.inner.pending_events() as u32
     }
     /// sound events since the last call, '\n'-separated ("flush", "clack:4.20", ...)
     pub fn drain_events(&mut self) -> String {
@@ -104,6 +118,9 @@ impl Rig {
             13 => &r.torn.perf,
             14 => r.scalars(),
             15 => &self.morphs,
+            16 => &r.jet.stream_nrm,
+            17 => &r.paper.nrm,
+            18 => &r.torn.nrm,
             _ => &[],
         }
     }

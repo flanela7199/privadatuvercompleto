@@ -1,17 +1,24 @@
 //! Privada Tuber desktop app (Tauri v2). See docs/app-contract.md.
 //!
 //! Windows:
-//!   `avatar`  desktop overlay: transparent, borderless, covers the monitor, click-through except
-//!             over the character, skip taskbar; optional always-on-top (per scene)
-//!   `output`  OBS window: borderless, resizable, in the taskbar ("Captura de janela")
-//!   `control` control panel
+//!   `avatar`  the character: by default a NORMAL window ("Privada Tuber", taskbar + alt-tab,
+//!             movable/resizable, transparent-capable, size/position remembered). Optional scene
+//!             mode `overlay`: fullscreen click-through desktop overlay.
+//!             The character window IS the OBS source ("Captura de janela").
+//!   `splash`  small loading screen shown while the pages build (closed when the avatar is ready)
+//!   `control` control panel (opens on start unless settings.openPanelOnStart == false)
+//! Every window is created hidden with its final background colour and shown when its page calls
+//! `page_ready` (fallback 15 s), so there is no white flash.
+//! Closing avatar/control only hides them; quit from the tray ("Sair").
 //! Everything native keeps running while the app is unfocused / behind other windows.
 
+pub mod cache;
 pub mod config;
 pub mod cursor;
 pub mod hotkeys;
 pub mod mic;
 pub mod webview2;
+pub mod winstate;
 
 pub use privada_core::dsp;
 
@@ -21,10 +28,13 @@ use mic::{AudioCfg, Mic};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
+use std::sync::Mutex;
+use std::time::Duration;
+use tauri::window::Color;
+use winstate::{SavedRect, WinState};
 
 /// Same args for every webview (WebView2 requires identical args per environment):
 /// Tauri's defaults + never throttle when hidden/occluded (the avatar lives behind games / in OBS).
@@ -32,16 +42,98 @@ const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreen
 --disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows \
 --autoplay-policy=no-user-gesture-required";
 
+/// Panel / splash background (matches their CSS) so nothing flashes white before the page paints.
+const DARK: Color = Color(0x10, 0x11, 0x14, 0xff);
+const CLEAR: Color = Color(0, 0, 0, 0);
+const READY_FALLBACK: Duration = Duration::from_secs(15);
+
+/// Which pages reported `page_ready` (windows stay hidden until then).
 #[derive(Default)]
-struct WinState {
-    mode: Mutex<String>, // "overlay" | "window"
-    overlay_visible: Mutex<bool>,
+struct Ready {
+    avatar: Mutex<bool>,
+    control: Mutex<bool>,
+    /// the control window should take focus when it becomes ready (opened by the user)
+    focus_control: Mutex<bool>,
 }
 
+/// Every window: hidden at creation, unthrottled, same browser args.
 fn builder<'a>(app: &'a AppHandle, label: &'a str, url: &str) -> WebviewWindowBuilder<'a, tauri::Wry, AppHandle> {
     WebviewWindowBuilder::new(app, label, WebviewUrl::App(url.into()))
         .additional_browser_args(BROWSER_ARGS)
         .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
+        .visible(false)
+}
+
+/// Show `label` after READY_FALLBACK if its page never called `page_ready` (e.g. a JS error).
+fn ready_fallback(app: &AppHandle, label: &'static str) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(READY_FALLBACK);
+        let r = app.state::<Ready>();
+        let done = match label {
+            "avatar" => *r.avatar.lock().unwrap(),
+            "control" => *r.control.lock().unwrap(),
+            _ => true,
+        };
+        if !done {
+            log::warn!("{label}: page_ready not received in time, showing anyway");
+            mark_ready(&app, label);
+        }
+    });
+}
+
+/// A page finished building: show its window (and close the splash once the character is up).
+fn mark_ready(app: &AppHandle, label: &str) {
+    let r = app.state::<Ready>();
+    match label {
+        "avatar" => {
+            *r.avatar.lock().unwrap() = true;
+            if let Some(w) = app.get_webview_window("avatar") {
+                let _ = w.show();
+            }
+            if let Some(s) = app.get_webview_window("splash") {
+                let _ = s.destroy();
+            }
+        }
+        "control" => {
+            *r.control.lock().unwrap() = true;
+            if let Some(w) = app.get_webview_window("control") {
+                let _ = w.show();
+                if std::mem::take(&mut *r.focus_control.lock().unwrap()) {
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                }
+            }
+        }
+        "splash" => {
+            if let Some(w) = app.get_webview_window("splash") {
+                let _ = w.show();
+            }
+        }
+        _ => {}
+    }
+}
+
+fn create_splash(app: &AppHandle) -> tauri::Result<()> {
+    let w = builder(app, "splash", "splash.html")
+        .title("Privada Tuber")
+        .inner_size(380.0, 220.0)
+        .decorations(false)
+        .resizable(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .shadow(true)
+        .focused(false)
+        .center()
+        .background_color(DARK)
+        .build()?;
+    // the splash page is tiny; show it quickly even if it never reports ready
+    let w2 = w.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(1500));
+        let _ = w2.show();
+    });
+    Ok(())
 }
 
 fn primary_monitor_rect(app: &AppHandle) -> (PhysicalPosition<i32>, PhysicalSize<u32>, f64) {
@@ -51,40 +143,99 @@ fn primary_monitor_rect(app: &AppHandle) -> (PhysicalPosition<i32>, PhysicalSize
     }
 }
 
+const DEFAULT_W: f64 = 720.0;
+const DEFAULT_H: f64 = 900.0;
+
+/// true if the saved rect's top-left area is visible on some monitor
+fn rect_on_screen(app: &AppHandle, r: &SavedRect) -> bool {
+    app.available_monitors()
+        .map(|ms| {
+            ms.iter().any(|m| {
+                let (p, sz) = (m.position(), m.size());
+                r.x + 40 >= p.x && r.y + 10 >= p.y && r.x + 40 < p.x + sz.width as i32 && r.y + 10 < p.y + sz.height as i32
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// Put the avatar window back to its remembered (or default) normal-window rect.
+fn restore_window_rect(app: &AppHandle, w: &WebviewWindow, size: Option<(f64, f64)>) -> tauri::Result<()> {
+    let saved = *app.state::<WinState>().rect.lock().unwrap();
+    match (size, saved) {
+        (Some((wd, ht)), _) => {
+            w.set_size(tauri::LogicalSize::new(wd, ht))?;
+            w.center()?;
+        }
+        (None, Some(r)) if rect_on_screen(app, &r) => {
+            w.set_size(PhysicalSize::new(r.w, r.h))?;
+            w.set_position(PhysicalPosition::new(r.x, r.y))?;
+        }
+        _ => {
+            w.set_size(tauri::LogicalSize::new(DEFAULT_W, DEFAULT_H))?;
+            w.center()?;
+        }
+    }
+    Ok(())
+}
+
 fn create_avatar(app: &AppHandle) -> tauri::Result<WebviewWindow> {
-    let (pos, size, _) = primary_monitor_rect(app);
+    *app.state::<WinState>().mode.lock().unwrap() = "window".into();
     let w = builder(app, "avatar", "avatar.html")
         .title("Privada Tuber")
         .transparent(true)
-        .decorations(false)
-        .shadow(false)
-        .resizable(false)
-        .skip_taskbar(true)
+        .decorations(true)
+        .resizable(true)
+        .skip_taskbar(false)
         .always_on_top(false)
+        .inner_size(DEFAULT_W, DEFAULT_H)
+        .min_inner_size(240.0, 300.0)
         .focused(false)
-        .visible(false)
+        .background_color(CLEAR)
         .build()?;
-    w.set_position(pos)?;
-    w.set_size(size)?;
-    w.show()?;
-    *app.state::<WinState>().mode.lock().unwrap() = "overlay".into();
-    *app.state::<WinState>().overlay_visible.lock().unwrap() = true;
+    restore_window_rect(app, &w, None)?;
+    ready_fallback(app, "avatar"); // shown by page_ready("avatar")
     Ok(w)
 }
 
-fn open_control_window(app: &AppHandle) -> tauri::Result<()> {
+/// Show + unminimize + bring the character to the front (tray "Mostrar personagem").
+fn show_avatar_window(app: &AppHandle) -> tauri::Result<()> {
+    let w = match app.get_webview_window("avatar") {
+        Some(w) => w,
+        None => create_avatar(app)?,
+    };
+    w.show()?;
+    w.unminimize()?;
+    w.set_focus()?;
+    Ok(())
+}
+
+/// Open the panel. `focus`: bring it to the front (user action); false at startup.
+fn open_control_window_with(app: &AppHandle, focus: bool) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window("control") {
-        w.show()?;
-        w.unminimize()?;
-        w.set_focus()?;
+        if *app.state::<Ready>().control.lock().unwrap() {
+            w.show()?;
+            w.unminimize()?;
+            if focus {
+                w.set_focus()?;
+            }
+        } else {
+            *app.state::<Ready>().focus_control.lock().unwrap() |= focus;
+        }
         return Ok(());
     }
+    *app.state::<Ready>().focus_control.lock().unwrap() = focus;
     builder(app, "control", "control.html")
         .title("Privada Tuber — Painel")
         .inner_size(1100.0, 760.0)
         .min_inner_size(720.0, 480.0)
+        .background_color(DARK)
         .build()?;
+    ready_fallback(app, "control"); // shown by page_ready("control")
     Ok(())
+}
+
+fn open_control_window(app: &AppHandle) -> tauri::Result<()> {
+    open_control_window_with(app, true)
 }
 
 /// Actions that Rust handles itself (they are also broadcast to the pages).
@@ -160,7 +311,7 @@ struct AvatarMode {
 }
 
 #[tauri::command]
-fn set_avatar_mode(app: AppHandle, mode: String, width: Option<f64>, height: Option<f64>, always_on_top: Option<bool>) -> Result<bool, String> {
+async fn set_avatar_mode(app: AppHandle, mode: String, width: Option<f64>, height: Option<f64>, always_on_top: Option<bool>) -> Result<bool, String> {
     apply_avatar_mode(&app, AvatarMode { mode, width, height, always_on_top }).map_err(|e| e.to_string())?;
     Ok(true)
 }
@@ -170,16 +321,11 @@ fn apply_avatar_mode(app: &AppHandle, m: AvatarMode) -> tauri::Result<()> {
         Some(w) => w,
         None => create_avatar(app)?,
     };
-    if m.mode == "window" {
-        let ptr = app.state::<Pointer>();
-        *ptr.mode.lock().unwrap() = ClickMode::Off;
-        w.set_ignore_cursor_events(false)?;
-        w.set_skip_taskbar(false)?;
-        w.set_size(tauri::LogicalSize::new(m.width.unwrap_or(1280.0), m.height.unwrap_or(720.0)))?;
-        w.set_resizable(true)?;
-        w.center()?;
-    } else {
+    // set the mode first so Moved/Resized while switching aren't remembered as the window rect
+    let was = std::mem::replace(&mut *app.state::<WinState>().mode.lock().unwrap(), m.mode.clone());
+    if m.mode == "overlay" {
         let (pos, size, _) = primary_monitor_rect(app);
+        w.set_decorations(false)?;
         w.set_resizable(false)?;
         w.set_skip_taskbar(true)?;
         w.set_position(pos)?;
@@ -189,9 +335,17 @@ fn apply_avatar_mode(app: &AppHandle, m: AvatarMode) -> tauri::Result<()> {
         if *cm == ClickMode::Off {
             *cm = ClickMode::Auto;
         }
+    } else {
+        w.set_ignore_cursor_events(false)?;
+        w.set_decorations(true)?;
+        w.set_resizable(true)?;
+        w.set_skip_taskbar(false)?;
+        let size = m.width.zip(m.height);
+        if was != "window" || size.is_some() {
+            restore_window_rect(app, &w, size)?;
+        }
     }
     w.set_always_on_top(m.always_on_top.unwrap_or(false))?;
-    *app.state::<WinState>().mode.lock().unwrap() = m.mode;
     Ok(())
 }
 
@@ -205,7 +359,7 @@ struct MonitorInfo {
 }
 
 #[tauri::command]
-fn get_monitor(app: AppHandle) -> MonitorInfo {
+async fn get_monitor(app: AppHandle) -> MonitorInfo {
     let mon = app
         .get_webview_window("avatar")
         .and_then(|w| w.current_monitor().ok().flatten())
@@ -217,65 +371,35 @@ fn get_monitor(app: AppHandle) -> MonitorInfo {
 }
 
 #[tauri::command]
-fn open_control(app: AppHandle) -> Result<bool, String> {
+async fn open_control(app: AppHandle) -> Result<bool, String> {
     open_control_window(&app).map_err(|e| e.to_string())?;
     Ok(true)
 }
 
-/// OBS window: label `output`, avatar.html?output=1 (the page picks chroma/solid/transparent background).
+/// A page finished building (avatar / control / splash): its window is shown now.
 #[tauri::command]
-fn open_output(app: AppHandle, width: Option<f64>, height: Option<f64>, background: Option<String>) -> Result<bool, String> {
-    if let Some(w) = app.get_webview_window("output") {
-        w.show().map_err(|e| e.to_string())?;
-        if let (Some(wd), Some(ht)) = (width, height) {
-            w.set_size(tauri::LogicalSize::new(wd, ht)).map_err(|e| e.to_string())?;
-        }
-        let _ = app.emit_to("output", "output-background", background);
-        return Ok(true);
-    }
-    let bg = background.unwrap_or_else(|| "chroma".into());
-    let url = format!("avatar.html?output=1&bg={}", urlencode(&bg));
-    builder(&app, "output", &url)
-        .title("Privada Tuber — OBS")
-        .inner_size(width.unwrap_or(1280.0), height.unwrap_or(720.0))
-        .transparent(true)
-        .decorations(false)
-        .resizable(true)
-        .skip_taskbar(false)
-        .always_on_top(false)
-        .focused(false)
-        .build()
-        .map_err(|e| e.to_string())?;
-    Ok(true)
-}
-
-fn urlencode(s: &str) -> String {
-    s.bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
-}
-
-#[tauri::command]
-fn close_output(app: AppHandle) -> bool {
-    if let Some(w) = app.get_webview_window("output") {
-        let _ = w.destroy();
-    }
+async fn page_ready(app: AppHandle, label: String) -> bool {
+    mark_ready(&app, &label);
     true
 }
 
+/// Compatibility: the character window itself is the OBS source, so this just shows it.
 #[tauri::command]
-fn set_overlay_visible(app: AppHandle, visible: bool) -> Result<bool, String> {
-    let w = match app.get_webview_window("avatar") {
-        Some(w) => w,
-        None if visible => create_avatar(&app).map_err(|e| e.to_string())?,
-        None => return Ok(true),
-    };
-    if visible { w.show() } else { w.hide() }.map_err(|e| e.to_string())?;
-    *app.state::<WinState>().overlay_visible.lock().unwrap() = visible;
+async fn open_output(app: AppHandle) -> Result<bool, String> {
+    show_avatar_window(&app).map_err(|e| e.to_string())?;
     Ok(true)
+}
+
+/// Compatibility no-op (there is no separate OBS window anymore).
+#[tauri::command]
+async fn close_output() -> bool {
+    true
+}
+
+/// Compatibility no-op (the character window is shown/hidden with show_avatar / closing it).
+#[tauri::command]
+async fn set_overlay_visible() -> bool {
+    true
 }
 
 #[derive(Serialize)]
@@ -284,50 +408,59 @@ struct AvatarWin {
     visible: bool,
 }
 #[derive(Serialize)]
-struct OutputWin {
-    open: bool,
-}
-#[derive(Serialize)]
 struct WindowsInfo {
     avatar: AvatarWin,
-    output: OutputWin,
 }
 
 #[tauri::command]
-fn get_windows(app: AppHandle) -> WindowsInfo {
+async fn get_windows(app: AppHandle) -> WindowsInfo {
     let mode = app.state::<WinState>().mode.lock().unwrap().clone();
     let visible = app.get_webview_window("avatar").and_then(|w| w.is_visible().ok()).unwrap_or(false);
     WindowsInfo {
         avatar: AvatarWin { mode, visible },
-        output: OutputWin { open: app.get_webview_window("output").is_some() },
     }
 }
 
 #[tauri::command]
-fn quit(app: AppHandle) {
+async fn show_avatar(app: AppHandle) -> Result<bool, String> {
+    show_avatar_window(&app).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Open privada-data (config.json, window.json) in Explorer.
+#[tauri::command]
+async fn open_data_dir() -> Result<bool, String> {
+    let dir = config::data_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::process::Command::new("explorer").arg(&dir).spawn().map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+async fn quit(app: AppHandle) {
     app.exit(0);
 }
 
 /* ----------------------------------------------------------------- tray */
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, "show", "Mostrar personagem", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Abrir painel", true, None::<&str>)?;
-    let obs = MenuItem::with_id(app, "obs", "Janela do OBS", true, None::<&str>)?;
     let click = CheckMenuItem::with_id(app, "click", "Clicar através (sempre)", true, false, None::<&str>)?;
     let micm = CheckMenuItem::with_id(app, "mic", "Microfone", true, true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &obs, &click, &micm, &sep, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &open, &click, &micm, &sep, &quit])?;
     let mut tb = TrayIconBuilder::with_id("privada")
         .tooltip("Privada Tuber")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, ev| match ev.id().as_ref() {
+            "show" => {
+                let _ = show_avatar_window(app);
+            }
             "open" => {
                 let _ = open_control_window(app);
-            }
-            "obs" => {
-                let _ = open_output(app.clone(), None, None, None);
             }
             "click" => native_action(app, "toggle", Some(&Value::String("clickthrough".into()))),
             "mic" => native_action(app, "toggle", Some(&Value::String("mic".into()))),
@@ -336,7 +469,9 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         })
         .on_tray_icon_event(|tray, ev| {
             if let tauri::tray::TrayIconEvent::DoubleClick { .. } = ev {
-                let _ = open_control_window(tray.app_handle());
+                let app = tray.app_handle();
+                let _ = show_avatar_window(app);
+                let _ = open_control_window(app);
             }
         });
     if let Some(icon) = app.default_window_icon() {
@@ -362,6 +497,8 @@ pub fn run() {
         .manage(Pointer::default())
         .manage(Hotkeys::default())
         .manage(WinState::default())
+        .manage(Ready::default())
+        .manage(cache::Preloaded::default())
         .invoke_handler(tauri::generate_handler![
             load_config,
             save_config,
@@ -377,14 +514,56 @@ pub fn run() {
             close_output,
             set_overlay_visible,
             get_windows,
+            show_avatar,
+            page_ready,
+            cache::cache_get,
+            cache::cache_put,
+            cache::thumb_get,
+            cache::thumb_put,
+            cache::cache_clear,
+            cache::cache_stats,
+            open_data_dir,
             quit
         ])
+        .on_window_event(|window, event| match event {
+            // closing the character or the panel only hides it; quit from the tray
+            WindowEvent::CloseRequested { api, .. } if matches!(window.label(), "avatar" | "control") => {
+                api.prevent_close();
+                let _ = window.hide();
+            }
+            WindowEvent::Moved(_) | WindowEvent::Resized(_) if window.label() == "avatar" => {
+                let ws = window.state::<WinState>();
+                if ws.is_window_mode() && !window.is_minimized().unwrap_or(false) {
+                    if let (Ok(p), Ok(s)) = (window.outer_position(), window.inner_size()) {
+                        if s.width > 0 && s.height > 0 {
+                            ws.record(SavedRect { x: p.x, y: p.y, w: s.width, h: s.height });
+                        }
+                    }
+                }
+            }
+            _ => {}
+        })
         .setup(|app| {
             let handle = app.handle().clone();
             app.manage(Mic::start(handle.clone()));
             cursor::start(handle.clone());
+            // warm the active outfit's mesh cache while the splash is up
+            {
+                let h = handle.clone();
+                std::thread::spawn(move || {
+                    let n = cache::preload(&h.state::<cache::Preloaded>());
+                    log::info!("preloaded {n} cached meshes");
+                });
+            }
             build_tray(&handle)?;
+            create_splash(&handle)?;
             create_avatar(&handle)?;
+            let open_panel = config::load()
+                .and_then(|c| c.pointer("/settings/openPanelOnStart").and_then(Value::as_bool))
+                .unwrap_or(true);
+            if open_panel {
+                open_control_window_with(&handle, false)?;
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

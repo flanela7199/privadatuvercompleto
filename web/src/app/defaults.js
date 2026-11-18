@@ -11,7 +11,6 @@ export const ACTIONS = [
   { id: 'toggle:clickthrough', name: 'Liga/desliga clicar através' },
   { id: 'toggle:follow', name: 'Liga/desliga seguir o mouse' },
   { id: 'toggle:mic', name: 'Liga/desliga microfone' },
-  { id: 'reset:position', name: 'Voltar para a posição da cena' },
   { id: 'open:control', name: 'Abrir painel' },
 ];
 
@@ -20,10 +19,12 @@ export const DEFAULT_CONFIG = {
   activeOutfit: 'base',
   outfits: {},
   activeScene: 0,
+  // Default = the character lives in its own normal window (taskbar/alt-tab, OBS "Captura de janela").
+  // The desktop overlay is optional (mode 'overlay').
   scenes: [
-    { name: 'Desktop (canto)', mode: 'overlay', outfit: null, x: 0.84, y: 0.8, scale: 1.0, background: 'transparent', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'auto' },
-    { name: 'Centro grande', mode: 'overlay', outfit: null, x: 0.5, y: 0.75, scale: 1.8, background: 'transparent', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'auto' },
-    { name: 'OBS (chroma verde)', mode: 'window', outfit: null, x: 0.5, y: 0.82, scale: 1.3, background: 'color', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'off' },
+    { name: 'Janela (OBS chroma)', mode: 'window', outfit: null, x: 0.5, y: 0.86, scale: 1.25, background: 'color', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false },
+    { name: 'Janela transparente', mode: 'window', outfit: null, x: 0.5, y: 0.86, scale: 1.25, background: 'transparent', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false },
+    { name: 'Desktop (overlay, opcional)', mode: 'overlay', outfit: null, x: 0.84, y: 0.8, scale: 1.0, background: 'transparent', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'on', alwaysOnTop: true },
   ],
   hotkeys: {
     'Ctrl+Alt+F': { action: 'play', arg: 'flush' },
@@ -34,7 +35,6 @@ export const DEFAULT_CONFIG = {
     'Ctrl+Alt+G': { action: 'play', arg: 'gargle' },
     'Ctrl+Alt+T': { action: 'toggle', arg: 'clickthrough' },
     'Ctrl+Alt+M': { action: 'toggle', arg: 'mic' },
-    'Ctrl+Alt+R': { action: 'reset', arg: 'position' },
     'Ctrl+Alt+O': { action: 'open', arg: 'control' },
     'Ctrl+Alt+1': { action: 'scene', arg: '0' },
     'Ctrl+Alt+2': { action: 'scene', arg: '1' },
@@ -45,4 +45,7 @@ export const DEFAULT_CONFIG = {
   },
   audio: { enabled: true, device: null, gateDb: -50, rangeDb: 28, hold: 0.14 },
   render: { fps: 60, pixelRatio: 1.5, ao: false },
+  // look: how far he turns toward the mouse (whole virtual desktop, all monitors)
+  look: { range: 1.0, reachPx: 1400, maxYawDeg: 80, maxPitchDeg: 35 },
+  settings: { openPanelOnStart: true },
 };

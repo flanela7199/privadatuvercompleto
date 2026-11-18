@@ -69,8 +69,7 @@ toss.reset(); toss.is_held(); toss.is_busy();
 
 | label | page | default |
 |---|---|---|
-| `avatar` | avatar.html | desktop **overlay**: borderless, transparent, covers the primary monitor, skip taskbar, click-through except over the character (`auto`); always-on-top is per scene (`scene.alwaysOnTop`, default false). Can switch to **window mode** (`set_avatar_mode`) or be hidden (`set_overlay_visible`). |
-| `output` | avatar.html?output=1&bg=… | **OBS window** ("Captura de janela"): borderless, resizable, default 1280×720, in the taskbar, not on top; the page draws the background (chroma / solid / real transparent). Opened with `open_output`. |
+| `avatar` | avatar.html | **default: a normal window** titled "Privada Tuber" (decorated, taskbar + alt-tab, movable/resizable, default 720×900, transparent-capable for `background: 'transparent'` scenes). Its size/position are remembered in `privada-data/window.json`. Optional scene mode **overlay** (`set_avatar_mode`): borderless, covers the primary monitor, skip taskbar, click-through except over the character (`auto`). Always-on-top is per scene (`scene.alwaysOnTop`, default false). Closing it only hides it (tray "Mostrar personagem" / `show_avatar` brings it back). |
 | `control` | control.html | normal decorated window 1100×760, opened from tray / hotkey / right-click on the character |
 
 All webviews run with `--disable-background-timer-throttling --disable-renderer-backgrounding
@@ -79,18 +78,25 @@ rendering at full fps when unfocused, behind other windows or captured by OBS. C
 global hotkeys are native threads and never pause. Windows are created/shown without stealing focus
 (except the control panel when explicitly opened). Extra Rust → page events: `click-through` (bool, the
 overlay's current ignore-mouse state), `click-mode` (`auto`/`on`), `mic-enabled` (bool), `mic-error` (string),
-`output-background` (string, to the `output` window when `open_output` is called again).
+There is NO separate OBS window: the character window itself is the OBS source ("Captura de janela").
+
+**No white flash / splash.** Every window is created hidden with its final background colour
+(character: transparent; panel and splash: `#101114`) and is shown only when its page calls
+`invoke('page_ready', { label })` (fallback: shown anyway after 15 s). A small borderless `splash`
+window (`splash.html`, centered, on top) shows a progress bar driven by the `loading` event and closes
+when the character page reports ready (the panel may finish later).
 
 ## Events (bridge.listen / bridge.emit)
 
 | event | direction | payload |
 |---|---|---|
-| `cursor` | Rust → all, 60 Hz | `{ x, y }` global cursor, **physical** screen px |
+| `cursor` | Rust → all, 60 Hz (on change, else ~2/s) | `{ x, y, win }`: global cursor in **virtual-desktop physical px** (all monitors) + the avatar window rect `win: { x, y, w, h, scale, ix, iy, iw, ih } \| null` (outer x/y/w/h and client ix/iy/iw/ih, physical px) |
 | `mouth` | Rust → avatar, ~60 Hz | `{ open, round, wide, closed, sib, level }` all 0..1 (same meaning as src/input/visemes.js) |
 | `hotkey` | Rust → all | `{ action, arg }` (see Actions) |
 | `command` | control → avatar | `{ action, arg }` (same shape as hotkey) |
 | `state` | control → avatar | full `Config` (avatar applies outfit/scene/settings) |
 | `avatar-status` | avatar → control, ~4 Hz | `{ fps, hitRect, outfitId, sceneId, clickThrough }` |
+| `loading` | pages → splash (bridge.emit) | `{ progress: 0..1, text }` e.g. avatar "carregando modelo…", panel "gerando miniaturas…" (progress never goes backwards on the splash) |
 
 ## Commands (bridge.invoke)
 
@@ -106,16 +112,27 @@ overlay's current ignore-mouse state), `click-mode` (`auto`/`on`), `mic-enabled`
 | `set_avatar_mode` | `{ mode: 'overlay' \| 'window', width?, height?, alwaysOnTop? }` (alwaysOnTop default false) | `true` |
 | `get_monitor` | – | `{ x, y, width, height, scale }` of the avatar window's monitor (physical px) |
 | `open_control` | – | `true` |
-| `open_output` | `{ width?, height?, background? }` (background e.g. `chroma`, `#00ff00`, `transparent`) | `true` |
-| `close_output` | – | `true` |
-| `set_overlay_visible` | `{ visible }` | `true` |
-| `get_windows` | – | `{ avatar: { mode, visible }, output: { open } }` |
+| `page_ready` | `{ label: 'avatar' \| 'control' \| 'splash' }` | `true`: shows that window; `avatar` also closes the splash |
+| `open_output` | – | `true` (compatibility: just `show_avatar`; the character window is the OBS source) |
+| `close_output` | – | `true` (compatibility no-op) |
+| `set_overlay_visible` | – | `true` (compatibility no-op) |
+| `get_windows` | – | `{ avatar: { mode, visible } }` |
+| `cache_get` | `{ key }` | **raw** `ArrayBuffer` of `privada-data/cache/<key>.bin`; **empty = miss** |
+| `cache_put` | raw bytes body + header `x-key`: `invoke('cache_put', bytes, { headers: { 'x-key': key } })` | `true` |
+| `thumb_get` / `thumb_put` | same as cache_get / cache_put, stored as `<key>.png` (keys like `thumb_<id>_<ver>`) | ArrayBuffer / `true` |
+| `cache_clear` | – | `true` (deletes cached .bin/.png) |
+| `cache_stats` | – | `{ files, bytes }` |
+| `show_avatar` | – | `true` (show + unminimize + bring the character window to the front) |
+| `open_data_dir` | – | `true` (opens `privada-data/` in Explorer) |
 | `quit` | – | – |
 
 ## Actions (hotkeys, commands, tray)
 
 `play:<flush|paper|jump|backflip|no|blink|gargle>` · `outfit:<id>` · `scene:<index>` ·
 `viseme:<A|E|I|O|U|M|F|S>` · `toggle:clickthrough` · `toggle:follow` · `toggle:mic` · `reset:position` · `open:control`
+
+Startup: the character window opens, and the control panel too unless `config.settings.openPanelOnStart === false`.
+Closing the panel only hides it; the app quits only from the tray ("Sair") or `quit`.
 
 ## Config (JSON, saved next to the exe in `privada-data/config.json`)
 
@@ -136,3 +153,11 @@ overlay's current ignore-mouse state), `click-mode` (`auto`/`on`), `mic-enabled`
 ```
 Scene `x`, `y` are the character's resting point as a fraction of the monitor (overlay mode) or window.
 Default hotkeys are in `src/app/defaults.js` (`DEFAULT_CONFIG`), the one source for both Rust (receives it via `set_hotkeys`) and the pages.
+
+
+## Cache files (Rust side)
+
+`<exe dir>/privada-data/cache/`: keys must match `[a-z0-9_-]{1,96}`; all reads/writes run off the main
+thread. `manifest.json` (written by the page) is `{ outfitId: [keys] }`; at startup, while the splash is
+visible, Rust reads the active outfit's `.bin` files into memory and the first `cache_get` of each key is
+served from RAM. The mesh binary layout (`PRVM`) is defined in the "Mesh cache" section (worker geo).

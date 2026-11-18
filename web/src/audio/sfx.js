@@ -4,6 +4,14 @@
 let live;
 let cur = null, OFF = 0;           // current context + time offset (offline rendering)
 const ac = () => cur || (live ??= new AudioContext());
+// master volume (sfx.volume 0..1): every sound goes through one gain node per context
+const masters = new WeakMap();
+const out = (a) => {
+  let g = masters.get(a);
+  if (!g) { g = a.createGain(); g.connect(a.destination); masters.set(a, g); }
+  g.gain.value = Math.max(0, Math.min(1, sfx.volume ?? 1));
+  return g;
+};
 const now = () => ac().currentTime + OFF;
 const noiseCache = new WeakMap();
 const noise = (a, sec) => {
@@ -26,7 +34,7 @@ function burst({ sec, type = 'lowpass', f0, f1, q = 1, peak = 0.4, attack = 0.05
   g.gain.setValueAtTime(0.0001, t);
   g.gain.exponentialRampToValueAtTime(peak, t + attack);
   g.gain.exponentialRampToValueAtTime(0.0001, t + sec);
-  src.connect(f).connect(g).connect(a.destination);
+  src.connect(f).connect(g).connect(out(a));
   src.start(t); src.stop(t + sec + 0.05);
 }
 function tone(f0, f1, sec, peak = 0.2, type = 'sine', at = 0) {
@@ -35,11 +43,12 @@ function tone(f0, f1, sec, peak = 0.2, type = 'sine', at = 0) {
   o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + sec);
   const g = a.createGain();
   g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + sec);
-  o.connect(g).connect(a.destination); o.start(t); o.stop(t + sec + 0.02);
+  o.connect(g).connect(out(a)); o.start(t); o.stop(t + sec + 0.02);
 }
 
 export const sfx = {
   enabled: true,
+  volume: 1,
   play(name, data) {
     if (!this.enabled) return;
     try { (this[name] || (() => {}))(data); } catch { /* audio blocked until user gesture */ }

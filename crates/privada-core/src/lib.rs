@@ -10,6 +10,7 @@
 //! * [`dsp`]   — microphone FFT -> mouth vector (owned by the app worker)
 pub mod dim;
 pub mod dsp;
+pub mod geo;
 pub mod paper;
 pub mod util;
 pub mod water;

@@ -6,7 +6,7 @@
 //! Render outputs (all f32, ready to copy into three.js buffers):
 //! * `drops_m`  : DROPS  x 16 column-major instance matrices (zero matrix = hidden)
 //! * `foam_m`   : FOAM   x 16
-//! * `stream_pos`: (STREAM_SEG+1)*(STREAM_RAD+1) x 3, `stream_uv` x 2, `stream_visible`
+//! * `stream_pos`: (STREAM_SEG+1)*(STREAM_RAD+1) x 3, `stream_nrm` x 3, `stream_uv` x 2, `stream_visible`
 //! * `ripples`  : RIPPLES x [x, z, scale, opacity, visible]
 //! * `puddle`   : [x, z, sx, sz, opacity], `puddle_radial` (PUDDLE_SEG+1 factors, ring vertices 1..), `puddle_version`
 use crate::util::Rng;
@@ -145,6 +145,7 @@ pub struct WaterJet {
     rng: Rng,
 
     pub stream_pos: Vec<f32>,
+    pub stream_nrm: Vec<f32>,
     pub stream_uv: Vec<f32>,
     pub stream_visible: bool,
     pub ripples_out: Vec<f32>,
@@ -197,6 +198,7 @@ impl WaterJet {
             next_ripple: 0,
             rng: Rng::new(seed),
             stream_pos: vec![0.0; nv * 3],
+            stream_nrm: vec![0.0; nv * 3],
             stream_uv: vec![0.0; nv * 2],
             stream_visible: false,
             ripples_out: vec![0.0; RIPPLES * 5],
@@ -421,6 +423,17 @@ impl WaterJet {
                 self.stream_uv[k * 2 + 1] = t * 6.0 - time * 4.0;
             }
         }
+
+        // column normals (index layout of waterJet.js: a,b,a+1 / b,b+1,a+1)
+        let cols = STREAM_RAD + 1;
+        let tris = (0..STREAM_SEG).flat_map(move |i| {
+            (0..STREAM_RAD).flat_map(move |j| {
+                let a = i * cols + j;
+                let b = a + cols;
+                [[a, b, a + 1], [b, b + 1, a + 1]]
+            })
+        });
+        crate::util::vertex_normals(&self.stream_pos, &mut self.stream_nrm, (STREAM_SEG + 1) * cols, tris);
 
         // spray shed from the column surface
         if self.emitting || t0 > 0.0 {

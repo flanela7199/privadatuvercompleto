@@ -1,0 +1,2813 @@
+{
+ "machine": {
+  "cpu": "12th Gen Intel(R) Core(TM) i5-1235U",
+  "cores": 12,
+  "node": "v22.11.0",
+  "platform": "win32 10.0.19044"
+ },
+ "runs": 3,
+ "frames": 3960,
+ "warm": 600,
+ "scenarios": {
+  "idle_talk": {
+   "js": {
+    "update": {
+     "median": {
+      "med": 114.8,
+      "min": 102.4,
+      "max": 173.8,
+      "cvPct": 23.9,
+      "runs": [
+       102.4,
+       114.8,
+       173.8
+      ]
+     },
+     "p95": {
+      "med": 191.8,
+      "min": 166,
+      "max": 294.1,
+      "cvPct": 25.5,
+      "runs": [
+       166,
+       191.8,
+       294.1
+      ]
+     },
+     "p99": {
+      "med": 262.1,
+      "min": 251.1,
+      "max": 431.2,
+      "cvPct": 26.2,
+      "runs": [
+       251.1,
+       262.1,
+       431.2
+      ]
+     },
+     "mean": {
+      "med": 121.65,
+      "min": 107.85,
+      "max": 180.87,
+      "cvPct": 23.2,
+      "runs": [
+       107.8,
+       121.7,
+       180.9
+      ]
+     },
+     "max": {
+      "med": 764.1,
+      "min": 458.2,
+      "max": 1406.3,
+      "cvPct": 45.1,
+      "runs": [
+       458.2,
+       764.1,
+       1406.3
+      ]
+     }
+    },
+    "updatePlusMatrix": {
+     "median": {
+      "med": 136.6,
+      "min": 121,
+      "max": 206,
+      "cvPct": 23.9,
+      "runs": [
+       121,
+       136.6,
+       206
+      ]
+     },
+     "p95": {
+      "med": 214.8,
+      "min": 186,
+      "max": 338,
+      "cvPct": 26.8,
+      "runs": [
+       186,
+       214.8,
+       338
+      ]
+     },
+     "p99": {
+      "med": 308,
+      "min": 281.3,
+      "max": 485.3,
+      "cvPct": 25.3,
+      "runs": [
+       281.3,
+       308,
+       485.3
+      ]
+     }
+    },
+    "matrixWorld": {
+     "median": {
+      "med": 21.5,
+      "min": 18.5,
+      "max": 31.9,
+      "cvPct": 24,
+      "runs": [
+       18.5,
+       21.5,
+       31.9
+      ]
+     }
+    },
+    "spew": null,
+    "rustOnly": null,
+    "breakdown": {
+     "total": 116.39,
+     "three_normals_stream": 0,
+     "three_normals_paper": 37.15,
+     "js_water_fx": 2.14,
+     "js_paper_fx": 11.32,
+     "js_lid_collision": 17.73,
+     "js_matrix_world_anchor": 43.41,
+     "js_accessories": 1.4,
+     "js_springs_actions_rest": 3.24
+    },
+    "alloc": {
+     "allocBytesPerFrame": 37049,
+     "allocKBPerSecAt60": 2170.8,
+     "gcScavenges": 8,
+     "gcMajor": 0,
+     "gcCostMsTotal": 2.46,
+     "gcCostUsPerFrame": 0.622,
+     "heapUsedDeltaKB": 14549.2,
+     "wasmMemGrowBytes": 0,
+     "wasmPages": 0
+    }
+   },
+   "wasm": {
+    "update": {
+     "median": {
+      "med": 18.1,
+      "min": 15.9,
+      "max": 20.1,
+      "cvPct": 9.5,
+      "runs": [
+       18.1,
+       15.9,
+       20.1
+      ]
+     },
+     "p95": {
+      "med": 24.6,
+      "min": 20,
+      "max": 33.4,
+      "cvPct": 21.4,
+      "runs": [
+       24.6,
+       20,
+       33.4
+      ]
+     },
+     "p99": {
+      "med": 46.9,
+      "min": 40.1,
+      "max": 56.4,
+      "cvPct": 14,
+      "runs": [
+       46.9,
+       40.1,
+       56.4
+      ]
+     },
+     "mean": {
+      "med": 18.57,
+      "min": 17.42,
+      "max": 22.44,
+      "cvPct": 11,
+      "runs": [
+       18.6,
+       17.4,
+       22.4
+      ]
+     },
+     "max": {
+      "med": 792.1,
+      "min": 670.2,
+      "max": 958.7,
+      "cvPct": 14.7,
+      "runs": [
+       792.1,
+       670.2,
+       958.7
+      ]
+     }
+    },
+    "updatePlusMatrix": {
+     "median": {
+      "med": 40.7,
+      "min": 36.5,
+      "max": 45.4,
+      "cvPct": 8.9,
+      "runs": [
+       40.7,
+       36.5,
+       45.4
+      ]
+     },
+     "p95": {
+      "med": 51.5,
+      "min": 43.6,
+      "max": 70.1,
+      "cvPct": 20.2,
+      "runs": [
+       51.5,
+       43.6,
+       70.1
+      ]
+     },
+     "p99": {
+      "med": 87.1,
+      "min": 72.9,
+      "max": 100.4,
+      "cvPct": 12.9,
+      "runs": [
+       87.1,
+       72.9,
+       100.4
+      ]
+     }
+    },
+    "matrixWorld": {
+     "median": {
+      "med": 22.6,
+      "min": 20.4,
+      "max": 25.3,
+      "cvPct": 8.8,
+      "runs": [
+       22.6,
+       20.4,
+       25.3
+      ]
+     }
+    },
+    "spew": null,
+    "rustOnly": {
+     "median": {
+      "med": 7.3,
+      "min": 6.5,
+      "max": 8.7,
+      "cvPct": 12.1,
+      "runs": [
+       6.5,
+       7.3,
+       8.7
+      ]
+     },
+     "p95": {
+      "med": 8.8,
+      "min": 7.9,
+      "max": 10.5,
+      "cvPct": 11.9,
+      "runs": [
+       7.9,
+       8.8,
+       10.5
+      ]
+     },
+     "p99": {
+      "med": 10.3,
+      "min": 9.9,
+      "max": 11.9,
+      "cvPct": 8.1,
+      "runs": [
+       10.3,
+       9.9,
+       11.9
+      ]
+     },
+     "mean": {
+      "med": 7.63,
+      "min": 6.9,
+      "max": 8.97,
+      "cvPct": 10.9,
+      "runs": [
+       6.9,
+       7.6,
+       9
+      ]
+     }
+    },
+    "breakdown": {
+     "total": 16.91,
+     "three_normals_stream": 0,
+     "three_normals_paper": 2.55,
+     "rust_compute": 7.46,
+     "js_accessories": 1.39,
+     "js_apply_pose_buffers_rest": 5.58
+    },
+    "alloc": {
+     "allocBytesPerFrame": 7903,
+     "allocKBPerSecAt60": 463.1,
+     "gcScavenges": 1,
+     "gcMajor": 0,
+     "gcCostMsTotal": 0.3,
+     "gcCostUsPerFrame": 0.076,
+     "heapUsedDeltaKB": 14461.1,
+     "wasmMemGrowBytes": 0,
+     "wasmPages": 26
+    }
+   },
+   "correctness": {
+    "hinge": {
+     "js": {
+      "min": 0.006,
+      "max": 0.814,
+      "mean": 0.3792
+     },
+     "wasm": {
+      "min": 0.006,
+      "max": 0.814,
+      "mean": 0.3792
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "bodyY": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "bodyUpY": {
+     "js": {
+      "min": 0.9894,
+      "max": 1,
+      "mean": 0.9966
+     },
+     "wasm": {
+      "min": 0.9894,
+      "max": 1,
+      "mean": 0.9966
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "headPitch": {
+     "js": {
+      "min": -0.3726,
+      "max": 0.2484,
+      "mean": -0.034
+     },
+     "wasm": {
+      "min": -0.3726,
+      "max": 0.2484,
+      "mean": -0.034
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "pupilX": {
+     "js": {
+      "min": -0.0658,
+      "max": 0.0657,
+      "mean": 0.003
+     },
+     "wasm": {
+      "min": -0.0658,
+      "max": 0.0657,
+      "mean": 0.003
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "seatX": {
+     "js": {
+      "min": 0,
+      "max": 0.058,
+      "mean": 0.0225
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0.058,
+      "mean": 0.0225
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "drops": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "foam": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "stream": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "paperPts": {
+     "js": {
+      "min": 1,
+      "max": 11,
+      "mean": 10.7955
+     },
+     "wasm": {
+      "min": 1,
+      "max": 11,
+      "mean": 10.803
+     },
+     "r": 0.9975,
+     "rms": 0.087
+    },
+    "tornPts": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "sfx": {
+     "js": 4,
+     "wasm": 4
+    }
+   }
+  },
+  "flush": {
+   "js": {
+    "update": {
+     "median": {
+      "med": 115.4,
+      "min": 113.2,
+      "max": 133,
+      "cvPct": 7.4,
+      "runs": [
+       113.2,
+       115.4,
+       133
+      ]
+     },
+     "p95": {
+      "med": 379.6,
+      "min": 352.3,
+      "max": 457.1,
+      "cvPct": 11.2,
+      "runs": [
+       379.6,
+       352.3,
+       457.1
+      ]
+     },
+     "p99": {
+      "med": 616.9,
+      "min": 505.5,
+      "max": 709.8,
+      "cvPct": 13.7,
+      "runs": [
+       616.9,
+       505.5,
+       709.8
+      ]
+     },
+     "mean": {
+      "med": 209.62,
+      "min": 193.13,
+      "max": 230.02,
+      "cvPct": 7.2,
+      "runs": [
+       209.6,
+       193.1,
+       230
+      ]
+     },
+     "max": {
+      "med": 1157.7,
+      "min": 974.4,
+      "max": 1395.3,
+      "cvPct": 14.7,
+      "runs": [
+       974.4,
+       1157.7,
+       1395.3
+      ]
+     }
+    },
+    "updatePlusMatrix": {
+     "median": {
+      "med": 138.2,
+      "min": 134.9,
+      "max": 159.5,
+      "cvPct": 7.6,
+      "runs": [
+       134.9,
+       138.2,
+       159.5
+      ]
+     },
+     "p95": {
+      "med": 401.7,
+      "min": 376.6,
+      "max": 516.1,
+      "cvPct": 14.1,
+      "runs": [
+       401.7,
+       376.6,
+       516.1
+      ]
+     },
+     "p99": {
+      "med": 640.7,
+      "min": 534.4,
+      "max": 751.9,
+      "cvPct": 13.8,
+      "runs": [
+       640.7,
+       534.4,
+       751.9
+      ]
+     }
+    },
+    "matrixWorld": {
+     "median": {
+      "med": 22.5,
+      "min": 19.7,
+      "max": 24,
+      "cvPct": 8.1,
+      "runs": [
+       19.7,
+       22.5,
+       24
+      ]
+     }
+    },
+    "spew": {
+     "median": {
+      "med": 346.6,
+      "min": 323.4,
+      "max": 362.3,
+      "cvPct": 4.6,
+      "runs": [
+       346.6,
+       323.4,
+       362.3
+      ]
+     },
+     "p95": {
+      "med": 560.4,
+      "min": 416.1,
+      "max": 676.5,
+      "cvPct": 19.3,
+      "runs": [
+       560.4,
+       416.1,
+       676.5
+      ]
+     },
+     "p99": {
+      "med": 738.8,
+      "min": 647.6,
+      "max": 775.4,
+      "cvPct": 7.5,
+      "runs": [
+       647.6,
+       738.8,
+       775.4
+      ]
+     }
+    },
+    "rustOnly": null,
+    "breakdown": {
+     "total": 241.53,
+     "three_normals_stream": 60.33,
+     "three_normals_paper": 40.08,
+     "js_water_fx": 27.4,
+     "js_paper_fx": 12.73,
+     "js_lid_collision": 45.85,
+     "js_matrix_world_anchor": 48.17,
+     "js_accessories": 1.61,
+     "js_springs_actions_rest": 6.87
+    },
+    "alloc": {
+     "allocBytesPerFrame": 103680,
+     "allocKBPerSecAt60": 6075,
+     "gcScavenges": 24,
+     "gcMajor": 0,
+     "gcCostMsTotal": 6.6,
+     "gcCostUsPerFrame": 1.667,
+     "heapUsedDeltaKB": 14513.8,
+     "wasmMemGrowBytes": 0,
+     "wasmPages": 0
+    }
+   },
+   "wasm": {
+    "update": {
+     "median": {
+      "med": 17.5,
+      "min": 16.6,
+      "max": 28.7,
+      "cvPct": 26.3,
+      "runs": [
+       16.6,
+       17.5,
+       28.7
+      ]
+     },
+     "p95": {
+      "med": 68.7,
+      "min": 65.7,
+      "max": 120.7,
+      "cvPct": 29.7,
+      "runs": [
+       65.7,
+       68.7,
+       120.7
+      ]
+     },
+     "p99": {
+      "med": 73.1,
+      "min": 69.3,
+      "max": 137.9,
+      "cvPct": 33.7,
+      "runs": [
+       69.3,
+       73.1,
+       137.9
+      ]
+     },
+     "mean": {
+      "med": 35.32,
+      "min": 34.22,
+      "max": 49.13,
+      "cvPct": 17.2,
+      "runs": [
+       34.2,
+       35.3,
+       49.1
+      ]
+     },
+     "max": {
+      "med": 1360.3,
+      "min": 645.6,
+      "max": 2030.9,
+      "cvPct": 42,
+      "runs": [
+       1360.3,
+       2030.9,
+       645.6
+      ]
+     }
+    },
+    "updatePlusMatrix": {
+     "median": {
+      "med": 39.7,
+      "min": 37.6,
+      "max": 62,
+      "cvPct": 23.8,
+      "runs": [
+       37.6,
+       39.7,
+       62
+      ]
+     },
+     "p95": {
+      "med": 91.1,
+      "min": 87.1,
+      "max": 162.8,
+      "cvPct": 30.6,
+      "runs": [
+       87.1,
+       91.1,
+       162.8
+      ]
+     },
+     "p99": {
+      "med": 100.6,
+      "min": 92.3,
+      "max": 182.9,
+      "cvPct": 32.6,
+      "runs": [
+       92.3,
+       100.6,
+       182.9
+      ]
+     }
+    },
+    "matrixWorld": {
+     "median": {
+      "med": 20.4,
+      "min": 19.2,
+      "max": 25,
+      "cvPct": 11.6,
+      "runs": [
+       19.2,
+       20.4,
+       25
+      ]
+     }
+    },
+    "spew": {
+     "median": {
+      "med": 60.8,
+      "min": 59.7,
+      "max": 78.9,
+      "cvPct": 13.2,
+      "runs": [
+       59.7,
+       60.8,
+       78.9
+      ]
+     },
+     "p95": {
+      "med": 71.4,
+      "min": 68.3,
+      "max": 132.4,
+      "cvPct": 32.5,
+      "runs": [
+       68.3,
+       71.4,
+       132.4
+      ]
+     },
+     "p99": {
+      "med": 95,
+      "min": 82,
+      "max": 161.1,
+      "cvPct": 30.7,
+      "runs": [
+       82,
+       95,
+       161.1
+      ]
+     }
+    },
+    "rustOnly": {
+     "median": {
+      "med": 8.8,
+      "min": 8.7,
+      "max": 10.4,
+      "cvPct": 8.4,
+      "runs": [
+       8.7,
+       8.8,
+       10.4
+      ]
+     },
+     "p95": {
+      "med": 58.8,
+      "min": 58.6,
+      "max": 68.3,
+      "cvPct": 7.3,
+      "runs": [
+       58.6,
+       58.8,
+       68.3
+      ]
+     },
+     "p99": {
+      "med": 61.1,
+      "min": 61,
+      "max": 81.6,
+      "cvPct": 14.3,
+      "runs": [
+       61,
+       61.1,
+       81.6
+      ]
+     },
+     "mean": {
+      "med": 25.96,
+      "min": 25.84,
+      "max": 31.73,
+      "cvPct": 9.9,
+      "runs": [
+       26,
+       25.8,
+       31.7
+      ]
+     }
+    },
+    "breakdown": {
+     "total": 38.44,
+     "three_normals_stream": 0,
+     "three_normals_paper": 2.44,
+     "rust_compute": 27.59,
+     "js_accessories": 1.43,
+     "js_apply_pose_buffers_rest": 7.12
+    },
+    "alloc": {
+     "allocBytesPerFrame": 8274,
+     "allocKBPerSecAt60": 484.8,
+     "gcScavenges": 1,
+     "gcMajor": 0,
+     "gcCostMsTotal": 0.3,
+     "gcCostUsPerFrame": 0.077,
+     "heapUsedDeltaKB": 15920.5,
+     "wasmMemGrowBytes": 0,
+     "wasmPages": 34
+    }
+   },
+   "correctness": {
+    "hinge": {
+     "js": {
+      "min": 0.0051,
+      "max": 1.2589,
+      "mean": 0.4489
+     },
+     "wasm": {
+      "min": 0.0051,
+      "max": 1.2589,
+      "mean": 0.449
+     },
+     "r": 1,
+     "rms": 0.001
+    },
+    "bodyY": {
+     "js": {
+      "min": -0.0033,
+      "max": 0.0513,
+      "mean": 0.0149
+     },
+     "wasm": {
+      "min": -0.0033,
+      "max": 0.0513,
+      "mean": 0.0149
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "bodyUpY": {
+     "js": {
+      "min": 0.9935,
+      "max": 1,
+      "mean": 0.9981
+     },
+     "wasm": {
+      "min": 0.9935,
+      "max": 1,
+      "mean": 0.9981
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "headPitch": {
+     "js": {
+      "min": -0.8331,
+      "max": 0.1131,
+      "mean": -0.25
+     },
+     "wasm": {
+      "min": -0.8331,
+      "max": 0.1131,
+      "mean": -0.2501
+     },
+     "r": 1,
+     "rms": 0.0001
+    },
+    "pupilX": {
+     "js": {
+      "min": -0.0047,
+      "max": 0.0194,
+      "mean": 0.0099
+     },
+     "wasm": {
+      "min": -0.0047,
+      "max": 0.0194,
+      "mean": 0.0099
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "seatX": {
+     "js": {
+      "min": 0,
+      "max": 0.0105,
+      "mean": 0.0042
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0.0105,
+      "mean": 0.0042
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "drops": {
+     "js": {
+      "min": 0,
+      "max": 346,
+      "mean": 90.4409
+     },
+     "wasm": {
+      "min": 0,
+      "max": 344,
+      "mean": 90.8485
+     },
+     "r": 0.9982,
+     "rms": 7.4579
+    },
+    "foam": {
+     "js": {
+      "min": 0,
+      "max": 45,
+      "mean": 19.7364
+     },
+     "wasm": {
+      "min": 0,
+      "max": 47,
+      "mean": 19.7803
+     },
+     "r": 0.9877,
+     "rms": 2.5073
+    },
+    "stream": {
+     "js": {
+      "min": 0,
+      "max": 1,
+      "mean": 0.4273
+     },
+     "wasm": {
+      "min": 0,
+      "max": 1,
+      "mean": 0.4273
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "paperPts": {
+     "js": {
+      "min": 1,
+      "max": 11,
+      "mean": 10.7955
+     },
+     "wasm": {
+      "min": 1,
+      "max": 11,
+      "mean": 10.803
+     },
+     "r": 0.9975,
+     "rms": 0.087
+    },
+    "tornPts": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "sfx": {
+     "js": 77,
+     "wasm": 68
+    }
+   }
+  },
+  "paper": {
+   "js": {
+    "update": {
+     "median": {
+      "med": 284,
+      "min": 274.6,
+      "max": 354.7,
+      "cvPct": 11.7,
+      "runs": [
+       274.6,
+       284,
+       354.7
+      ]
+     },
+     "p95": {
+      "med": 365.8,
+      "min": 357.7,
+      "max": 564.8,
+      "cvPct": 22.3,
+      "runs": [
+       357.7,
+       365.8,
+       564.8
+      ]
+     },
+     "p99": {
+      "med": 570.1,
+      "min": 565.4,
+      "max": 795.7,
+      "cvPct": 16.7,
+      "runs": [
+       565.4,
+       570.1,
+       795.7
+      ]
+     },
+     "mean": {
+      "med": 272.31,
+      "min": 263.35,
+      "max": 352.01,
+      "cvPct": 13.5,
+      "runs": [
+       263.4,
+       272.3,
+       352
+      ]
+     },
+     "max": {
+      "med": 2680.2,
+      "min": 2342.7,
+      "max": 3808.5,
+      "cvPct": 21.3,
+      "runs": [
+       2680.2,
+       2342.7,
+       3808.5
+      ]
+     }
+    },
+    "updatePlusMatrix": {
+     "median": {
+      "med": 305.8,
+      "min": 295.7,
+      "max": 381.2,
+      "cvPct": 11.6,
+      "runs": [
+       295.7,
+       305.8,
+       381.2
+      ]
+     },
+     "p95": {
+      "med": 390.6,
+      "min": 380.6,
+      "max": 601.7,
+      "cvPct": 22.3,
+      "runs": [
+       380.6,
+       390.6,
+       601.7
+      ]
+     },
+     "p99": {
+      "med": 597.6,
+      "min": 597.5,
+      "max": 845.7,
+      "cvPct": 17.2,
+      "runs": [
+       597.6,
+       597.5,
+       845.7
+      ]
+     }
+    },
+    "matrixWorld": {
+     "median": {
+      "med": 22.3,
+      "min": 21.4,
+      "max": 26.6,
+      "cvPct": 9.7,
+      "runs": [
+       21.4,
+       22.3,
+       26.6
+      ]
+     }
+    },
+    "spew": null,
+    "rustOnly": null,
+    "breakdown": {
+     "total": 271.12,
+     "three_normals_stream": 0,
+     "three_normals_paper": 52.71,
+     "js_water_fx": 3.18,
+     "js_paper_fx": 148.8,
+     "js_lid_collision": 14.83,
+     "js_matrix_world_anchor": 44.58,
+     "js_accessories": 1.49,
+     "js_springs_actions_rest": 6.68
+    },
+    "alloc": {
+     "allocBytesPerFrame": 347016,
+     "allocKBPerSecAt60": 20333,
+     "gcScavenges": 73,
+     "gcMajor": 4,
+     "gcCostMsTotal": 25.3,
+     "gcCostUsPerFrame": 6.389,
+     "heapUsedDeltaKB": 51446,
+     "wasmMemGrowBytes": 0,
+     "wasmPages": 0
+    }
+   },
+   "wasm": {
+    "update": {
+     "median": {
+      "med": 79.5,
+      "min": 77.7,
+      "max": 94.9,
+      "cvPct": 9.2,
+      "runs": [
+       77.7,
+       79.5,
+       94.9
+      ]
+     },
+     "p95": {
+      "med": 132.5,
+      "min": 105.2,
+      "max": 141.1,
+      "cvPct": 12.1,
+      "runs": [
+       132.5,
+       105.2,
+       141.1
+      ]
+     },
+     "p99": {
+      "med": 158.5,
+      "min": 115.9,
+      "max": 164.7,
+      "cvPct": 14.8,
+      "runs": [
+       164.7,
+       115.9,
+       158.5
+      ]
+     },
+     "mean": {
+      "med": 75.23,
+      "min": 73.02,
+      "max": 89.24,
+      "cvPct": 9.1,
+      "runs": [
+       75.2,
+       73,
+       89.2
+      ]
+     },
+     "max": {
+      "med": 1551,
+      "min": 706.3,
+      "max": 1812.5,
+      "cvPct": 34.8,
+      "runs": [
+       706.3,
+       1551,
+       1812.5
+      ]
+     }
+    },
+    "updatePlusMatrix": {
+     "median": {
+      "med": 99.5,
+      "min": 96.1,
+      "max": 117.8,
+      "cvPct": 9.1,
+      "runs": [
+       96.1,
+       99.5,
+       117.8
+      ]
+     },
+     "p95": {
+      "med": 169.2,
+      "min": 125.8,
+      "max": 175.9,
+      "cvPct": 14.1,
+      "runs": [
+       169.2,
+       125.8,
+       175.9
+      ]
+     },
+     "p99": {
+      "med": 203.8,
+      "min": 138.5,
+      "max": 204.1,
+      "cvPct": 16.9,
+      "runs": [
+       204.1,
+       138.5,
+       203.8
+      ]
+     }
+    },
+    "matrixWorld": {
+     "median": {
+      "med": 19.8,
+      "min": 18.8,
+      "max": 22.8,
+      "cvPct": 8.3,
+      "runs": [
+       18.8,
+       19.8,
+       22.8
+      ]
+     }
+    },
+    "spew": null,
+    "rustOnly": {
+     "median": {
+      "med": 65.5,
+      "min": 58.3,
+      "max": 93.7,
+      "cvPct": 21.1,
+      "runs": [
+       65.5,
+       58.3,
+       93.7
+      ]
+     },
+     "p95": {
+      "med": 86.8,
+      "min": 78.3,
+      "max": 143.6,
+      "cvPct": 28.2,
+      "runs": [
+       86.8,
+       78.3,
+       143.6
+      ]
+     },
+     "p99": {
+      "med": 113.4,
+      "min": 89.4,
+      "max": 166.9,
+      "cvPct": 26.3,
+      "runs": [
+       89.4,
+       113.4,
+       166.9
+      ]
+     },
+     "mean": {
+      "med": 59.18,
+      "min": 53.46,
+      "max": 89.22,
+      "cvPct": 23.3,
+      "runs": [
+       59.2,
+       53.5,
+       89.2
+      ]
+     }
+    },
+    "breakdown": {
+     "total": 68.05,
+     "three_normals_stream": 0,
+     "three_normals_paper": 3.26,
+     "rust_compute": 57.94,
+     "js_accessories": 1.2,
+     "js_apply_pose_buffers_rest": 5.76
+    },
+    "alloc": {
+     "allocBytesPerFrame": 10440,
+     "allocKBPerSecAt60": 611.7,
+     "gcScavenges": 2,
+     "gcMajor": 0,
+     "gcCostMsTotal": 0.58,
+     "gcCostUsPerFrame": 0.147,
+     "heapUsedDeltaKB": 8162.7,
+     "wasmMemGrowBytes": 0,
+     "wasmPages": 43
+    }
+   },
+   "correctness": {
+    "hinge": {
+     "js": {
+      "min": 0.0104,
+      "max": 0.4027,
+      "mean": 0.1657
+     },
+     "wasm": {
+      "min": 0.0104,
+      "max": 0.4027,
+      "mean": 0.1657
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "bodyY": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "bodyUpY": {
+     "js": {
+      "min": 0.9887,
+      "max": 1,
+      "mean": 0.9978
+     },
+     "wasm": {
+      "min": 0.9887,
+      "max": 1,
+      "mean": 0.9978
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "headPitch": {
+     "js": {
+      "min": -0.0791,
+      "max": 0.3934,
+      "mean": 0.0897
+     },
+     "wasm": {
+      "min": -0.0791,
+      "max": 0.3934,
+      "mean": 0.0897
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "pupilX": {
+     "js": {
+      "min": -0.0621,
+      "max": 0.0349,
+      "mean": -0.0373
+     },
+     "wasm": {
+      "min": -0.0621,
+      "max": 0.0349,
+      "mean": -0.0373
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "seatX": {
+     "js": {
+      "min": 0,
+      "max": 0.0109,
+      "mean": 0.0046
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0.0109,
+      "mean": 0.0046
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "drops": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "foam": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "stream": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "paperPts": {
+     "js": {
+      "min": 1,
+      "max": 137,
+      "mean": 58.5536
+     },
+     "wasm": {
+      "min": 1,
+      "max": 137,
+      "mean": 58.5839
+     },
+     "r": 1,
+     "rms": 0.1742
+    },
+    "tornPts": {
+     "js": {
+      "min": 0,
+      "max": 133,
+      "mean": 52.0357
+     },
+     "wasm": {
+      "min": 0,
+      "max": 133,
+      "mean": 52.0357
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "sfx": {
+     "js": 4,
+     "wasm": 4
+    }
+   }
+  },
+  "flips": {
+   "js": {
+    "update": {
+     "median": {
+      "med": 98.4,
+      "min": 96.2,
+      "max": 126.4,
+      "cvPct": 12.8,
+      "runs": [
+       96.2,
+       98.4,
+       126.4
+      ]
+     },
+     "p95": {
+      "med": 142.1,
+      "min": 114.9,
+      "max": 168.9,
+      "cvPct": 15.5,
+      "runs": [
+       114.9,
+       168.9,
+       142.1
+      ]
+     },
+     "p99": {
+      "med": 211.2,
+      "min": 160,
+      "max": 214.3,
+      "cvPct": 12.8,
+      "runs": [
+       160,
+       214.3,
+       211.2
+      ]
+     },
+     "mean": {
+      "med": 105.59,
+      "min": 101.39,
+      "max": 127.62,
+      "cvPct": 10.3,
+      "runs": [
+       101.4,
+       105.6,
+       127.6
+      ]
+     },
+     "max": {
+      "med": 894.2,
+      "min": 731.1,
+      "max": 1185.3,
+      "cvPct": 20.1,
+      "runs": [
+       731.1,
+       894.2,
+       1185.3
+      ]
+     }
+    },
+    "updatePlusMatrix": {
+     "median": {
+      "med": 120.1,
+      "min": 115.8,
+      "max": 150.8,
+      "cvPct": 12.1,
+      "runs": [
+       115.8,
+       120.1,
+       150.8
+      ]
+     },
+     "p95": {
+      "med": 168.2,
+      "min": 137.7,
+      "max": 206.7,
+      "cvPct": 16.5,
+      "runs": [
+       137.7,
+       206.7,
+       168.2
+      ]
+     },
+     "p99": {
+      "med": 251.1,
+      "min": 193.1,
+      "max": 258.7,
+      "cvPct": 12.5,
+      "runs": [
+       193.1,
+       258.7,
+       251.1
+      ]
+     }
+    },
+    "matrixWorld": {
+     "median": {
+      "med": 21.6,
+      "min": 19.7,
+      "max": 24.2,
+      "cvPct": 8.4,
+      "runs": [
+       19.7,
+       21.6,
+       24.2
+      ]
+     }
+    },
+    "spew": null,
+    "rustOnly": null,
+    "breakdown": {
+     "total": 117.81,
+     "three_normals_stream": 0,
+     "three_normals_paper": 36.37,
+     "js_water_fx": 2.25,
+     "js_paper_fx": 12.41,
+     "js_lid_collision": 15.03,
+     "js_matrix_world_anchor": 47.46,
+     "js_accessories": 1.6,
+     "js_springs_actions_rest": 10.47
+    },
+    "alloc": {
+     "allocBytesPerFrame": 38406,
+     "allocKBPerSecAt60": 2250.4,
+     "gcScavenges": 8,
+     "gcMajor": 0,
+     "gcCostMsTotal": 2.16,
+     "gcCostUsPerFrame": 0.544,
+     "heapUsedDeltaKB": 9647.2,
+     "wasmMemGrowBytes": 0,
+     "wasmPages": 0
+    }
+   },
+   "wasm": {
+    "update": {
+     "median": {
+      "med": 15.9,
+      "min": 14.3,
+      "max": 18.6,
+      "cvPct": 10.9,
+      "runs": [
+       14.3,
+       15.9,
+       18.6
+      ]
+     },
+     "p95": {
+      "med": 17.3,
+      "min": 16.9,
+      "max": 28.8,
+      "cvPct": 26.3,
+      "runs": [
+       16.9,
+       17.3,
+       28.8
+      ]
+     },
+     "p99": {
+      "med": 21.3,
+      "min": 21,
+      "max": 34.5,
+      "cvPct": 24.6,
+      "runs": [
+       21.3,
+       21,
+       34.5
+      ]
+     },
+     "mean": {
+      "med": 16.37,
+      "min": 15.53,
+      "max": 20.35,
+      "cvPct": 12.1,
+      "runs": [
+       15.5,
+       16.4,
+       20.4
+      ]
+     },
+     "max": {
+      "med": 1821.7,
+      "min": 894.8,
+      "max": 2047.6,
+      "cvPct": 31.4,
+      "runs": [
+       2047.6,
+       1821.7,
+       894.8
+      ]
+     }
+    },
+    "updatePlusMatrix": {
+     "median": {
+      "med": 37.6,
+      "min": 33.2,
+      "max": 42.6,
+      "cvPct": 10.2,
+      "runs": [
+       33.2,
+       37.6,
+       42.6
+      ]
+     },
+     "p95": {
+      "med": 40.1,
+      "min": 37.8,
+      "max": 61.1,
+      "cvPct": 22.6,
+      "runs": [
+       37.8,
+       40.1,
+       61.1
+      ]
+     },
+     "p99": {
+      "med": 45.2,
+      "min": 44.5,
+      "max": 75.2,
+      "cvPct": 26,
+      "runs": [
+       44.5,
+       45.2,
+       75.2
+      ]
+     }
+    },
+    "matrixWorld": {
+     "median": {
+      "med": 21.7,
+      "min": 18.8,
+      "max": 24.1,
+      "cvPct": 10.1,
+      "runs": [
+       18.8,
+       21.7,
+       24.1
+      ]
+     }
+    },
+    "spew": null,
+    "rustOnly": {
+     "median": {
+      "med": 6.5,
+      "min": 6.4,
+      "max": 12,
+      "cvPct": 31.5,
+      "runs": [
+       6.5,
+       6.4,
+       12
+      ]
+     },
+     "p95": {
+      "med": 7,
+      "min": 6.8,
+      "max": 13.6,
+      "cvPct": 34.6,
+      "runs": [
+       7,
+       6.8,
+       13.6
+      ]
+     },
+     "p99": {
+      "med": 7.6,
+      "min": 7.6,
+      "max": 16.5,
+      "cvPct": 39.7,
+      "runs": [
+       7.6,
+       7.6,
+       16.5
+      ]
+     },
+     "mean": {
+      "med": 6.59,
+      "min": 6.55,
+      "max": 11.05,
+      "cvPct": 26.2,
+      "runs": [
+       6.6,
+       6.5,
+       11.1
+      ]
+     }
+    },
+    "breakdown": {
+     "total": 17.73,
+     "three_normals_stream": 0,
+     "three_normals_paper": 2.23,
+     "rust_compute": 7.43,
+     "js_accessories": 1.33,
+     "js_apply_pose_buffers_rest": 6.65
+    },
+    "alloc": {
+     "allocBytesPerFrame": 7889,
+     "allocKBPerSecAt60": 462.2,
+     "gcScavenges": 1,
+     "gcMajor": 0,
+     "gcCostMsTotal": 0.38,
+     "gcCostUsPerFrame": 0.095,
+     "heapUsedDeltaKB": 14432.2,
+     "wasmMemGrowBytes": 0,
+     "wasmPages": 52
+    }
+   },
+   "correctness": {
+    "hinge": {
+     "js": {
+      "min": 0.006,
+      "max": 0.7896,
+      "mean": 0.3377
+     },
+     "wasm": {
+      "min": 0.006,
+      "max": 0.7896,
+      "mean": 0.3377
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "bodyY": {
+     "js": {
+      "min": -0.0172,
+      "max": 2.45,
+      "mean": 0.4005
+     },
+     "wasm": {
+      "min": -0.0172,
+      "max": 2.45,
+      "mean": 0.4005
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "bodyUpY": {
+     "js": {
+      "min": -0.9989,
+      "max": 1,
+      "mean": 0.7991
+     },
+     "wasm": {
+      "min": -0.9989,
+      "max": 1,
+      "mean": 0.7991
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "headPitch": {
+     "js": {
+      "min": -0.5827,
+      "max": 0.1951,
+      "mean": -0.1289
+     },
+     "wasm": {
+      "min": -0.5827,
+      "max": 0.1951,
+      "mean": -0.1289
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "pupilX": {
+     "js": {
+      "min": -0.0044,
+      "max": 0.0194,
+      "mean": 0.0084
+     },
+     "wasm": {
+      "min": -0.0044,
+      "max": 0.0194,
+      "mean": 0.0084
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "seatX": {
+     "js": {
+      "min": 0,
+      "max": 0.011,
+      "mean": 0.0058
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0.011,
+      "mean": 0.0058
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "drops": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "foam": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "stream": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "paperPts": {
+     "js": {
+      "min": 1,
+      "max": 11,
+      "mean": 10.5781
+     },
+     "wasm": {
+      "min": 1,
+      "max": 11,
+      "mean": 10.5938
+     },
+     "r": 0.9974,
+     "rms": 0.125
+    },
+    "tornPts": {
+     "js": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0,
+      "mean": 0
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "sfx": {
+     "js": 8,
+     "wasm": 8
+    }
+   }
+  },
+  "all": {
+   "js": {
+    "update": {
+     "median": {
+      "med": 347.4,
+      "min": 332.6,
+      "max": 348.8,
+      "cvPct": 2.1,
+      "runs": [
+       348.8,
+       347.4,
+       332.6
+      ]
+     },
+     "p95": {
+      "med": 579.3,
+      "min": 572.2,
+      "max": 601.8,
+      "cvPct": 2.2,
+      "runs": [
+       572.2,
+       601.8,
+       579.3
+      ]
+     },
+     "p99": {
+      "med": 966.9,
+      "min": 888.5,
+      "max": 979.3,
+      "cvPct": 4.3,
+      "runs": [
+       888.5,
+       979.3,
+       966.9
+      ]
+     },
+     "mean": {
+      "med": 332.75,
+      "min": 326.65,
+      "max": 334.59,
+      "cvPct": 1,
+      "runs": [
+       332.8,
+       334.6,
+       326.6
+      ]
+     },
+     "max": {
+      "med": 3044.4,
+      "min": 3017.9,
+      "max": 3117.2,
+      "cvPct": 1.4,
+      "runs": [
+       3044.4,
+       3017.9,
+       3117.2
+      ]
+     }
+    },
+    "updatePlusMatrix": {
+     "median": {
+      "med": 369.6,
+      "min": 357.5,
+      "max": 371.9,
+      "cvPct": 1.7,
+      "runs": [
+       371.9,
+       369.6,
+       357.5
+      ]
+     },
+     "p95": {
+      "med": 615.8,
+      "min": 596.7,
+      "max": 628.9,
+      "cvPct": 2.2,
+      "runs": [
+       596.7,
+       628.9,
+       615.8
+      ]
+     },
+     "p99": {
+      "med": 1034.4,
+      "min": 924,
+      "max": 1053.6,
+      "cvPct": 5.7,
+      "runs": [
+       924,
+       1053.6,
+       1034.4
+      ]
+     }
+    },
+    "matrixWorld": {
+     "median": {
+      "med": 22.3,
+      "min": 21.8,
+      "max": 23.9,
+      "cvPct": 4,
+      "runs": [
+       22.3,
+       21.8,
+       23.9
+      ]
+     }
+    },
+    "spew": {
+     "median": {
+      "med": 445.9,
+      "min": 426.2,
+      "max": 450.7,
+      "cvPct": 2.4,
+      "runs": [
+       450.7,
+       445.9,
+       426.2
+      ]
+     },
+     "p95": {
+      "med": 773.3,
+      "min": 697.2,
+      "max": 773.6,
+      "cvPct": 4.8,
+      "runs": [
+       697.2,
+       773.6,
+       773.3
+      ]
+     },
+     "p99": {
+      "med": 1261.3,
+      "min": 1217.2,
+      "max": 1289.3,
+      "cvPct": 2.4,
+      "runs": [
+       1217.2,
+       1289.3,
+       1261.3
+      ]
+     }
+    },
+    "rustOnly": null,
+    "breakdown": {
+     "total": 344.87,
+     "three_normals_stream": 55.78,
+     "three_normals_paper": 52.63,
+     "js_water_fx": 26.57,
+     "js_paper_fx": 134.75,
+     "js_lid_collision": 18.98,
+     "js_matrix_world_anchor": 47.72,
+     "js_accessories": 1.63,
+     "js_springs_actions_rest": 7.67
+    },
+    "alloc": {
+     "allocBytesPerFrame": 370182,
+     "allocKBPerSecAt60": 21690.4,
+     "gcScavenges": 80,
+     "gcMajor": 4,
+     "gcCostMsTotal": 27.43,
+     "gcCostUsPerFrame": 6.927,
+     "heapUsedDeltaKB": 30739.6,
+     "wasmMemGrowBytes": 0,
+     "wasmPages": 0
+    }
+   },
+   "wasm": {
+    "update": {
+     "median": {
+      "med": 108.8,
+      "min": 103.5,
+      "max": 117.9,
+      "cvPct": 5.4,
+      "runs": [
+       103.5,
+       108.8,
+       117.9
+      ]
+     },
+     "p95": {
+      "med": 213.5,
+      "min": 172.3,
+      "max": 214.7,
+      "cvPct": 9.8,
+      "runs": [
+       172.3,
+       213.5,
+       214.7
+      ]
+     },
+     "p99": {
+      "med": 235.3,
+      "min": 224.8,
+      "max": 267.7,
+      "cvPct": 7.5,
+      "runs": [
+       224.8,
+       235.3,
+       267.7
+      ]
+     },
+     "mean": {
+      "med": 99.2,
+      "min": 91.38,
+      "max": 109.79,
+      "cvPct": 7.5,
+      "runs": [
+       91.4,
+       99.2,
+       109.8
+      ]
+     },
+     "max": {
+      "med": 1375.5,
+      "min": 717.7,
+      "max": 1445.1,
+      "cvPct": 27.8,
+      "runs": [
+       1445.1,
+       717.7,
+       1375.5
+      ]
+     }
+    },
+    "updatePlusMatrix": {
+     "median": {
+      "med": 129.9,
+      "min": 123.9,
+      "max": 141.8,
+      "cvPct": 5.6,
+      "runs": [
+       123.9,
+       129.9,
+       141.8
+      ]
+     },
+     "p95": {
+      "med": 255.2,
+      "min": 205.2,
+      "max": 258,
+      "cvPct": 10.1,
+      "runs": [
+       205.2,
+       255.2,
+       258
+      ]
+     },
+     "p99": {
+      "med": 281,
+      "min": 271.1,
+      "max": 326.9,
+      "cvPct": 8.3,
+      "runs": [
+       271.1,
+       281,
+       326.9
+      ]
+     }
+    },
+    "matrixWorld": {
+     "median": {
+      "med": 21.1,
+      "min": 21,
+      "max": 23.6,
+      "cvPct": 5.5,
+      "runs": [
+       21,
+       21.1,
+       23.6
+      ]
+     }
+    },
+    "spew": {
+     "median": {
+      "med": 136.2,
+      "min": 133,
+      "max": 151.5,
+      "cvPct": 5.8,
+      "runs": [
+       133,
+       136.2,
+       151.5
+      ]
+     },
+     "p95": {
+      "med": 228.9,
+      "min": 206.9,
+      "max": 247.6,
+      "cvPct": 7.3,
+      "runs": [
+       206.9,
+       228.9,
+       247.6
+      ]
+     },
+     "p99": {
+      "med": 254.1,
+      "min": 249.6,
+      "max": 339.5,
+      "cvPct": 14.7,
+      "runs": [
+       249.6,
+       254.1,
+       339.5
+      ]
+     }
+    },
+    "rustOnly": {
+     "median": {
+      "med": 101.8,
+      "min": 83.7,
+      "max": 125.6,
+      "cvPct": 16.5,
+      "runs": [
+       83.7,
+       125.6,
+       101.8
+      ]
+     },
+     "p95": {
+      "med": 141.7,
+      "min": 130.7,
+      "max": 199.9,
+      "cvPct": 19.3,
+      "runs": [
+       130.7,
+       199.9,
+       141.7
+      ]
+     },
+     "p99": {
+      "med": 177.5,
+      "min": 145.4,
+      "max": 231.7,
+      "cvPct": 19.3,
+      "runs": [
+       177.5,
+       231.7,
+       145.4
+      ]
+     },
+     "mean": {
+      "med": 82.89,
+      "min": 72.46,
+      "max": 107.11,
+      "cvPct": 16.6,
+      "runs": [
+       72.5,
+       107.1,
+       82.9
+      ]
+     }
+    },
+    "breakdown": {
+     "total": 120.86,
+     "three_normals_stream": 0,
+     "three_normals_paper": 5.51,
+     "rust_compute": 99.17,
+     "js_accessories": 2.45,
+     "js_apply_pose_buffers_rest": 13.73
+    },
+    "alloc": {
+     "allocBytesPerFrame": 10016,
+     "allocKBPerSecAt60": 586.9,
+     "gcScavenges": 2,
+     "gcMajor": 0,
+     "gcCostMsTotal": 0.7,
+     "gcCostUsPerFrame": 0.178,
+     "heapUsedDeltaKB": 6569.9,
+     "wasmMemGrowBytes": 0,
+     "wasmPages": 60
+    }
+   },
+   "correctness": {
+    "hinge": {
+     "js": {
+      "min": 0.0015,
+      "max": 0.7466,
+      "mean": 0.3226
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0.8121,
+      "mean": 0.3233
+     },
+     "r": 0.995,
+     "rms": 0.0172
+    },
+    "bodyY": {
+     "js": {
+      "min": -0.0033,
+      "max": 0.0513,
+      "mean": 0.0149
+     },
+     "wasm": {
+      "min": -0.0033,
+      "max": 0.0513,
+      "mean": 0.0149
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "bodyUpY": {
+     "js": {
+      "min": 0.9887,
+      "max": 1,
+      "mean": 0.9969
+     },
+     "wasm": {
+      "min": 0.9887,
+      "max": 1,
+      "mean": 0.9969
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "headPitch": {
+     "js": {
+      "min": -0.3494,
+      "max": 0.1585,
+      "mean": -0.0724
+     },
+     "wasm": {
+      "min": -0.3494,
+      "max": 0.1585,
+      "mean": -0.0725
+     },
+     "r": 0.9999,
+     "rms": 0.0017
+    },
+    "pupilX": {
+     "js": {
+      "min": -0.0644,
+      "max": 0.064,
+      "mean": -0.0312
+     },
+     "wasm": {
+      "min": -0.0644,
+      "max": 0.064,
+      "mean": -0.0312
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "seatX": {
+     "js": {
+      "min": 0,
+      "max": 0.0588,
+      "mean": 0.0156
+     },
+     "wasm": {
+      "min": 0,
+      "max": 0.0588,
+      "mean": 0.0156
+     },
+     "r": 0.9992,
+     "rms": 0.0007
+    },
+    "drops": {
+     "js": {
+      "min": 0,
+      "max": 340,
+      "mean": 86.6439
+     },
+     "wasm": {
+      "min": 0,
+      "max": 343,
+      "mean": 85.8788
+     },
+     "r": 0.9976,
+     "rms": 8.5302
+    },
+    "foam": {
+     "js": {
+      "min": 0,
+      "max": 51,
+      "mean": 20.6364
+     },
+     "wasm": {
+      "min": 0,
+      "max": 52,
+      "mean": 20.8439
+     },
+     "r": 0.9942,
+     "rms": 1.8623
+    },
+    "stream": {
+     "js": {
+      "min": 0,
+      "max": 1,
+      "mean": 0.4212
+     },
+     "wasm": {
+      "min": 0,
+      "max": 1,
+      "mean": 0.4212
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "paperPts": {
+     "js": {
+      "min": 1,
+      "max": 137,
+      "mean": 51.3485
+     },
+     "wasm": {
+      "min": 1,
+      "max": 137,
+      "mean": 51.3742
+     },
+     "r": 1,
+     "rms": 0.1605
+    },
+    "tornPts": {
+     "js": {
+      "min": 0,
+      "max": 133,
+      "mean": 48.1818
+     },
+     "wasm": {
+      "min": 0,
+      "max": 133,
+      "mean": 48.1818
+     },
+     "r": 1,
+     "rms": 0
+    },
+    "sfx": {
+     "js": 79,
+     "wasm": 76
+    }
+   }
+  }
+ },
+ "size": {
+  "wasm": 137355,
+  "wasmGzip": 54951,
+  "wasmBrotli": 47132,
+  "glue": 14214,
+  "glueGzip": 3351
+ },
+ "load": {
+  "readMs": {
+   "med": 0.19,
+   "min": 0.17,
+   "max": 0.21,
+   "cvPct": 6.5,
+   "runs": [
+    0.2,
+    0.2,
+    0.2,
+    0.2,
+    0.2,
+    0.2,
+    0.2
+   ]
+  },
+  "wasmBytes": {
+   "med": 137355,
+   "min": 137355,
+   "max": 137355,
+   "cvPct": 0,
+   "runs": [
+    137355,
+    137355,
+    137355,
+    137355,
+    137355,
+    137355,
+    137355
+   ]
+  },
+  "glueImportMs": {
+   "med": 1.51,
+   "min": 1.39,
+   "max": 1.99,
+   "cvPct": 13,
+   "runs": [
+    1.6,
+    2,
+    1.9,
+    1.4,
+    1.4,
+    1.5,
+    1.5
+   ]
+  },
+  "compileMs": {
+   "med": 0.75,
+   "min": 0.67,
+   "max": 0.85,
+   "cvPct": 8.5,
+   "runs": [
+    0.7,
+    0.8,
+    0.8,
+    0.8,
+    0.7,
+    0.8,
+    0.7
+   ]
+  },
+  "instantiateMs": {
+   "med": 0.71,
+   "min": 0.68,
+   "max": 0.78,
+   "cvPct": 5.1,
+   "runs": [
+    0.7,
+    0.8,
+    0.7,
+    0.8,
+    0.7,
+    0.7,
+    0.7
+   ]
+  },
+  "memPagesAfterInit": {
+   "med": 17,
+   "min": 17,
+   "max": 17,
+   "cvPct": 0,
+   "runs": [
+    17,
+    17,
+    17,
+    17,
+    17,
+    17,
+    17
+   ]
+  },
+  "rigCtorMs": {
+   "med": 0.99,
+   "min": 0.93,
+   "max": 3.25,
+   "cvPct": 60.2,
+   "runs": [
+    3.2,
+    1.1,
+    1,
+    1,
+    0.9,
+    0.9,
+    1
+   ]
+  },
+  "memPagesAfterRig": {
+   "med": 20,
+   "min": 20,
+   "max": 20,
+   "cvPct": 0,
+   "runs": [
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20
+   ]
+  },
+  "firstUpdateMs": {
+   "med": 1.5,
+   "min": 1.37,
+   "max": 1.67,
+   "cvPct": 6.1,
+   "runs": [
+    1.5,
+    1.7,
+    1.5,
+    1.5,
+    1.4,
+    1.4,
+    1.5
+   ]
+  },
+  "next59UpdatesMs": {
+   "med": 0.54,
+   "min": 0.5,
+   "max": 0.6,
+   "cvPct": 5.5,
+   "runs": [
+    0.5,
+    0.6,
+    0.6,
+    0.5,
+    0.5,
+    0.5,
+    0.6
+   ]
+  }
+ },
+ "loadInApp": {
+  "wasmInitMs": {
+   "med": 45.39,
+   "min": 45.23,
+   "max": 49.1,
+   "cvPct": 3.8,
+   "runs": [
+    45.2,
+    45.4,
+    49.1
+   ]
+  },
+  "importMs": {
+   "js": {
+    "med": 56.44,
+    "min": 51.52,
+    "max": 82.64,
+    "cvPct": 21.5,
+    "runs": [
+     51.5,
+     56.4,
+     82.6
+    ]
+   },
+   "wasm": {
+    "med": 59.07,
+    "min": 58.43,
+    "max": 60.07,
+    "cvPct": 1.1,
+    "runs": [
+     60.1,
+     59.1,
+     58.4
+    ]
+   }
+  }
+ },
+ "memory": {
+  "js": [
+   {
+    "start": {
+     "rssMB": 26.3,
+     "heapUsedMB": 4.46,
+     "externalMB": 1.62,
+     "arrayBuffersMB": 0.03
+    },
+    "afterImportsAndInit": {
+     "rssMB": 38.1,
+     "heapUsedMB": 8.61,
+     "externalMB": 1.86,
+     "arrayBuffersMB": 0.02
+    },
+    "endWithOneTuberLive": {
+     "rssMB": 148.9,
+     "heapUsedMB": 11.72,
+     "externalMB": 7.39,
+     "arrayBuffersMB": 5.74
+    },
+    "wasmPagesEnd": 0,
+    "wasmPagesBeforeLastTuber": 0
+   },
+   {
+    "start": {
+     "rssMB": 26.6,
+     "heapUsedMB": 4.46,
+     "externalMB": 1.62,
+     "arrayBuffersMB": 0.03
+    },
+    "afterImportsAndInit": {
+     "rssMB": 38.1,
+     "heapUsedMB": 8.61,
+     "externalMB": 1.86,
+     "arrayBuffersMB": 0.02
+    },
+    "endWithOneTuberLive": {
+     "rssMB": 146.8,
+     "heapUsedMB": 11.44,
+     "externalMB": 7.39,
+     "arrayBuffersMB": 5.74
+    },
+    "wasmPagesEnd": 0,
+    "wasmPagesBeforeLastTuber": 0
+   },
+   {
+    "start": {
+     "rssMB": 26.6,
+     "heapUsedMB": 4.46,
+     "externalMB": 1.62,
+     "arrayBuffersMB": 0.03
+    },
+    "afterImportsAndInit": {
+     "rssMB": 38.2,
+     "heapUsedMB": 8.61,
+     "externalMB": 1.86,
+     "arrayBuffersMB": 0.02
+    },
+    "endWithOneTuberLive": {
+     "rssMB": 139.8,
+     "heapUsedMB": 11.43,
+     "externalMB": 7.39,
+     "arrayBuffersMB": 5.74
+    },
+    "wasmPagesEnd": 0,
+    "wasmPagesBeforeLastTuber": 0
+   }
+  ],
+  "wasm": [
+   {
+    "start": {
+     "rssMB": 26.6,
+     "heapUsedMB": 4.46,
+     "externalMB": 1.62,
+     "arrayBuffersMB": 0.03
+    },
+    "afterImportsAndInit": {
+     "rssMB": 44.7,
+     "heapUsedMB": 10.56,
+     "externalMB": 4.54,
+     "arrayBuffersMB": 0.21
+    },
+    "endWithOneTuberLive": {
+     "rssMB": 100.1,
+     "heapUsedMB": 14.02,
+     "externalMB": 13.96,
+     "arrayBuffersMB": 5.92
+    },
+    "wasmPagesEnd": 77,
+    "wasmPagesBeforeLastTuber": 74
+   },
+   {
+    "start": {
+     "rssMB": 26.6,
+     "heapUsedMB": 4.46,
+     "externalMB": 1.62,
+     "arrayBuffersMB": 0.03
+    },
+    "afterImportsAndInit": {
+     "rssMB": 44.6,
+     "heapUsedMB": 10.56,
+     "externalMB": 4.54,
+     "arrayBuffersMB": 0.21
+    },
+    "endWithOneTuberLive": {
+     "rssMB": 98.1,
+     "heapUsedMB": 13.76,
+     "externalMB": 13.08,
+     "arrayBuffersMB": 5.92
+    },
+    "wasmPagesEnd": 63,
+    "wasmPagesBeforeLastTuber": 60
+   },
+   {
+    "start": {
+     "rssMB": 26.5,
+     "heapUsedMB": 4.46,
+     "externalMB": 1.62,
+     "arrayBuffersMB": 0.03
+    },
+    "afterImportsAndInit": {
+     "rssMB": 44.7,
+     "heapUsedMB": 10.56,
+     "externalMB": 4.54,
+     "arrayBuffersMB": 0.21
+    },
+    "endWithOneTuberLive": {
+     "rssMB": 95.4,
+     "heapUsedMB": 13.81,
+     "externalMB": 13.08,
+     "arrayBuffersMB": 5.92
+    },
+    "wasmPagesEnd": 63,
+    "wasmPagesBeforeLastTuber": 60
+   }
+  ]
+ }
+}
