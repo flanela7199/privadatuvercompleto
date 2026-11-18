@@ -183,7 +183,8 @@ fn create_avatar(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     let w = builder(app, "avatar", "avatar.html")
         .title("Privada Tuber")
         .transparent(true)
-        .decorations(true)
+        .decorations(false) // borderless: the page has a drag strip + invisible resize edges
+        .shadow(false)
         .resizable(true)
         .skip_taskbar(false)
         .always_on_top(false)
@@ -326,6 +327,7 @@ fn apply_avatar_mode(app: &AppHandle, m: AvatarMode) -> tauri::Result<()> {
     if m.mode == "overlay" {
         let (pos, size, _) = primary_monitor_rect(app);
         w.set_decorations(false)?;
+        w.set_shadow(false)?;
         w.set_resizable(false)?;
         w.set_skip_taskbar(true)?;
         w.set_position(pos)?;
@@ -337,7 +339,8 @@ fn apply_avatar_mode(app: &AppHandle, m: AvatarMode) -> tauri::Result<()> {
         }
     } else {
         w.set_ignore_cursor_events(false)?;
-        w.set_decorations(true)?;
+        w.set_decorations(false)?;
+        w.set_shadow(false)?;
         w.set_resizable(true)?;
         w.set_skip_taskbar(false)?;
         let size = m.width.zip(m.height);
@@ -374,6 +377,51 @@ async fn get_monitor(app: AppHandle) -> MonitorInfo {
 async fn open_control(app: AppHandle) -> Result<bool, String> {
     open_control_window(&app).map_err(|e| e.to_string())?;
     Ok(true)
+}
+
+/// Resize the borderless character window from an edge/corner hit zone of the page.
+/// direction: n s e w ne nw se sw (or north/south/east/west/northEast/... names)
+#[tauri::command]
+async fn start_resize(app: AppHandle, direction: String) -> Result<bool, String> {
+    use tauri_runtime::ResizeDirection as D;
+    let d = match direction.to_ascii_lowercase().replace(['-', '_'], "").as_str() {
+        "n" | "north" | "top" => D::North,
+        "s" | "south" | "bottom" => D::South,
+        "e" | "east" | "right" => D::East,
+        "w" | "west" | "left" => D::West,
+        "ne" | "northeast" | "topright" => D::NorthEast,
+        "nw" | "northwest" | "topleft" => D::NorthWest,
+        "se" | "southeast" | "bottomright" => D::SouthEast,
+        "sw" | "southwest" | "bottomleft" => D::SouthWest,
+        other => return Err(format!("unknown resize direction {other:?}")),
+    };
+    let w = app.get_webview_window("avatar").ok_or("no avatar window")?.as_ref().window();
+    w.start_resize_dragging(d).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Window/webview background behind the page: "transparent" or "#rrggbb" / "#rrggbbaa"
+/// (set it to the scene background so nothing white can ever show around the canvas).
+#[tauri::command]
+async fn set_window_background(app: AppHandle, color: String, label: Option<String>) -> Result<bool, String> {
+    let c = parse_color(&color).ok_or_else(|| format!("bad color {color:?}"))?;
+    let w = app.get_webview_window(label.as_deref().unwrap_or("avatar")).ok_or("no such window")?;
+    w.set_background_color(Some(c)).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+fn parse_color(s: &str) -> Option<Color> {
+    let s = s.trim();
+    if s.eq_ignore_ascii_case("transparent") {
+        return Some(CLEAR);
+    }
+    let h = s.strip_prefix('#')?;
+    let byte = |i: usize| u8::from_str_radix(h.get(i..i + 2)?, 16).ok();
+    match h.len() {
+        6 => Some(Color(byte(0)?, byte(2)?, byte(4)?, 0xff)),
+        8 => Some(Color(byte(0)?, byte(2)?, byte(4)?, byte(6)?)),
+        _ => None,
+    }
 }
 
 /// A page finished building (avatar / control / splash): its window is shown now.
@@ -516,6 +564,8 @@ pub fn run() {
             get_windows,
             show_avatar,
             page_ready,
+            start_resize,
+            set_window_background,
             cache::cache_get,
             cache::cache_put,
             cache::thumb_get,

@@ -85,8 +85,16 @@ function resolveOutfit(id, seen = new Set()) {
   return out;
 }
 
-let outfitId = 'base', outfitKey = '';
-const tuber = new ToiletTuber(themes.base);
+// Warm the persisted Rust meshes of the active outfit BEFORE the first build (geocache by worker geo),
+// then build the character once, directly in the active outfit.
+let geocache = null;
+try { geocache = await import('../rig/geocache.js'); } catch { /* not available: plain build */ }
+const activeId = config.activeOutfit || 'base';
+try { await geocache?.warmOutfit?.(activeId); } catch (e) { console.warn('[avatar] warmOutfit', e); }
+const firstTheme = config.outfitTheme || resolveOutfit(activeId) || themes.base;
+let outfitId = config.outfitTheme ? activeId : resolveOutfit(activeId) ? activeId : 'base';
+let outfitKey = JSON.stringify(firstTheme);
+const tuber = new ToiletTuber(firstTheme);
 scene.add(tuber.root);
 window.tuber = tuber;
 tuber.on((type, d) => {
@@ -170,7 +178,10 @@ function applyScene(i, { save = false } = {}) {
   }
   document.documentElement.style.background = document.body.style.background = solid ? color : 'transparent';
   renderer.setClearColor(solid ? color : 0x000000, solid ? 1 : 0);
+  // native window background matches the page, so nothing white can show around the webview
+  if (!OUTPUT) invoke('set_window_background', { color: solid ? color : 'transparent' }).catch(() => {});
   document.body.classList.toggle('windowed', mode !== 'overlay');
+  document.body.classList.toggle('solidbg', !!solid);
   layout();
   snapSoon();
   if (save) saveSoon();
@@ -380,8 +391,8 @@ const snapSoon = () => { pv.snap = true; };
 
 /* ----------------------------------------- idle preload of other outfits */
 async function preloadOutfits() {
-  let mod = null;
-  try { mod = await import('../rig/geocache.js'); } catch { return; }   // worker "geo" adds it
+  const mod = geocache;
+  if (!mod) return;
   const fn = mod.preload || mod.preloadTheme;
   if (typeof fn !== 'function') return;
   const ids = [...Object.keys(presetRaw), ...Object.keys(themes)].filter((id) => id !== outfitId);
@@ -389,9 +400,10 @@ async function preloadOutfits() {
   const next = () => {
     const id = ids.shift();
     if (!id) return;
-    idle(() => {
-      try { const t = resolveOutfit(id); if (t) fn.call(mod, t); } catch (e) { console.warn('[avatar] preload', id, e); return; }
-      next();
+    idle(async () => {
+      try { const t = resolveOutfit(id); if (t) await fn.call(mod, t); }
+      catch (e) { console.warn('[avatar] preload', id, e); }
+      next();   // one item at a time
     });
   };
   next();
@@ -460,9 +472,29 @@ ticker.onmessage = () => {
   if (document.visibilityState !== 'visible' || now - lastRaf > 100) frame(now);
 };
 
-addEventListener('resize', () => { stage.setSize(innerWidth, innerHeight); layout(); });
+function fitCanvas() {
+  renderer.setPixelRatio(Math.min(devicePixelRatio, config.render?.pixelRatio ?? 1.5));
+  renderer.setSize(innerWidth, innerHeight, false);       // CSS (100vw/100vh) owns the element size
+  stage.composer?.setPixelRatio?.(Math.min(devicePixelRatio, config.render?.pixelRatio ?? 1.5));
+  stage.composer?.setSize?.(innerWidth, innerHeight);
+  layout();
+}
+addEventListener('resize', fitCanvas);
+(function watchDpr() {   // devicePixelRatio changes (moving between monitors with different scaling)
+  const mq = matchMedia(`(resolution: ${devicePixelRatio}dppx)`);
+  mq.addEventListener('change', () => { fitCanvas(); watchDpr(); }, { once: true });
+})();
+// invisible edge/corner zones resize the borderless window (Rust: start_resize)
+for (const z of document.querySelectorAll('.rz')) {
+  z.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || mode === 'overlay' || OUTPUT) return;
+    e.preventDefault();
+    invoke('start_resize', { direction: z.dataset.dir }).catch(() => {});
+  });
+}
 
 loading(0.7, 'montando a privada…');
+fitCanvas();
 applySettings();
 applyConfigOutfit();
 applyScene(config.activeScene);

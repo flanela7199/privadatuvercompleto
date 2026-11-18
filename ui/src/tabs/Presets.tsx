@@ -20,7 +20,7 @@ export function Presets() {
     const active = s.cfg.activeOutfit === id;
     return (
       <div key={`${id}.${gen}`} className={`preset ${active ? 'active' : ''}`}>
-        <Thumb outfit={resolveOutfit(s, id)} title="Clique para usar" onClick={() => applyOutfit(id)} />
+        <Thumb outfit={resolveOutfit(s, id)} icon="🚽" title="Clique para usar" onClick={() => applyOutfit(id)} />
         <div className="nm">{t.name || id}</div>
         <div className="tag">{isMine ? 'meu preset' : s.themes[id] ? 'tema' : 'preset pronto'}{active ? ' · em uso' : ''}</div>
         <div className="btns">

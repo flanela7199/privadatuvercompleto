@@ -5,7 +5,7 @@ POST /audio       body=WAV   -> out/audio.wav
 POST /video       body=MP4   -> out/video.mp4 (WebCodecs fast path)
 POST /done        body=JSON  -> out/done.json, then ffmpeg muxes out/privada_showcase.mp4
 """
-import glob, http.server, json, os, subprocess, sys, urllib.parse
+import glob, http.server, json, os, re, subprocess, sys, urllib.parse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "out")
@@ -50,6 +50,15 @@ class H(http.server.SimpleHTTPRequestHandler):
             path = os.path.join(OUT, "frames", "%05d.jpg" % i)
             if i % 60 == 0:
                 print("frame", i, flush=True)
+        elif u.path == "/thumb":
+            # static thumbnail generator (web/tools/gen-thumbs.html) -> web/thumbs/<path>
+            rel = urllib.parse.parse_qs(u.query)["path"][0].replace("\\", "/")
+            if ".." in rel or rel.startswith("/") or not re.fullmatch(r"[a-z0-9_\-/.]+", rel):
+                self.send_error(400)
+                return
+            path = os.path.join(ROOT, "web", "thumbs", *rel.split("/"))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            print("thumb", rel, len(data), flush=True)
         elif u.path == "/video":
             path = os.path.join(OUT, "video.mp4")
         elif u.path == "/audio":

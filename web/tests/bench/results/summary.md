@@ -4,54 +4,54 @@ machine: 12th Gen Intel(R) Core(TM) i5-1235U (12 threads), node v22.11.0, win32 
 
 | scenario | mode | median | p95 | p99 | mean | +matrixWorld median | +matrixWorld p99 | headroom @60 (median) |
 |---|---|---|---|---|---|---|---|---|
-| idle_talk | js | 115 [102..174] 23.9% | 192 [166..294] 25.5% | 262 [251..431] 26.2% | 122 | 137 | 308 | 122x |
-| idle_talk | wasm | 18 [16..20] 9.5% | 25 [20..33] 21.4% | 47 [40..56] 14% | 19 | 41 | 87 | 410x |
-| flush | js | 115 [113..133] 7.4% | 380 [352..457] 11.2% | 617 [506..710] 13.7% | 210 | 138 | 641 | 121x |
-| flush | wasm | 18 [17..29] 26.3% | 69 [66..121] 29.7% | 73 [69..138] 33.7% | 35 | 40 | 101 | 420x |
-| paper | js | 284 [275..355] 11.7% | 366 [358..565] 22.3% | 570 [565..796] 16.7% | 272 | 306 | 598 | 55x |
-| paper | wasm | 80 [78..95] 9.2% | 133 [105..141] 12.1% | 159 [116..165] 14.8% | 75 | 100 | 204 | 168x |
-| flips | js | 98 [96..126] 12.8% | 142 [115..169] 15.5% | 211 [160..214] 12.8% | 106 | 120 | 251 | 139x |
-| flips | wasm | 16 [14..19] 10.9% | 17 [17..29] 26.3% | 21 [21..35] 24.6% | 16 | 38 | 45 | 443x |
-| all | js | 347 [333..349] 2.1% | 579 [572..602] 2.2% | 967 [889..979] 4.3% | 333 | 370 | 1034 | 45x |
-| all | wasm | 109 [104..118] 5.4% | 214 [172..215] 9.8% | 235 [225..268] 7.5% | 99 | 130 | 281 | 128x |
+| idle_talk | js | 149 [135..185] 13.3% | 239 [231..327] 16.5% | 352 [333..523] 21.2% | 158 | 178 | 395 | 94x |
+| idle_talk | wasm | 26 [20..34] 22% | 53 [26..70] 36.6% | 111 [48..122] 35.1% | 32 | 58 | 214 | 286x |
+| flush | js | 147 [135..351] 47% | 606 [424..1014] 36.2% | 730 [646..1834] 50.6% | 255 | 177 | 784 | 94x |
+| flush | wasm | 39 [19..45] 33% | 138 [74..142] 26.2% | 182 [81..202] 34.2% | 64 | 84 | 246 | 198x |
+| paper | js | 317 [306..555] 29.3% | 514 [407..999] 40.3% | 791 [650..1608] 41.6% | 317 | 341 | 844 | 49x |
+| paper | wasm | 114 [89..119] 12.5% | 181 [142..191] 12.3% | 235 [202..289] 14.8% | 113 | 147 | 304 | 113x |
+| flips | js | 144 [118..292] 41.4% | 253 [147..401] 39% | 341 [175..632] 49.3% | 159 | 172 | 416 | 97x |
+| flips | wasm | 24 [16..33] 28.1% | 44 [18..49] 36% | 68 [28..78] 37.5% | 28 | 58 | 127 | 289x |
+| all | js | 609 [347..1064] 44% | 1485 [562..2174] 46.9% | 2720 [953..3565] 45.1% | 687 | 656 | 2971 | 25x |
+| all | wasm | 146 [98..147] 17.4% | 218 [145..230] 18.9% | 244 [155..287] 24% | 130 | 178 | 294 | 94x |
 
 ### speedup JS/wasm (tb.update median; p99)
 
 | scenario | median speedup | p99 speedup | Rust compute only (median / p99 us) | flush spew window median js / wasm |
 |---|---|---|---|---|
-| idle_talk | 6.34x | 5.59x | 7.3 / 10 | - |
-| flush | 6.59x | 8.44x | 8.8 / 61 | 347 / 61 |
-| paper | 3.57x | 3.60x | 66 / 113 | - |
-| flips | 6.19x | 9.92x | 6.5 / 7.6 | - |
-| all | 3.19x | 4.11x | 102 / 178 | 446 / 136 |
+| idle_talk | 5.79x | 3.19x | 11 / 26 | - |
+| flush | 3.74x | 4.00x | 18 / 139 | 407 / 102 |
+| paper | 2.77x | 3.37x | 87 / 170 | - |
+| flips | 6.03x | 5.00x | 11 / 13 | - |
+| all | 4.19x | 11.14x | 125 / 214 | 811 / 189 |
 
 ### breakdown (instrumented pass, exclusive us/frame, median of runs)
 
-- idle_talk js: total=116.39, three_normals_stream=0, three_normals_paper=37.15, js_water_fx=2.14, js_paper_fx=11.32, js_lid_collision=17.73, js_matrix_world_anchor=43.41, js_accessories=1.4, js_springs_actions_rest=3.24
-- idle_talk wasm: total=16.91, three_normals_stream=0, three_normals_paper=2.55, rust_compute=7.46, js_accessories=1.39, js_apply_pose_buffers_rest=5.58
-- flush js: total=241.53, three_normals_stream=60.33, three_normals_paper=40.08, js_water_fx=27.4, js_paper_fx=12.73, js_lid_collision=45.85, js_matrix_world_anchor=48.17, js_accessories=1.61, js_springs_actions_rest=6.87
-- flush wasm: total=38.44, three_normals_stream=0, three_normals_paper=2.44, rust_compute=27.59, js_accessories=1.43, js_apply_pose_buffers_rest=7.12
-- paper js: total=271.12, three_normals_stream=0, three_normals_paper=52.71, js_water_fx=3.18, js_paper_fx=148.8, js_lid_collision=14.83, js_matrix_world_anchor=44.58, js_accessories=1.49, js_springs_actions_rest=6.68
-- paper wasm: total=68.05, three_normals_stream=0, three_normals_paper=3.26, rust_compute=57.94, js_accessories=1.2, js_apply_pose_buffers_rest=5.76
-- flips js: total=117.81, three_normals_stream=0, three_normals_paper=36.37, js_water_fx=2.25, js_paper_fx=12.41, js_lid_collision=15.03, js_matrix_world_anchor=47.46, js_accessories=1.6, js_springs_actions_rest=10.47
-- flips wasm: total=17.73, three_normals_stream=0, three_normals_paper=2.23, rust_compute=7.43, js_accessories=1.33, js_apply_pose_buffers_rest=6.65
-- all js: total=344.87, three_normals_stream=55.78, three_normals_paper=52.63, js_water_fx=26.57, js_paper_fx=134.75, js_lid_collision=18.98, js_matrix_world_anchor=47.72, js_accessories=1.63, js_springs_actions_rest=7.67
-- all wasm: total=120.86, three_normals_stream=0, three_normals_paper=5.51, rust_compute=99.17, js_accessories=2.45, js_apply_pose_buffers_rest=13.73
+- idle_talk js: total=166.4, three_normals_stream=0, three_normals_paper=62.76, js_water_fx=2.87, js_paper_fx=14.63, js_lid_collision=23.49, js_matrix_world_anchor=56.56, js_accessories=1.82, js_springs_actions_rest=4.27
+- idle_talk wasm: total=36.8, three_normals_stream=0, three_normals_paper=6.94, rust_compute=14.32, js_accessories=3.36, js_apply_pose_buffers_rest=12.18
+- flush js: total=272.51, three_normals_stream=68.15, three_normals_paper=45.83, js_water_fx=30.13, js_paper_fx=14.11, js_lid_collision=55.82, js_matrix_world_anchor=54.04, js_accessories=1.74, js_springs_actions_rest=11.47
+- flush wasm: total=59.45, three_normals_stream=0, three_normals_paper=4.11, rust_compute=41.26, js_accessories=2.42, js_apply_pose_buffers_rest=10.81
+- paper js: total=313.83, three_normals_stream=0, three_normals_paper=61.18, js_water_fx=4.31, js_paper_fx=173.13, js_lid_collision=19.64, js_matrix_world_anchor=54.14, js_accessories=1.96, js_springs_actions_rest=8.61
+- paper wasm: total=105.69, three_normals_stream=0, three_normals_paper=5.26, rust_compute=87.91, js_accessories=2.14, js_apply_pose_buffers_rest=10.38
+- flips js: total=183.01, three_normals_stream=0, three_normals_paper=52.85, js_water_fx=5.66, js_paper_fx=17.75, js_lid_collision=22.97, js_matrix_world_anchor=68.03, js_accessories=2.59, js_springs_actions_rest=13.72
+- flips wasm: total=26.95, three_normals_stream=0, three_normals_paper=3.97, rust_compute=10.82, js_accessories=2.04, js_apply_pose_buffers_rest=10.11
+- all js: total=646.61, three_normals_stream=88.35, three_normals_paper=90.67, js_water_fx=50.99, js_paper_fx=226.54, js_lid_collision=36.26, js_matrix_world_anchor=113.88, js_accessories=5.6, js_springs_actions_rest=34.32
+- all wasm: total=128.4, three_normals_stream=0, three_normals_paper=6, rust_compute=107.71, js_accessories=2.43, js_apply_pose_buffers_rest=12.26
 
 ### allocation / GC (median of runs)
 
 | scenario | mode | bytes/frame | KB/s @60 | scavenges | major GC | GC us/frame |
 |---|---|---|---|---|---|---|
-| idle_talk | js | 37049 | 2170.8 | 8 | 0 | 0.622 |
-| idle_talk | wasm | 7903 | 463.1 | 1 | 0 | 0.076 |
-| flush | js | 103680 | 6075 | 24 | 0 | 1.667 |
-| flush | wasm | 8274 | 484.8 | 1 | 0 | 0.077 |
-| paper | js | 347016 | 20333 | 73 | 4 | 6.389 |
-| paper | wasm | 10440 | 611.7 | 2 | 0 | 0.147 |
-| flips | js | 38406 | 2250.4 | 8 | 0 | 0.544 |
-| flips | wasm | 7889 | 462.2 | 1 | 0 | 0.095 |
-| all | js | 370182 | 21690.4 | 80 | 4 | 6.927 |
-| all | wasm | 10016 | 586.9 | 2 | 0 | 0.178 |
+| idle_talk | js | 38783 | 2272.5 | 8 | 0 | 0.667 |
+| idle_talk | wasm | 7872 | 461.3 | 1 | 0 | 0.134 |
+| flush | js | 101846 | 5967.5 | 24 | 0 | 1.638 |
+| flush | wasm | 8080 | 473.4 | 1 | 0 | 0.167 |
+| paper | js | 345188 | 20225.8 | 72 | 4 | 11.335 |
+| paper | wasm | 10068 | 589.9 | 2 | 0 | 0.202 |
+| flips | js | 38433 | 2251.9 | 8 | 0 | 1.346 |
+| flips | wasm | 7847 | 459.8 | 1 | 0 | 0.098 |
+| all | js | 368058 | 21565.9 | 79 | 4 | 15.982 |
+| all | wasm | 9907 | 580.5 | 2 | 0 | 0.157 |
 
 ### correctness (run 0 traces; r = Pearson correlation js vs wasm)
 
@@ -63,16 +63,16 @@ machine: 12th Gen Intel(R) Core(TM) i5-1235U (12 threads), node v22.11.0, win32 
 
 ### load
 
-{"wasm":137355,"wasmGzip":54951,"wasmBrotli":47132,"glue":14214,"glueGzip":3351}
-readMs: med 0.19 [0.17..0.21]
-wasmBytes: med 137355 [137355..137355]
-glueImportMs: med 1.51 [1.39..1.99]
-compileMs: med 0.75 [0.67..0.85]
-instantiateMs: med 0.71 [0.68..0.78]
+{"wasm":136465,"wasmGzip":55629,"wasmBrotli":46882,"glue":14214,"glueGzip":3351}
+readMs: med 0.25 [0.22..0.34]
+wasmBytes: med 136465 [136465..136465]
+glueImportMs: med 2.5 [2.25..2.93]
+compileMs: med 1.13 [0.93..1.28]
+instantiateMs: med 1 [0.83..1.22]
 memPagesAfterInit: med 17 [17..17]
-rigCtorMs: med 0.99 [0.93..3.25]
+rigCtorMs: med 1.22 [1.15..1.72]
 memPagesAfterRig: med 20 [20..20]
-firstUpdateMs: med 1.5 [1.37..1.67]
-next59UpdatesMs: med 0.54 [0.5..0.6]
-in-app wasm init (compile+instantiate, warm process): {"wasmInitMs":{"med":45.39,"min":45.23,"max":49.1,"cvPct":3.8,"runs":[45.2,45.4,49.1]},"importMs":{"js":{"med":56.44,"min":51.52,"max":82.64,"cvPct":21.5,"runs":[51.5,56.4,82.6]},"wasm":{"med":59.07,"min":58.43,"max":60.07,"cvPct":1.1,"runs":[60.1,59.1,58.4]}}}
-memory: {"js":[{"start":{"rssMB":26.3,"heapUsedMB":4.46,"externalMB":1.62,"arrayBuffersMB":0.03},"afterImportsAndInit":{"rssMB":38.1,"heapUsedMB":8.61,"externalMB":1.86,"arrayBuffersMB":0.02},"endWithOneTuberLive":{"rssMB":148.9,"heapUsedMB":11.72,"externalMB":7.39,"arrayBuffersMB":5.74},"wasmPagesEnd":0,"wasmPagesBeforeLastTuber":0},{"start":{"rssMB":26.6,"heapUsedMB":4.46,"externalMB":1.62,"arrayBuffersMB":0.03},"afterImportsAndInit":{"rssMB":38.1,"heapUsedMB":8.61,"externalMB":1.86,"arrayBuffersMB":0.02},"endWithOneTuberLive":{"rssMB":146.8,"heapUsedMB":11.44,"externalMB":7.39,"arrayBuffersMB":5.74},"wasmPagesEnd":0,"wasmPagesBeforeLastTuber":0},{"start":{"rssMB":26.6,"heapUsedMB":4.46,"externalMB":1.62,"arrayBuffersMB":0.03},"afterImportsAndInit":{"rssMB":38.2,"heapUsedMB":8.61,"externalMB":1.86,"arrayBuffersMB":0.02},"endWithOneTuberLive":{"rssMB":139.8,"heapUsedMB":11.43,"externalMB":7.39,"arrayBuffersMB":5.74},"wasmPagesEnd":0,"wasmPagesBeforeLastTuber":0}],"wasm":[{"start":{"rssMB":26.6,"heapUsedMB":4.46,"externalMB":1.62,"arrayBuffersMB":0.03},"afterImportsAndInit":{"rssMB":44.7,"heapUsedMB":10.56,"externalMB":4.54,"arrayBuffersMB":0.21},"endWithOneTuberLive":{"rssMB":100.1,"heapUsedMB":14.02,"externalMB":13.96,"arrayBuffersMB":5.92},"wasmPagesEnd":77,"wasmPagesBeforeLastTuber":74},{"start":{"rssMB":26.6,"heapUsedMB":4.46,"externalMB":1.62,"arrayBuffersMB":0.03},"afterImportsAndInit":{"rssMB":44.6,"heapUsedMB":10.56,"externalMB":4.54,"arrayBuffersMB":0.21},"endWithOneTuberLive":{"rssMB":98.1,"heapUsedMB":13.76,"externalMB":13.08,"arrayBuffersMB":5.92},"wasmPagesEnd":63,"wasmPagesBeforeLastTuber":60},{"start":{"rssMB":26.5,"heapUsedMB":4.46,"externalMB":1.62,"arrayBuffersMB":0.03},"afterImportsAndInit":{"rssMB":44.7,"heapUsedMB":10.56,"externalMB":4.54,"arrayBuffersMB":0.21},"endWithOneTuberLive":{"rssMB":95.4,"heapUsedMB":13.81,"externalMB":13.08,"arrayBuffersMB":5.92},"wasmPagesEnd":63,"wasmPagesBeforeLastTuber":60}]}
+firstUpdateMs: med 1.75 [1.69..2.33]
+next59UpdatesMs: med 0.71 [0.66..0.77]
+in-app wasm init (compile+instantiate, warm process): {"wasmInitMs":{"med":73.81,"min":56.6,"max":174.61,"cvPct":51.2,"runs":[174.6,73.8,56.6]},"importMs":{"js":{"med":67.29,"min":65.95,"max":92.12,"cvPct":16,"runs":[65.9,92.1,67.3]},"wasm":{"med":110.65,"min":67.83,"max":273.09,"cvPct":58.7,"runs":[273.1,110.6,67.8]}}}
+memory: {"js":[{"start":{"rssMB":26.5,"heapUsedMB":4.46,"externalMB":1.62,"arrayBuffersMB":0.03},"afterImportsAndInit":{"rssMB":37.9,"heapUsedMB":8.61,"externalMB":1.86,"arrayBuffersMB":0.02},"endWithOneTuberLive":{"rssMB":149.4,"heapUsedMB":11.72,"externalMB":7.39,"arrayBuffersMB":5.74},"wasmPagesEnd":0,"wasmPagesBeforeLastTuber":0},{"start":{"rssMB":26.6,"heapUsedMB":4.46,"externalMB":1.62,"arrayBuffersMB":0.03},"afterImportsAndInit":{"rssMB":37.9,"heapUsedMB":8.61,"externalMB":1.86,"arrayBuffersMB":0.02},"endWithOneTuberLive":{"rssMB":146,"heapUsedMB":11.43,"externalMB":7.39,"arrayBuffersMB":5.74},"wasmPagesEnd":0,"wasmPagesBeforeLastTuber":0},{"start":{"rssMB":26.6,"heapUsedMB":4.46,"externalMB":1.62,"arrayBuffersMB":0.03},"afterImportsAndInit":{"rssMB":37.9,"heapUsedMB":8.61,"externalMB":1.86,"arrayBuffersMB":0.02},"endWithOneTuberLive":{"rssMB":147.5,"heapUsedMB":11.46,"externalMB":7.39,"arrayBuffersMB":5.74},"wasmPagesEnd":0,"wasmPagesBeforeLastTuber":0}],"wasm":[{"start":{"rssMB":26.5,"heapUsedMB":4.46,"externalMB":1.62,"arrayBuffersMB":0.03},"afterImportsAndInit":{"rssMB":44.7,"heapUsedMB":10.56,"externalMB":4.54,"arrayBuffersMB":0.21},"endWithOneTuberLive":{"rssMB":101.4,"heapUsedMB":14.04,"externalMB":13.96,"arrayBuffersMB":5.92},"wasmPagesEnd":77,"wasmPagesBeforeLastTuber":74},{"start":{"rssMB":35.2,"heapUsedMB":4.46,"externalMB":1.62,"arrayBuffersMB":0.03},"afterImportsAndInit":{"rssMB":48,"heapUsedMB":10.56,"externalMB":4.54,"arrayBuffersMB":0.21},"endWithOneTuberLive":{"rssMB":102.4,"heapUsedMB":13.78,"externalMB":13.08,"arrayBuffersMB":5.92},"wasmPagesEnd":63,"wasmPagesBeforeLastTuber":60},{"start":{"rssMB":26.6,"heapUsedMB":4.46,"externalMB":1.62,"arrayBuffersMB":0.03},"afterImportsAndInit":{"rssMB":45.2,"heapUsedMB":10.56,"externalMB":4.54,"arrayBuffersMB":0.21},"endWithOneTuberLive":{"rssMB":96.6,"heapUsedMB":13.78,"externalMB":13.08,"arrayBuffersMB":5.92},"wasmPagesEnd":63,"wasmPagesBeforeLastTuber":60}]}

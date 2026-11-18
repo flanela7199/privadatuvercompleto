@@ -3,6 +3,10 @@ import { Tabs } from './components/Tabs';
 import { live, useLiveTick, useStore } from './state/config';
 import { invoke, isTauri, emit } from './lib/bridge';
 import { Button } from './components/Button';
+import { ThumbChip } from './components/ThumbChip';
+import { prerenderAll } from './lib/thumbs';
+import { listAccessories } from './lib/legacy';
+import { resolveOutfit } from './state/config';
 import { Visual } from './tabs/Visual';
 import { Presets } from './tabs/Presets';
 import { Cenas } from './tabs/Cenas';
@@ -32,12 +36,19 @@ function Status() {
 export function App() {
   const { s } = useStore();
   const [tab, setTab] = React.useState('visual');
+  const tabRef = React.useRef(tab);
+  tabRef.current = tab;
   // Tell the app the panel is interactive right after its first real paint (not after thumbnails).
   React.useEffect(() => {
     if (!s.ready) return;
     requestAnimationFrame(() => requestAnimationFrame(() => {
       emit('loading', { progress: 0.6, text: 'painel pronto' });
       invoke('page_ready', { label: 'control' }).catch(() => {});
+      // eager background pre-render of every preset + accessory thumbnail (disk-cached)
+      const ids = [...Object.keys(s.cfg.outfits || {}), ...Object.keys(s.themes), ...Object.keys(s.presets)];
+      const outfits = [...new Set(ids)].map((id) => resolveOutfit(s, id));
+      const acc = (listAccessories() as string[]).filter((id) => id !== 'glb');
+      setTimeout(() => prerenderAll(outfits, acc, s.themes.base, tabRef.current === 'visual' ? 'accessories' : 'presets'), 200);
     }));
   }, [s.ready]);
   if (!s.ready) return <div style={{ padding: 24 }} className="mut">Carregando o Privada Tuber…</div>;
@@ -47,6 +58,7 @@ export function App() {
         <div className="logo">🚽 Privada Tuber</div>
         <Tabs tabs={TABS} value={tab} onChange={setTab} />
         <div className="grow" />
+        <ThumbChip />
         <Button kind="primary" tip="Abre/traz para frente a janela do personagem" onClick={() => invoke('show_avatar').catch(() => {})}>🚽 Mostrar personagem</Button>
         <Status />
       </header>

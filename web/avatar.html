@@ -5,20 +5,37 @@
 <title>Privada Tuber — avatar</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; user-select: none; -webkit-user-select: none; }
-  canvas { display: block; outline: none; }
-  /* window mode: invisible 24px drag strip on top (Tauri drag region), subtle handle on hover */
-  #drag { position: fixed; left: 0; right: 0; top: 0; height: 24px; z-index: 10; display: none; cursor: move; }
+  /* No gaps anywhere (OBS showed white lines top/bottom): full-bleed, background = scene bg (transparent until applied) */
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; user-select: none; -webkit-user-select: none; }
+  canvas { display: block; position: fixed; inset: 0; width: 100vw !important; height: 100vh !important; outline: none; border: 0; }
+  /* window mode: transparent drag strip overlay (no layout space); tiny pill only on hover, never on solid/chroma bg */
+  #drag { position: fixed; left: 12px; right: 12px; top: 0; height: 24px; z-index: 10; display: none; cursor: move; background: none; border: 0; }
   body.windowed #drag { display: block; }
-  #drag span { position: absolute; left: 50%; top: 8px; width: 64px; height: 6px; margin-left: -32px; border-radius: 3px;
-               background: rgba(255,255,255,.55); box-shadow: 0 0 0 1px rgba(0,0,0,.25); opacity: 0; transition: opacity .2s; }
-  #drag:hover span { opacity: 1; }
+  #drag span { position: absolute; left: 50%; top: 9px; width: 44px; height: 5px; margin-left: -22px; border-radius: 3px;
+               background: rgba(255,255,255,.35); opacity: 0; transition: opacity .2s; pointer-events: none; }
+  body.windowed:not(.solidbg) #drag:hover span { opacity: 1; }
+  body.solidbg #drag span { display: none; }
+  /* invisible 6px resize edges/corners (borderless window) */
+  .rz { position: fixed; z-index: 11; display: none; background: none; }
+  body.windowed .rz { display: block; }
+  .rz[data-dir=North] { top: 0; left: 12px; right: 12px; height: 6px; cursor: ns-resize; }
+  .rz[data-dir=South] { bottom: 0; left: 12px; right: 12px; height: 6px; cursor: ns-resize; }
+  .rz[data-dir=West] { left: 0; top: 12px; bottom: 12px; width: 6px; cursor: ew-resize; }
+  .rz[data-dir=East] { right: 0; top: 12px; bottom: 12px; width: 6px; cursor: ew-resize; }
+  .rz[data-dir=NorthWest] { top: 0; left: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+  .rz[data-dir=SouthEast] { bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+  .rz[data-dir=NorthEast] { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+  .rz[data-dir=SouthWest] { bottom: 0; left: 0; width: 12px; height: 12px; cursor: nesw-resize; }
 </style>
 <script type="importmap">
 { "imports": { "three": "./vendor/three/three.module.js", "three/addons/": "./vendor/three/addons/" } }
 </script>
 </head>
 <body class="windowed">
+<div class="rz" data-dir="North"></div><div class="rz" data-dir="South"></div>
+<div class="rz" data-dir="West"></div><div class="rz" data-dir="East"></div>
+<div class="rz" data-dir="NorthWest"></div><div class="rz" data-dir="NorthEast"></div>
+<div class="rz" data-dir="SouthWest"></div><div class="rz" data-dir="SouthEast"></div>
 <script type="module" src="./src/app/avatar.js"></script>
 </body>
 </html>

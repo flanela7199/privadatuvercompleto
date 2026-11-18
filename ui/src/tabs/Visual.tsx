@@ -10,7 +10,7 @@ import { Slider } from '../components/Slider';
 import { ColorField } from '../components/ColorField';
 import { Field, Fields } from '../components/Section';
 import { EmptyState } from '../components/EmptyState';
-import { Thumb } from '../components/Thumb';
+import { Thumb, CATEGORY_ICON } from '../components/Thumb';
 import { useToast } from '../components/Toast';
 
 type Sel = { slot: string; index: number } | null;
@@ -108,7 +108,7 @@ export function Visual({ active }: { active: boolean }) {
             {ids.map((id) => (
               <div key={id} className={`acc-card ${worn.has(id) ? 'worn' : ''}`} title={`${accInfo(id).name} · ${SOCKETS[accInfo(id).socket] || accInfo(id).socket}`} onClick={() => equip(id)}>
                 {worn.has(id) && <div className="badge">✔</div>}
-                <Thumb acc={id} theme={base} />
+                <Thumb acc={id} theme={base} icon={CATEGORY_ICON[accInfo(id).category] || '📦'} />
                 <div className="nm">{accInfo(id).name}</div>
               </div>
             ))}
@@ -127,7 +127,7 @@ export function Visual({ active }: { active: boolean }) {
               {entries.map(({ slot, index, e }) => (
                 <div key={`${slot}.${index}`} className={`row ${sel && sel.slot === slot && sel.index === index ? 'sel' : ''}`}
                   onClick={(ev) => { if (!(ev.target as HTMLElement).closest('select,button')) setSel({ slot, index }); }}>
-                  {e.id === 'glb' ? <span className="ph">📦</span> : <Thumb acc={e.id} theme={base} className="ph" />}
+                  {e.id === 'glb' ? <span className="ph">📦</span> : <Thumb acc={e.id} theme={base} className="ph" icon={CATEGORY_ICON[accInfo(e.id).category] || '📦'} />}
                   <span className="nm" title={e.id}>{e.hidden ? '🚫 ' : ''}{e.params?.name || accInfo(e.id).name}</span>
                   <Select value={slot} options={SOCKET_OPTS} tip="Mudar de lugar" onChange={(to) => {
                     let ni = 0;

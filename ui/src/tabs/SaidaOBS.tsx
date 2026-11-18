@@ -49,10 +49,17 @@ export function SaidaOBS() {
         </Fields>
         {sc.mode !== 'window' && <div style={{ marginTop: 12 }}><Note kind="warn">Esta cena está no modo <b>Sobre o desktop</b>. Para capturar no OBS é melhor <b>Janela própria</b> (aba Cenas).</Note></div>}
       </Section>
+      <Note kind="warn">
+        <div className="big">
+          ⚠ <b>Importante no OBS:</b> use <b>Captura de janela</b> com o método <b>“Windows 10 (1903 e posteriores)”</b>.
+          O método <b>“Windows 7 (BitBlt)”</b> mostra a janela <b>preta</b>, porque a privada é desenhada pela placa de vídeo.
+          Para fundo transparente de verdade use <b>Captura de jogo</b> com <b>“Permitir transparência”</b>.
+        </div>
+      </Note>
       <Section title="Como colocar no OBS">
         <ol className="steps">
           <li>Clique em <b>Mostrar personagem</b> (a janela pode ficar atrás de outras, o OBS continua capturando).</li>
-          <li>No OBS: <b>Fontes → + → Captura de janela</b> e escolha <b>Privada Tuber</b>. Método de captura: <b>Windows 10 (1903+)</b>.</li>
+          <li>No OBS: <b>Fontes → + → Captura de janela</b>, escolha a janela <b>Privada Tuber</b> e em <b>Método de captura</b> selecione <b>Windows 10 (1903 e posteriores)</b> — não use BitBlt.</li>
           <li>Com fundo <b>Chroma verde</b>: botão direito na fonte → <b>Filtros → + Chroma Key</b> (cor verde).</li>
           <li>Com fundo <b>Transparente</b>: use <b>Captura de jogo</b> com <b>Permitir transparência</b>; se aparecer preto, volte para o Chroma verde.</li>
         </ol>

@@ -15,6 +15,18 @@ export async function invoke(cmd, args = {}) {
   return browserInvoke(cmd, args);
 }
 
+/**
+ * Raw-bytes command (no JSON): body is a Uint8Array/ArrayBuffer, extra data goes in headers.
+ * Used for the binary caches: invokeRaw('thumb_put', bytes, { 'x-key': key }).
+ * Reads (thumb_get / cache_get) use normal invoke(cmd, { key }) and return an ArrayBuffer
+ * (EMPTY = miss). Browser fallback: IndexedDB.
+ */
+export async function invokeRaw(cmd, bytes, headers = {}) {
+  if (isTauri) return T.core.invoke(cmd, bytes, { headers });
+  if (cmd === 'thumb_put' || cmd === 'cache_put') { await idb('put', `${cmd.slice(0, -4)}:${headers['x-key']}`, bytes); return true; }
+  return true;
+}
+
 /** listen(event, cb) -> unlisten() ; cb receives the payload */
 export function listen(event, cb) {
   if (isTauri) {
@@ -50,8 +62,27 @@ async function browserInvoke(cmd, args) {
     case 'audio_devices': return ['(navegador) microfone padrão'];
     case 'get_monitor': return { x: 0, y: 0, width: innerWidth * devicePixelRatio, height: innerHeight * devicePixelRatio, scale: devicePixelRatio };
     case 'open_control': window.open('control.html', 'privada-control'); return true;
+    case 'thumb_get': case 'cache_get': return (await idb('get', `${cmd.slice(0, -4)}:${args.key}`)) || new ArrayBuffer(0);
     default: return true; // set_hit_rect, set_click_through, set_avatar_mode, set_audio, quit
   }
+}
+
+// tiny IndexedDB key/value store for the browser fallback of the binary caches
+let dbp = null;
+function idb(op, key, value) {
+  dbp ||= new Promise((res, rej) => {
+    const r = indexedDB.open('privada-cache', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+  return dbp.then((db) => new Promise((res, rej) => {
+    const tx = db.transaction('kv', op === 'get' ? 'readonly' : 'readwrite');
+    const st = tx.objectStore('kv');
+    const rq = op === 'get' ? st.get(key) : st.put(value instanceof ArrayBuffer ? value : value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength), key);
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  })).catch(() => null);
 }
 
 // browser: synthesize the global cursor from the page pointer (physical px like Rust)

@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { Spring } from '../anim/spring.js';
 import { taperedTube, starShape } from '../rig/geo.js';
+import { getMesh, rustMustache, rustRoundedBox } from '../rig/geocache.js';
 
 const REGISTRY = new Map();
 export const registerAccessory = (id, build) => REGISTRY.set(id, build);
@@ -270,7 +271,8 @@ registerAccessory('crown', ({ mats }, p) => {
   const H = 0.06 + (p.spike ?? 0.085);             // total height to the tip
   const band = p.band ?? 0.055;
   const gold = mats.get('gold');
-  const { geo, flare } = crownShell(R, H, band, n);
+  const flare = (y) => R * (0.94 + 0.06 * (y / H));
+  const geo = getMesh('crown_shell', { R, H, band, n }) ?? crownShell(R, H, band, n).geo; // Rust build / cache
   const shell = new THREE.Mesh(geo, gold);
   shell.name = 'crown_shell';
   inner.add(shell);
@@ -407,7 +409,8 @@ function bowlSurface(dim) {
   };
 }
 
-function mustacheHalves(ctx, spec, p) {
+function mustacheHalves(ctx, spec, p, id) {
+  const rs = (part, side) => (spec.rust === false ? null : rustMustache(id, p, ctx.dim, part, side)); // Rust build / cache
   const { mats } = ctx;
   const surf = bowlSurface(ctx.dim);
   const L = p.length ?? 1, Th = p.thickness ?? 1;
@@ -448,9 +451,10 @@ function mustacheHalves(ctx, spec, p) {
     });
     const half = new THREE.Group();
     half.name = side > 0 ? 'mustache_R' : 'mustache_L';
-    half.add(new THREE.Mesh(trim(taperedTube(pts, (t) => radius(t) * 0.78, 96, 12)), core));
-    const curve = new THREE.CatmullRomCurve3(pts.map((q) => new THREE.Vector3(...q)));
-    const hair = new THREE.Mesh(hairStrands(curve, radius, { ...spec.hair, trimY: spec.trimY, seed: (spec.hair?.seed ?? 11) + si * 101 }), mat);
+    half.add(new THREE.Mesh(rs('core', side) ?? trim(taperedTube(pts, (t) => radius(t) * 0.78, 96, 12)), core));
+    const hairGeo = rs('hair', side) ?? hairStrands(new THREE.CatmullRomCurve3(pts.map((q) => new THREE.Vector3(...q))), radius,
+      { ...spec.hair, trimY: spec.trimY, seed: (spec.hair?.seed ?? 11) + si * 101 });
+    const hair = new THREE.Mesh(hairGeo, mat);
     hair.name = 'mustache_hair';
     half.add(hair);
     halves.push(half);
@@ -462,7 +466,7 @@ function mustacheHalves(ctx, spec, p) {
   g.add(knot);
   // short hairs over the centre so the join is not a bald blob
   const mid = new THREE.CatmullRomCurve3([-0.03, 0, 0.03].map((x) => new THREE.Vector3(x, x ? 0 : -0.002, zOf(Math.abs(x), 0, kr))));
-  g.add(new THREE.Mesh(hairStrands(mid, () => kr * 0.95, {
+  g.add(new THREE.Mesh(rs('mid', 1) ?? hairStrands(mid, () => kr * 0.95, {
     count: spec.mid ?? 220, seg: 6, start: [0, 0.4], len: [0.4, 0.7], twist: 0.3,
     thick: spec.hair?.thick ?? 0.0018, trimY: spec.trimY, seed: 5,
   }), mat));
@@ -483,7 +487,7 @@ function mustacheUpdate(g, halves, amount) {
 export function registerMustache(id, spec) {
   if (!MUSTACHE_IDS.includes(id)) MUSTACHE_IDS.push(id);
   registerAccessory(id, (ctx, p) => {
-    const { g, halves } = mustacheHalves(ctx, spec, p);
+    const { g, halves } = mustacheHalves(ctx, spec, p, id);
     g.scale.setScalar(p.scale ?? 1);
     mustacheUpdate(g, halves, spec.amount ?? 0.15);
     return g;
@@ -617,10 +621,11 @@ registerAccessory('ushanka', ({ mats }, p) => {
   g.add(button);
 
   // fur band all around + upturned front flap
-  const band = furShells(new RoundedBoxGeometry(0.56, 0.1, 0.47, 5, 0.045), fur, fo);
+  const rbox = (w, h, d, s, r) => rustRoundedBox(w, h, d, s, r) ?? new RoundedBoxGeometry(w, h, d, s, r);
+  const band = furShells(rbox(0.56, 0.1, 0.47, 5, 0.045), fur, fo);
   band.position.y = 0.05;
   g.add(band);
-  const flap = furShells(new RoundedBoxGeometry(0.4, 0.17, 0.06, 5, 0.028), fur, fo);
+  const flap = furShells(rbox(0.4, 0.17, 0.06, 5, 0.028), fur, fo);
   flap.position.set(0, 0.15, 0.22); flap.rotation.x = -0.25;
   g.add(flap);
   const star = enamelStar(mats, 0.04);
@@ -632,7 +637,7 @@ registerAccessory('ushanka', ({ mats }, p) => {
   for (const s of [1, -1]) {
     const piv = new THREE.Group();
     piv.position.set(0.265 * s, 0.07, 0);
-    const ear = furShells(new RoundedBoxGeometry(0.06, 0.22, 0.2, 5, 0.028), fur, { ...fo, length: fo.length * 0.8 });
+    const ear = furShells(rbox(0.06, 0.22, 0.2, 5, 0.028), fur, { ...fo, length: fo.length * 0.8 });
     ear.position.y = -0.1;
     piv.add(ear);
     piv.rotation.z = 0.12 * s;

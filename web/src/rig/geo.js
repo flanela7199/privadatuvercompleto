@@ -1,5 +1,6 @@
 // Geometry helpers shared by the rig and accessories.
 import * as THREE from 'three';
+import { getMesh } from './geocache.js';
 
 /** Tube along a Catmull-Rom curve whose radius varies with t in [0,1]. */
 export function taperedTube(points, radiusFn, tubular = 64, radial = 12) {
@@ -210,6 +211,9 @@ export function eggify(geo, k = 0.1) {
  * lets the lid bend smoothly like a lip when skinned.
  */
 export function eggRevolve(rx, rz, k, profile, seg = 128) {
+  // Rust build / mesh cache (null -> JS below). Tagged profiles give a compact cache key.
+  const rust = getMesh('egg_revolve', { rx, rz, k, seg, profile: profile.__geo ?? profile });
+  if (rust) return rust;
   const pos = [], uv = [], idx = [];
   const np = profile.length;
   for (let i = 0; i <= seg; i++) {
@@ -247,7 +251,7 @@ export function lidProfile(rx, depth, dome, e) {
     p.push([1 - se + se * Math.cos(a), depth / 2 + (depth / 2) * Math.sin(a)]);
   }
   for (let i = 1; i <= 10; i++) p.push([(1 - se) * (1 - i / 10), 0]); // underside back to center
-  return p;
+  return Object.defineProperty(p, '__geo', { value: { lid: [rx, depth, dome, e] } });
 }
 
 /** Seat cross-section: soft rounded ring between s0 (hole) and 1 (outer). */
@@ -264,5 +268,5 @@ export function seatProfile(rx, s0, h) {
     const s = (s0 + 1) / 2 + ((1 - s0) / 2) * Math.cos(a);
     p.push([s, h * 0.35 - h * 0.35 * Math.sin(a)]);
   }
-  return p;
+  return Object.defineProperty(p, '__geo', { value: { seat: [rx, s0, h] } });
 }

@@ -8,6 +8,7 @@
 //! All file I/O happens off the main thread. At startup (while the splash shows) the files listed
 //! for the active outfit in `cache/manifest.json` ({ outfitId: [keys] }) are read into memory so the
 //! first `cache_get` of each is instant.
+//! The key `manifest` is stored as `manifest.json` (cache_get/cache_put read/write that file).
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -30,6 +31,8 @@ fn file(key: &str, ext: &str) -> Result<PathBuf, String> {
     if !valid_key(key) {
         return Err(format!("invalid cache key {key:?} (allowed: [a-z0-9_-]{{1,96}})"));
     }
+    // the outfit -> keys manifest is JSON (also read by the startup preload)
+    let ext = if key == "manifest" && ext == "bin" { "json" } else { ext };
     Ok(dir().join(format!("{key}.{ext}")))
 }
 
