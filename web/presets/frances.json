@@ -1,0 +1,31 @@
+{
+  "id": "frances",
+  "extends": "base",
+  "name": "Francês",
+  "slots": {
+    "head_top": [
+      {
+        "id": "beret"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_english"
+      },
+      {
+        "id": "rose_in_mouth"
+      }
+    ],
+    "neck": [
+      {
+        "id": "bow_tie_real",
+        "params": {
+          "color": "#1d2f63"
+        }
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #f3efe6 0%, #9db7d8 60%, #1d3466 100%)"
+  }
+}

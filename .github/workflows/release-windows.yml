@@ -1,0 +1,70 @@
+# Manual Windows build + GitHub Release (no tests).
+# Actions tab -> "Release (Windows)" -> Run workflow -> type the version.
+name: Release (Windows)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versão (ex: 0.1.0)"
+        required: true
+        default: "0.1.0"
+      prerelease:
+        description: "Marcar como pré-lançamento"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Rust core -> WebAssembly for the renderer (web/pkg), only if the wasm crate uses wasm-bindgen
+      - name: Build privada-wasm
+        shell: pwsh
+        run: |
+          $meta = cargo metadata --format-version 1 | ConvertFrom-Json
+          $wb = $meta.packages | Where-Object { $_.name -eq 'wasm-bindgen' } | Select-Object -First 1
+          if (-not $wb) { Write-Host "privada-wasm has no wasm-bindgen yet - skipping (JS fallback)"; exit 0 }
+          cargo install wasm-bindgen-cli --version $wb.version --locked
+          cargo build -p privada-wasm --target wasm32-unknown-unknown --release
+          wasm-bindgen target/wasm32-unknown-unknown/release/privada_wasm.wasm --out-dir web/pkg --target web
+
+      - name: Install Tauri CLI
+        run: npm install -g @tauri-apps/cli@^2
+
+      - name: Build app (NSIS installer)
+        working-directory: crates/privada-app
+        shell: pwsh
+        run: tauri build --bundles nsis --config "{\`"version\`":\`"${{ inputs.version }}\`"}"
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist-release | Out-Null
+          Get-ChildItem target/release/bundle/nsis/*.exe | ForEach-Object {
+            Copy-Item $_.FullName "dist-release/PrivadaTuber_${{ inputs.version }}_x64-setup.exe" }
+          Copy-Item target/release/privada-app.exe "dist-release/PrivadaTuber_${{ inputs.version }}_x64-portable.exe"
+          Get-ChildItem dist-release
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          name: Privada Tuber v${{ inputs.version }}
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: true
+          files: dist-release/*

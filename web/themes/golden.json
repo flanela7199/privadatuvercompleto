@@ -1,0 +1,18 @@
+{
+  "id": "golden",
+  "extends": "base",
+  "name": "Ouro Maciço",
+  "materials": {
+    "porcelain": { "color": "#dcb35e", "metalness": 1, "roughness": 0.22, "roughnessMap": "goldRough", "normalMap": null, "repeat": [3, 3] },
+    "seat":      { "color": "#dcb35e", "metalness": 1, "roughness": 0.22, "roughnessMap": "goldRough", "normalMap": null, "clearcoat": 0 },
+    "lid":       { "color": "#dcb35e", "metalness": 1, "roughness": 0.22, "roughnessMap": "goldRough", "normalMap": null, "clearcoat": 0 },
+    "tankLid":   { "color": "#dcb35e", "metalness": 1, "roughness": 0.22, "roughnessMap": "goldRough", "normalMap": null, "clearcoat": 0 },
+    "gold":      { "color": "#f0d9a0", "metalness": 1, "roughness": 0.16 }
+  },
+  "slots": {
+    "head_top": [{ "id": "crown", "params": { "points": 10, "tilt": -0.08, "radius": 0.17, "spike": 0.11 } }],
+    "face":     [{ "id": "mustache_handlebar", "params": { "scale": 1.1 } }],
+    "body_front": []
+  },
+  "background": { "css": "radial-gradient(ellipse 90% 80% at 50% 38%, #4a4256 0%, #2c2734 55%, #17141c 100%)" }
+}

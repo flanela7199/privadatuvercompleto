@@ -1,0 +1,46 @@
+{
+  "id": "realeza",
+  "extends": "base",
+  "name": "Realeza",
+  "materials": {
+    "seat": {
+      "color": "#6b0f1d"
+    },
+    "lid": {
+      "color": "#6b0f1d"
+    }
+  },
+  "slots": {
+    "head_top": [
+      {
+        "id": "crown"
+      }
+    ],
+    "eyes": [
+      {
+        "id": "monocle"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_imperial"
+      }
+    ],
+    "back": [
+      {
+        "id": "cape",
+        "params": {
+          "color": "#6b0f1d"
+        }
+      }
+    ],
+    "body_front": [
+      {
+        "id": "gold_chain"
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #b48a3c 0%, #6b4a17 60%, #2b1c06 100%)"
+  }
+}

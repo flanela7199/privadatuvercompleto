@@ -1,0 +1,44 @@
+{
+  "id": "mexicano",
+  "extends": "base",
+  "name": "Mexicano",
+  "materials": {
+    "seat": {
+      "color": "#1f7a3a"
+    },
+    "lid": {
+      "color": "#1f7a3a"
+    }
+  },
+  "slots": {
+    "head_top": [
+      {
+        "id": "cowboy_hat",
+        "params": {
+          "color": "#d9b26a"
+        }
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_pancho"
+      }
+    ],
+    "neck": [
+      {
+        "id": "bow_tie_real",
+        "params": {
+          "color": "#c3122b"
+        }
+      }
+    ],
+    "floor_right": [
+      {
+        "id": "plunger"
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #ffd166 0%, #e07a2e 60%, #7a2c0c 100%)"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "id": "mago",
+  "extends": "base",
+  "name": "Mago",
+  "materials": {
+    "seat": {
+      "color": "#2a2f6b"
+    },
+    "lid": {
+      "color": "#2a2f6b"
+    }
+  },
+  "slots": {
+    "head_top": [
+      {
+        "id": "wizard_hat"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_walrus",
+        "params": {
+          "color": "#d8d8d8"
+        }
+      }
+    ],
+    "back": [
+      {
+        "id": "cape",
+        "params": {
+          "color": "#22306b"
+        }
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #4b3f8f 0%, #231c4d 60%, #0b0820 100%)"
+  }
+}

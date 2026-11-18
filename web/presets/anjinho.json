@@ -1,0 +1,39 @@
+{
+  "id": "anjinho",
+  "extends": "base",
+  "name": "Anjinho",
+  "slots": {
+    "head_top": [
+      {
+        "id": "halo"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_chevron",
+        "params": {
+          "color": "#d9c79a"
+        }
+      }
+    ],
+    "neck": [
+      {
+        "id": "bow_tie_real",
+        "params": {
+          "color": "#f4f1ea"
+        }
+      }
+    ],
+    "floor_right": [
+      {
+        "id": "air_freshener",
+        "params": {
+          "x": 0
+        }
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #ffffff 0%, #cfe6ff 60%, #8fb4dc 100%)"
+  }
+}

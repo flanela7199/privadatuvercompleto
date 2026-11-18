@@ -1,0 +1,37 @@
+{
+  "id": "viking",
+  "extends": "base",
+  "name": "Viking",
+  "materials": {
+    "chrome": {
+      "color": "#b8b2a6",
+      "roughness": 0.35
+    }
+  },
+  "slots": {
+    "head_top": [
+      {
+        "id": "viking_helmet"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_horseshoe",
+        "params": {
+          "color": "#b5652a"
+        }
+      }
+    ],
+    "back": [
+      {
+        "id": "cape",
+        "params": {
+          "color": "#5b3a1e"
+        }
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #9fb3c2 0%, #56697a 60%, #23303b 100%)"
+  }
+}

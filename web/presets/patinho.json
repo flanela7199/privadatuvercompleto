@@ -1,0 +1,41 @@
+{
+  "id": "patinho",
+  "extends": "base",
+  "name": "Hora do Banho",
+  "materials": {
+    "seat": {
+      "color": "#8fd3ff"
+    },
+    "lid": {
+      "color": "#8fd3ff"
+    }
+  },
+  "slots": {
+    "head_top": [
+      {
+        "id": "rubber_duck",
+        "params": {
+          "x": 0
+        }
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_curly"
+      }
+    ],
+    "floor_left": [
+      {
+        "id": "toilet_paper_stack"
+      }
+    ],
+    "floor_right": [
+      {
+        "id": "toilet_brush_holder"
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #e9f7ff 0%, #9ad1ee 60%, #3f86ad 100%)"
+  }
+}

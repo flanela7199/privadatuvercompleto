@@ -1,0 +1,33 @@
+{
+  "id": "camarada",
+  "extends": "soviet",
+  "name": "Camarada Deluxe",
+  "slots": {
+    "head_top": [
+      {
+        "id": "ushanka"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_walrus"
+      },
+      {
+        "id": "pipe"
+      }
+    ],
+    "tank_front": [
+      {
+        "id": "star_badge"
+      }
+    ],
+    "back": [
+      {
+        "id": "cape",
+        "params": {
+          "color": "#b3121b"
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "id": "diabinho",
+  "extends": "base",
+  "name": "Diabinho",
+  "materials": {
+    "seat": {
+      "color": "#8a0d0d"
+    },
+    "lid": {
+      "color": "#8a0d0d"
+    }
+  },
+  "slots": {
+    "head_top": [
+      {
+        "id": "devil_horns"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_dali"
+      },
+      {
+        "id": "tongue"
+      }
+    ],
+    "back": [
+      {
+        "id": "cape",
+        "params": {
+          "color": "#1a0505"
+        }
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #e0401e 0%, #8a1010 60%, #2a0303 100%)"
+  }
+}

@@ -1,0 +1,12 @@
+[package]
+name = "privada-wasm"
+description = "wasm-bindgen bindings of privada-core for the webview renderer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+privada-core = { path = "../privada-core" }

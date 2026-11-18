@@ -1,0 +1,9 @@
+target/
+out/
+.tmp/
+web/node_modules/
+web/pkg/
+crates/privada-app/dist/
+privada-data/
+*.log
+.claude/

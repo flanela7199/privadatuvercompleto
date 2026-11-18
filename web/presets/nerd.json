@@ -1,0 +1,37 @@
+{
+  "id": "nerd",
+  "extends": "base",
+  "name": "Nerd",
+  "slots": {
+    "head_top": [
+      {
+        "id": "baseball_cap",
+        "params": {
+          "color": "#2e7d32",
+          "backwards": true
+        }
+      }
+    ],
+    "eyes": [
+      {
+        "id": "nerd_glasses"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_pencil"
+      }
+    ],
+    "neck": [
+      {
+        "id": "bow_tie_real",
+        "params": {
+          "color": "#c3122b"
+        }
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #cfe3f5 0%, #7d9bb8 60%, #34485c 100%)"
+  }
+}

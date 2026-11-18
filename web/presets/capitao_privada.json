@@ -1,0 +1,49 @@
+{
+  "id": "capitao_privada",
+  "extends": "base",
+  "name": "Capitão Privada",
+  "materials": {
+    "seat": {
+      "color": "#1d3fa0"
+    },
+    "lid": {
+      "color": "#c3122b"
+    }
+  },
+  "slots": {
+    "head_top": [
+      {
+        "id": "antenna_bobble",
+        "params": {
+          "color": "#f2c21b"
+        }
+      }
+    ],
+    "eyes": [
+      {
+        "id": "aviators"
+      }
+    ],
+    "tank_front": [
+      {
+        "id": "star_badge"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_lampshade"
+      }
+    ],
+    "back": [
+      {
+        "id": "cape",
+        "params": {
+          "color": "#c3122b"
+        }
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #6fb7ff 0%, #2a5fb0 60%, #0c1f44 100%)"
+  }
+}

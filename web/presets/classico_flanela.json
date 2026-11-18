@@ -1,0 +1,17 @@
+{
+  "id": "classico_flanela",
+  "extends": "base",
+  "name": "Clássico Flanela",
+  "slots": {
+    "head_top": [
+      {
+        "id": "crown"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_handlebar"
+      }
+    ]
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "id": "pirata",
+  "extends": "base",
+  "name": "Pirata",
+  "materials": {
+    "seat": {
+      "color": "#3a2416"
+    },
+    "lid": {
+      "color": "#3a2416"
+    }
+  },
+  "slots": {
+    "head_top": [
+      {
+        "id": "pirate_hat"
+      }
+    ],
+    "eyes": [
+      {
+        "id": "eyepatch"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_fu_manchu"
+      }
+    ],
+    "floor_right": [
+      {
+        "id": "plunger"
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #3f7fa6 0%, #1d4a66 60%, #0b2233 100%)"
+  }
+}

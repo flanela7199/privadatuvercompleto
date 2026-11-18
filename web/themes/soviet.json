@@ -1,0 +1,23 @@
+{
+  "id": "soviet",
+  "extends": "base",
+  "name": "Soviético (Camarada Privada)",
+  "materials": {
+    "seat":      { "color": "#8e1d1f", "roughness": 0.35, "clearcoat": 0.5, "clearcoatRoughness": 0.15 },
+    "lid":       { "color": "#8e1d1f", "roughness": 0.35, "clearcoat": 0.5, "clearcoatRoughness": 0.15 },
+    "chrome":    { "color": "#c9a86a", "metalness": 1, "roughness": 0.28 },
+    "valve":     { "color": "#c9a86a", "metalness": 1, "roughness": 0.28 },
+    "bolt":      { "color": "#a98c55", "metalness": 1, "roughness": 0.35 },
+    "gold":      { "color": "#cfa64a", "metalness": 1, "roughness": 0.32 },
+    "sovietRed": { "color": "#9e1a1a", "roughness": 0.3, "metalness": 0.1, "clearcoat": 0.8, "clearcoatRoughness": 0.1 },
+    "fur":       { "color": "#4e3725", "roughness": 1, "sheen": 1, "sheenRoughness": 0.6, "sheenColor": "#9a7b58" },
+    "hatCloth":  { "color": "#3a2a1d", "roughness": 0.95, "sheen": 0.5, "sheenColor": "#6f5641" },
+    "mustache":  { "color": "#261b13", "roughness": 0.6, "sheen": 1, "sheenRoughness": 0.4, "sheenColor": "#6b5240" }
+  },
+  "slots": {
+    "head_top":   [{ "id": "ushanka" }],
+    "face":       [{ "id": "mustache_walrus" }],
+    "tank_front": [{ "id": "star_badge", "params": { "radius": 0.055 } }]
+  },
+  "background": { "css": "radial-gradient(ellipse 90% 80% at 50% 38%, #b5493d 0%, #84271f 50%, #4d1410 90%, #3a0f0c 100%)" }
+}

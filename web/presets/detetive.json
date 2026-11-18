@@ -1,0 +1,47 @@
+{
+  "id": "detetive",
+  "extends": "base",
+  "name": "Detetive",
+  "materials": {
+    "seat": {
+      "color": "#6a5a45"
+    },
+    "lid": {
+      "color": "#6a5a45"
+    }
+  },
+  "slots": {
+    "head_top": [
+      {
+        "id": "beret",
+        "params": {
+          "color": "#6a5a45"
+        }
+      }
+    ],
+    "eyes": [
+      {
+        "id": "monocle"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_english"
+      },
+      {
+        "id": "pipe"
+      }
+    ],
+    "neck": [
+      {
+        "id": "necktie",
+        "params": {
+          "color": "#3a3a3a"
+        }
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #c2b59b 0%, #7a6e58 60%, #2f2a20 100%)"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "id": "cowboy",
+  "extends": "base",
+  "name": "Cowboy",
+  "materials": {
+    "seat": {
+      "color": "#7a4a24"
+    },
+    "lid": {
+      "color": "#7a4a24"
+    }
+  },
+  "slots": {
+    "head_top": [
+      {
+        "id": "cowboy_hat"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_horseshoe"
+      }
+    ],
+    "neck": [
+      {
+        "id": "necktie",
+        "params": {
+          "color": "#8a1c1c"
+        }
+      }
+    ],
+    "floor_left": [
+      {
+        "id": "toilet_brush_holder"
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #e8b673 0%, #b0743a 60%, #5a3415 100%)"
+  }
+}

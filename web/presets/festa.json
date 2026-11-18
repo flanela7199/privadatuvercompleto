@@ -1,0 +1,47 @@
+{
+  "id": "festa",
+  "extends": "base",
+  "name": "Festa",
+  "materials": {
+    "seat": {
+      "color": "#2f7fd1"
+    },
+    "lid": {
+      "color": "#2f7fd1"
+    }
+  },
+  "slots": {
+    "head_top": [
+      {
+        "id": "party_hat",
+        "params": {
+          "color": "#e2368c"
+        }
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_curly"
+      },
+      {
+        "id": "tongue"
+      }
+    ],
+    "neck": [
+      {
+        "id": "bow_tie_real",
+        "params": {
+          "color": "#f2c21b"
+        }
+      }
+    ],
+    "floor_left": [
+      {
+        "id": "toilet_paper_stack"
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #ff9ad5 0%, #b0479a 60%, #4a1550 100%)"
+  }
+}

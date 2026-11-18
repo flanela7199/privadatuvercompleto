@@ -1,0 +1,28 @@
+{
+  "id": "chef",
+  "extends": "base",
+  "name": "Chef",
+  "slots": {
+    "head_top": [
+      {
+        "id": "chef_hat"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_english"
+      }
+    ],
+    "neck": [
+      {
+        "id": "bow_tie_real",
+        "params": {
+          "color": "#c3122b"
+        }
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #f1e3c8 0%, #c9b28a 60%, #7a6448 100%)"
+  }
+}

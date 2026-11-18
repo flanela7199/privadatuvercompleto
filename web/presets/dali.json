@@ -1,0 +1,36 @@
+{
+  "id": "dali",
+  "extends": "base",
+  "name": "Dalí",
+  "slots": {
+    "head_top": [
+      {
+        "id": "beret",
+        "params": {
+          "color": "#141414"
+        }
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_dali"
+      }
+    ],
+    "eyes": [
+      {
+        "id": "monocle"
+      }
+    ],
+    "floor_left": [
+      {
+        "id": "rubber_duck",
+        "params": {
+          "x": 0
+        }
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #f2c14e 0%, #c97a2b 55%, #3b6aa0 100%)"
+  }
+}

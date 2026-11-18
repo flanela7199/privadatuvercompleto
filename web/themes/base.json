@@ -1,0 +1,54 @@
+{
+  "id": "base",
+  "name": "Clássico (Rei Privada)",
+  "materials": {
+    "porcelain": { "color": "#f1eee6", "roughness": 0.3, "clearcoat": 0.6, "clearcoatRoughness": 0.12,
+                   "normalMap": "porcelainNormal", "normalScale": [0.35, 0.35], "roughnessMap": "porcelainRough", "repeat": [3, 3] },
+    "seat":      { "color": "#f0ede5", "roughness": 0.32, "clearcoat": 0.55, "clearcoatRoughness": 0.14,
+                   "normalMap": "porcelainNormal", "normalScale": [0.3, 0.3], "roughnessMap": "porcelainRough", "repeat": [2, 2] },
+    "lid":       { "color": "#f0ede5", "roughness": 0.32, "clearcoat": 0.55, "clearcoatRoughness": 0.14,
+                   "normalMap": "porcelainNormal", "normalScale": [0.3, 0.3], "roughnessMap": "porcelainRough", "repeat": [2, 2] },
+    "tankLid":   { "color": "#f1eee6", "roughness": 0.3, "clearcoat": 0.6, "clearcoatRoughness": 0.12,
+                   "normalMap": "porcelainNormal", "normalScale": [0.35, 0.35], "roughnessMap": "porcelainRough", "repeat": [3, 3] },
+    "boltCap":   { "color": "#efece4", "roughness": 0.34, "clearcoat": 0.5, "clearcoatRoughness": 0.15 },
+
+    "chrome":    { "color": "#e4e8eb", "metalness": 1, "roughness": 0.12, "normalMap": "porcelainNormal", "normalScale": [0.15, 0.15], "repeat": [4, 4] },
+    "valve":     { "color": "#dfe3e6", "metalness": 1, "roughness": 0.15 },
+    "bolt":      { "color": "#c9cdd0", "metalness": 1, "roughness": 0.22 },
+    "hose":      { "color": "#d2d6d9", "metalness": 1, "roughness": 0.3, "normalMap": "hoseBraid", "normalScale": [0.9, 0.9], "repeat": [1, 30] },
+    "rubber":    { "color": "#1b1b1b", "roughness": 0.8 },
+
+    "gold":      { "color": "#d9ad55", "metalness": 1, "roughness": 0.3, "roughnessMap": "goldRough", "repeat": [2, 2] },
+    "jewelRed":  { "color": "#b3172a", "roughness": 0.03, "metalness": 0, "transmission": 0.7, "ior": 1.77, "thickness": 0.02,
+                   "attenuationColor": "#7a0010", "attenuationDistance": 0.03, "clearcoat": 1, "specularIntensity": 1 },
+    "jewelBlue": { "color": "#1f3f9e", "roughness": 0.03, "metalness": 0, "transmission": 0.7, "ior": 1.77, "thickness": 0.02,
+                   "attenuationColor": "#0a1c66", "attenuationDistance": 0.03, "clearcoat": 1, "specularIntensity": 1 },
+    "jewelGreen":{ "color": "#16704a", "roughness": 0.03, "metalness": 0, "transmission": 0.7, "ior": 1.58, "thickness": 0.02,
+                   "attenuationColor": "#06402a", "attenuationDistance": 0.03, "clearcoat": 1, "specularIntensity": 1 },
+    "pearl":     { "color": "#f2ece1", "roughness": 0.22, "clearcoat": 1, "clearcoatRoughness": 0.1,
+                   "sheen": 0.6, "sheenColor": "#ffe6ee", "iridescence": 0.5, "iridescenceIOR": 1.45 },
+    "velvet":    { "color": "#5e121b", "roughness": 1, "sheen": 1, "sheenRoughness": 0.45, "sheenColor": "#c4505e" },
+    "ermine":    { "color": "#f2efe8", "roughness": 1, "sheen": 1, "sheenRoughness": 0.5, "sheenColor": "#ffffff" },
+
+    "mustache":  { "color": "#1c1714", "roughness": 0.55, "sheen": 1, "sheenRoughness": 0.35, "sheenColor": "#6b5a4a" },
+    "eyeWhite":  { "color": "#f7f7f4", "roughness": 0.45 },
+    "pupil":     { "color": "#0b0b0b", "roughness": 0.4 },
+    "eyeDome":   { "color": "#ffffff", "transmission": 1, "ior": 1.5, "thickness": 0.01, "roughness": 0, "metalness": 0, "clearcoat": 1 },
+    "outline":   { "color": "#151515", "roughness": 0.55 },
+
+    "paper":     { "color": "#ffffff", "roughness": 0.95, "sheen": 0.3, "sheenColor": "#ffffff",
+                   "map": "paperMap", "normalMap": "paperNormal", "normalScale": [1.0, 1.0], "repeat": [12, 4] },
+    "paperStrip":{ "color": "#ffffff", "roughness": 0.95, "sheen": 0.3, "sheenColor": "#ffffff", "side": "double",
+                   "map": "paperPerfMap", "normalMap": "paperPerf", "normalScale": [1.0, 1.0], "repeat": [1, 1.894] },
+    "rollEnd":   { "color": "#ffffff", "roughness": 0.95, "map": "rollEnd" },
+    "cardboard": { "color": "#a78256", "roughness": 0.9 },
+    "water":     { "color": "#eaf6fa", "roughness": 0.02, "metalness": 0, "transmission": 1, "ior": 1.33, "thickness": 0.05,
+                   "attenuationColor": "#a9d6e2", "attenuationDistance": 0.4,
+                   "normalMap": "waterNormal", "normalScale": [1.0, 1.0], "repeat": [3, 3] }
+  },
+  "slots": {
+    "head_top": [{ "id": "crown", "params": { "points": 8, "tilt": 0.12, "radius": 0.15 } }],
+    "face":     [{ "id": "mustache_handlebar" }]
+  },
+  "background": { "css": "radial-gradient(ellipse 90% 80% at 50% 38%, #ece8e1 0%, #d6d0c6 45%, #aaa397 85%, #8f897e 100%)" }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "gangster",
+  "extends": "golden",
+  "name": "Gângster",
+  "slots": {
+    "head_top": [
+      {
+        "id": "top_hat"
+      }
+    ],
+    "eyes": [
+      {
+        "id": "sunglasses"
+      }
+    ],
+    "face": [
+      {
+        "id": "mustache_pencil"
+      },
+      {
+        "id": "cigar"
+      }
+    ],
+    "body_front": [
+      {
+        "id": "gold_chain"
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #3a3a3a 0%, #1a1a1a 60%, #050505 100%)"
+  }
+}
