@@ -2,7 +2,7 @@ import React from 'react';
 import { useStore, live, useLiveTick } from '../state/config';
 import { invoke, emit, isTauri } from '../lib/bridge';
 import { CHANNELS, loadMic } from '../lib/legacy';
-import { VISEMES } from '../lib/catalog';
+import { VISEMES, shapeOpen } from '../lib/catalog';
 import { Section, Field, Fields } from '../components/Section';
 import { Button } from '../components/Button';
 import { Select } from '../components/Select';
@@ -16,10 +16,14 @@ const LABELS: Record<string, string> = { level: 'Volume', open: 'Abrir', round: 
 let browserMic: any = null;
 let micEnabled = true; // read by the browser-mic loop (kept current on every render)
 
-function Meters() {
+function Meters({ mouth }: { mouth: { maxOpen: number; curve: number } }) {
   useLiveTick();
+  const shaped = shapeOpen(live.mouth.open || 0, mouth);
   return (
     <div className="meters">
+      <span>Boca final</span>
+      <div className="meter" title="Abertura que vai para a privada (depois do limite e da curva)"><div style={{ width: `${shaped * 100}%`, background: 'var(--acc)' }} /></div>
+      <span className="mouth-out">{shaped.toFixed(2)}</span>
       {['level', ...(CHANNELS as string[])].map((k) => {
         const v = Math.max(0, Math.min(1, live.mouth[k] || 0));
         return (
@@ -31,6 +35,19 @@ function Meters() {
         );
       })}
     </div>
+  );
+}
+
+/** "Abertura máxima da boca" + "Curva" (shared with Configurações > Personagem) */
+export function MouthLimits() {
+  const { s, update } = useStore();
+  const m = s.cfg.settings.mouth;
+  const set = (k: 'maxOpen' | 'curve', v: number) => update((d) => { d.cfg.settings.mouth = { ...d.cfg.settings.mouth, [k]: v }; });
+  return (
+    <Fields>
+      <Field label="Abertura máxima da boca" tip="1 = abre tudo. Menor = a tampa nunca abre demais."><Slider value={m.maxOpen} min={0.2} max={1} step={0.01} fmt="pct" onChange={(v) => set('maxOpen', v)} /></Field>
+      <Field label="Curva (fala baixa abre menos)" tip="1 = linear. Maior = falar baixinho quase não abre; gritar abre tudo."><Slider value={m.curve} min={1} max={3} step={0.05} fmt="n2" onChange={(v) => set('curve', v)} /></Field>
+    </Fields>
   );
 }
 
@@ -84,7 +101,10 @@ export function Microfone() {
           <Field label="Segurar entre sílabas" tip="Quanto tempo a boca fica aberta nas consoantes."><Slider value={a.hold} min={0} max={0.5} step={0.01} fmt="s" onChange={(v) => set('hold', v)} /></Field>
         </Fields>
       </Section>
-      <Section title="Nível e forma da boca"><Meters /></Section>
+      <Section title="Limites da boca" desc="Controla quanto a tampa abre com a sua voz.">
+        <MouthLimits />
+      </Section>
+      <Section title="Nível e forma da boca"><Meters mouth={s.cfg.settings.mouth} /></Section>
       <Section title="Testar formas da boca" desc="Mostra cada forma na privada.">
         <div className="btns vis-btns">{VISEMES.map((v) => <Button key={v} onClick={() => runAction(`viseme:${v}`)}>{v}</Button>)}</div>
       </Section>

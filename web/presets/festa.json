@@ -19,10 +19,12 @@
         }
       }
     ],
-    "face": [
+    "lip_upper": [
       {
         "id": "mustache_curly"
-      },
+      }
+    ],
+    "face": [
       {
         "id": "tongue"
       }

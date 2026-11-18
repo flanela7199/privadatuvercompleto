@@ -5,7 +5,7 @@ export const APP_VERSION = '0.1.0';
 export type Opt = [string | number, string];
 
 export const SOCKETS: Record<string, string> = {
-  head_top: 'Topo da cabeça', eyes: 'Olhos', tank_front: 'Frente do tanque', face: 'Rosto (bigode)',
+  lip_upper: 'Lábio superior (tampa)', head_top: 'Topo da cabeça', eyes: 'Olhos', tank_front: 'Frente do tanque', face: 'Rosto (frente da bacia)',
   lid_top: 'Tampa (boca)', body_front: 'Corpo (frente)', neck: 'Pescoço (cano)', side_right: 'Lado direito',
   back: 'Costas', floor_left: 'Chão esquerdo', floor_right: 'Chão direito',
 };
@@ -27,6 +27,7 @@ export const SETTINGS_DEFAULTS = {
   startMinimized: false, openPanelOnStart: true, language: 'pt-BR',
   soundsEnabled: true, soundVolume: 0.8,
   followDefault: true, autoBlink: true, restOpen: 0.05, lookSensitivity: 1,
+  mouth: { maxOpen: 0.65, curve: 1.6 },
 };
 export const LOOK_DEFAULTS = { range: 1.0, reachPx: 1400, maxYawDeg: 80, maxPitchDeg: 35 };
 export const RENDER_DEFAULTS = { fps: 60, pixelRatio: 1.5, ao: false, shadows: true };
@@ -34,6 +35,11 @@ export const sceneDefaults = (s: any = {}) => ({
   name: 'Nova cena', mode: 'window', outfit: null, x: 0.5, y: 0.86, scale: 1.25, background: 'color',
   bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false, ...s,
 });
+
+/** body proportions (theme.body), see docs/app-contract.md "Body proportions + mouth limits" */
+export const BODY_DEFAULTS = { tank: { w: 1, h: 1, d: 1 }, eyes: { size: 1, spacing: 1, y: 0 } };
+/** open' = maxOpen * open^curve (what the avatar applies before the rig) */
+export const shapeOpen = (open: number, m: { maxOpen: number; curve: number }) => m.maxOpen * Math.pow(Math.max(0, Math.min(1, open)), m.curve);
 
 export const clone = <T,>(o: T): T => JSON.parse(JSON.stringify(o));
 
@@ -43,6 +49,7 @@ export function normalizeConfig(c: any) {
   out.audio = { ...DEFAULT_CONFIG.audio, ...(out.audio || {}) };
   out.render = { ...RENDER_DEFAULTS, ...(DEFAULT_CONFIG.render || {}), ...(c?.render || {}) };
   out.settings = { ...SETTINGS_DEFAULTS, ...(out.settings || {}) };
+  out.settings.mouth = { ...SETTINGS_DEFAULTS.mouth, ...(c?.settings?.mouth || {}) };
   out.look = { ...LOOK_DEFAULTS, ...(DEFAULT_CONFIG.look || {}), ...(c?.look || {}) };
   out.scenes = (out.scenes?.length ? out.scenes : clone(DEFAULT_CONFIG.scenes)).map(sceneDefaults);
   out.hotkeysEnabled = out.hotkeysEnabled ?? true;
@@ -52,7 +59,7 @@ export function normalizeConfig(c: any) {
 
 export function accInfo(id: string): { name: string; socket: string; category: string } {
   const i = (ACCESSORY_INFO as any)[id];
-  if ((MUSTACHE_IDS as string[]).includes(id)) return { name: i?.name || id.replace('mustache_', 'Bigode ').replace(/_/g, ' '), socket: 'face', category: 'Bigodes' };
+  if ((MUSTACHE_IDS as string[]).includes(id)) return { name: i?.name || id.replace('mustache_', 'Bigode ').replace(/_/g, ' '), socket: i?.socket || 'lip_upper', category: 'Bigodes' };
   return i || { name: id.replace(/_/g, ' '), socket: 'head_top', category: 'Outros' };
 }
 

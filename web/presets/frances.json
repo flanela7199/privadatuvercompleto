@@ -8,10 +8,12 @@
         "id": "beret"
       }
     ],
-    "face": [
+    "lip_upper": [
       {
         "id": "mustache_english"
-      },
+      }
+    ],
+    "face": [
       {
         "id": "rose_in_mouth"
       }

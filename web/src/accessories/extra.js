@@ -783,8 +783,8 @@ export const ACCESSORY_INFO = {
   // index.js (core set)
   crown: { name: 'Coroa', socket: 'head_top', category: 'Chapéus' },
   ushanka: { name: 'Ushanka', socket: 'head_top', category: 'Chapéus' },
-  mustache_handlebar: { name: 'Bigode guidão', socket: 'face', category: 'Rosto' },
-  mustache_walrus: { name: 'Bigode morsa', socket: 'face', category: 'Rosto' },
+  mustache_handlebar: { name: 'Bigode guidão', socket: 'lip_upper', category: 'Rosto' },
+  mustache_walrus: { name: 'Bigode morsa', socket: 'lip_upper', category: 'Rosto' },
   star_badge: { name: 'Estrela (broche)', socket: 'tank_front', category: 'Corpo' },
   bow_tie: { name: 'Gravata-borboleta simples', socket: 'body_front', category: 'Corpo' },
   // hats

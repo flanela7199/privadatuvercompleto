@@ -17,6 +17,8 @@ pub mod config;
 pub mod cursor;
 pub mod hotkeys;
 pub mod mic;
+pub mod nominimize;
+pub mod single_instance;
 pub mod webview2;
 pub mod winstate;
 
@@ -185,6 +187,7 @@ fn create_avatar(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .transparent(true)
         .decorations(false) // borderless: the page has a drag strip + invisible resize edges
         .shadow(false)
+        .minimizable(false) // minimized windows stop rendering -> OBS goes blank (see nominimize.rs)
         .resizable(true)
         .skip_taskbar(false)
         .always_on_top(false)
@@ -194,6 +197,7 @@ fn create_avatar(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .background_color(CLEAR)
         .build()?;
     restore_window_rect(app, &w, None)?;
+    nominimize::install(&w); // minimize -> send to back instead (keeps rendering for OBS)
     ready_fallback(app, "avatar"); // shown by page_ready("avatar")
     Ok(w)
 }
@@ -379,6 +383,14 @@ async fn open_control(app: AppHandle) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Send the character window to the bottom of the z-order: out of the way, still rendering for OBS.
+#[tauri::command]
+async fn send_to_back(app: AppHandle) -> Result<bool, String> {
+    let w = app.get_webview_window("avatar").ok_or("no avatar window")?;
+    nominimize::send_to_back(&w)?;
+    Ok(true)
+}
+
 /// Resize the borderless character window from an edge/corner hit zone of the page.
 /// direction: n s e w ne nw se sw (or north/south/east/west/northEast/... names)
 #[tauri::command]
@@ -493,12 +505,13 @@ async fn quit(app: AppHandle) {
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, "show", "Mostrar personagem", true, None::<&str>)?;
+    let back = MenuItem::with_id(app, "back", "Mandar para trás (continua no OBS)", true, None::<&str>)?;
     let open = MenuItem::with_id(app, "open", "Abrir painel", true, None::<&str>)?;
     let click = CheckMenuItem::with_id(app, "click", "Clicar através (sempre)", true, false, None::<&str>)?;
     let micm = CheckMenuItem::with_id(app, "mic", "Microfone", true, true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &open, &click, &micm, &sep, &quit])?;
+    let menu = Menu::with_items(app, &[&show, &back, &open, &click, &micm, &sep, &quit])?;
     let mut tb = TrayIconBuilder::with_id("privada")
         .tooltip("Privada Tuber")
         .menu(&menu)
@@ -506,6 +519,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(move |app, ev| match ev.id().as_ref() {
             "show" => {
                 let _ = show_avatar_window(app);
+            }
+            "back" => {
+                if let Some(w) = app.get_webview_window("avatar") {
+                    let _ = nominimize::send_to_back(&w);
+                }
             }
             "open" => {
                 let _ = open_control_window(app);
@@ -534,9 +552,6 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
-            let _ = open_control_window(app);
-        }))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, sc, ev| hotkeys::on_shortcut(app, sc, ev))
@@ -565,6 +580,7 @@ pub fn run() {
             show_avatar,
             page_ready,
             start_resize,
+            send_to_back,
             set_window_background,
             cache::cache_get,
             cache::cache_put,
@@ -595,6 +611,17 @@ pub fn run() {
         })
         .setup(|app| {
             let handle = app.handle().clone();
+            // another launch was attempted (see main.rs): bring the character and the panel up
+            {
+                let h = handle.clone();
+                single_instance::listen(move || {
+                    let h2 = h.clone();
+                    let _ = h.run_on_main_thread(move || {
+                        let _ = show_avatar_window(&h2);
+                        let _ = open_control_window(&h2);
+                    });
+                });
+            }
             app.manage(Mic::start(handle.clone()));
             cursor::start(handle.clone());
             // warm the active outfit's mesh cache while the splash is up

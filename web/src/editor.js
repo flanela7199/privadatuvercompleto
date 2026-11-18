@@ -9,7 +9,7 @@ import './accessories/glb.js';
 import { ToiletTuber } from './rig/ToiletTuber.js';
 
 const SOCKET_NAMES = {
-  head_top: 'Topo da cabeça', eyes: 'Olhos', tank_front: 'Frente do tanque', face: 'Rosto (bigode)',
+  head_top: 'Topo da cabeça', lip_upper: 'Lábio superior (tampa)', eyes: 'Olhos', tank_front: 'Frente do tanque', face: 'Rosto (bigode)',
   lid_top: 'Tampa (boca)', body_front: 'Corpo (frente)', side_right: 'Lado direito', back: 'Costas',
   floor_left: 'Chão esquerdo', floor_right: 'Chão direito',
 };
@@ -45,17 +45,17 @@ const CSS = `
 export async function initEditor({ tuber, themes, applyBg }) {
   let INFO = {};
   try { INFO = (await import('./accessories/extra.js')).ACCESSORY_INFO || {}; } catch { /* pack not present */ }
-  try { const m = await import('./accessories/index.js'); for (const id of m.MUSTACHE_IDS || []) INFO[id] ??= { name: id.replace('mustache_', 'Bigode '), socket: 'face', category: 'Bigodes' }; } catch { /* */ }
+  try { const m = await import('./accessories/index.js'); for (const id of m.MUSTACHE_IDS || []) INFO[id] ??= { name: id.replace('mustache_', 'Bigode '), socket: 'lip_upper', category: 'Bigodes' }; } catch { /* */ }
   const BASE_INFO = {
     crown: { name: 'Coroa', socket: 'head_top', category: 'Chapéus' },
     ushanka: { name: 'Ushanka', socket: 'head_top', category: 'Chapéus' },
     star_badge: { name: 'Estrela', socket: 'tank_front', category: 'Corpo' },
     bow_tie: { name: 'Gravata borboleta', socket: 'body_front', category: 'Corpo' },
-    mustache_handlebar: { name: 'Bigode guidão', socket: 'face', category: 'Bigodes' },
-    mustache_walrus: { name: 'Bigode morsa', socket: 'face', category: 'Bigodes' },
+    mustache_handlebar: { name: 'Bigode guidão', socket: 'lip_upper', category: 'Bigodes' },
+    mustache_walrus: { name: 'Bigode morsa', socket: 'lip_upper', category: 'Bigodes' },
   };
   INFO = { ...BASE_INFO, ...INFO };
-  const info = (id) => INFO[id] || { name: id, socket: id.startsWith('mustache') ? 'face' : 'head_top', category: id.startsWith('mustache') ? 'Bigodes' : 'Outros' };
+  const info = (id) => INFO[id] || { name: id, socket: id.startsWith('mustache') ? 'lip_upper' : 'head_top', category: id.startsWith('mustache') ? 'Bigodes' : 'Outros' };
 
   // custom themes from previous sessions
   const saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}');

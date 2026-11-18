@@ -52,6 +52,7 @@ export function App() {
         <Tabs tabs={TABS} value={tab} onChange={setTab} />
         <div className="grow" />
         <Button kind="primary" tip="Abre/traz para frente a janela do personagem" onClick={() => invoke('show_avatar').catch(() => {})}>🚽 Mostrar personagem</Button>
+        <Button tip="Mandar para trás (continua no OBS)" onClick={() => invoke('send_to_back').catch(() => {})}>⤓ Para trás</Button>
         <Status />
       </header>
       <main>

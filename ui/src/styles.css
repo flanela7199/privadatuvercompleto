@@ -189,3 +189,6 @@ header .btn.primary { height: 30px; }
 .chip-bar { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(90, 169, 255, .22); transition: width .2s; }
 .chip-txt { position: relative; }
 .note .big { font-size: 13px; padding: 12px 14px; line-height: 1.6; }
+
+.compact .field { grid-template-columns: 112px minmax(0, 1fr); gap: var(--s2); }
+.mouth-out { color: var(--acc); font-variant-numeric: tabular-nums; }

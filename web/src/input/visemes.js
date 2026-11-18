@@ -5,7 +5,13 @@
 //   wide   - lips stretched sideways (E, I, S)
 //   closed - lips pressed together (M, B, P) / lower lip up (F, V)
 //   sib    - sibilant/consonant hiss (S, X, CH): small, tense opening
-// The rig turns this vector into lid (upper lip) + seat (lower lip) poses.
+// Optional extra channels (default 0; the rig mirrors them in Rust, privada_core::rig::Mouth):
+//   cornerL / cornerR - mouth corners, -1 (down, frown) .. 1 (up, smile); L = the character's
+//                       -x side (the same side as eye_L), works with the mouth open or closed
+//   jawSide    - -1..1: jaw (lid + seat) yaws to that side and the lips purse toward it
+//   jawFwd     - 0..1: jaw pushed forward
+//   upperRaise - 0..1: upper lip (lid front) lifts
+// The rig turns this vector into lid (upper lip) + seat (lower lip) poses and blend shapes.
 
 export const VISEMES = {
   rest: {},
@@ -20,7 +26,41 @@ export const VISEMES = {
   L: { open: 0.4, wide: 0.3 },
 };
 export const CHANNELS = ['open', 'round', 'wide', 'closed', 'sib'];
-export const zeroMouth = () => ({ open: 0, round: 0, wide: 0, closed: 0, sib: 0 });
+export const EXT_CHANNELS = ['cornerL', 'cornerR', 'jawSide', 'jawFwd', 'upperRaise'];
+export const ALL_CHANNELS = [...CHANNELS, ...EXT_CHANNELS];
+export const zeroMouth = () => ({ open: 0, round: 0, wide: 0, closed: 0, sib: 0, cornerL: 0, cornerR: 0, jawSide: 0, jawFwd: 0, upperRaise: 0 });
+
+/**
+ * The 15 standard vtuber visemes (+ rest) -> channel values. Mirror of
+ * privada_core::rig::STANDARD_VISEMES (keep both in sync; the parity check compares them).
+ */
+export const STANDARD_VISEMES = {
+  rest: {},
+  AA: { open: 1, wide: 0.1 },
+  AH: { open: 0.75, wide: 0.2, upperRaise: 0.1 },
+  AO: { open: 0.8, round: 0.5, jawFwd: 0.1 },
+  AW_OW: { open: 0.6, round: 0.85, jawFwd: 0.2 },
+  CH_J_SH: { open: 0.25, round: 0.5, sib: 0.8, jawFwd: 0.4, upperRaise: 0.3 },
+  EH_AE: { open: 0.55, wide: 0.7, cornerL: 0.1, cornerR: 0.1, upperRaise: 0.1 },
+  EY: { open: 0.45, wide: 0.85, cornerL: 0.15, cornerR: 0.15 },
+  FV: { open: 0.08, wide: 0.3, closed: 0.6, upperRaise: 0.4 },
+  IH_AY: { open: 0.35, wide: 0.8, cornerL: 0.1, cornerR: 0.1 },
+  L: { open: 0.4, wide: 0.3, upperRaise: 0.15 },
+  M_P_B: { closed: 1 },
+  N_NG_DH: { open: 0.25, wide: 0.35, sib: 0.2 },
+  OY_UH_UW: { open: 0.3, round: 1, jawFwd: 0.3 },
+  R_ER: { open: 0.3, round: 0.55, wide: 0.1, jawFwd: 0.1 },
+  W: { open: 0.15, round: 1, jawFwd: 0.4 },
+  Y_IY: { open: 0.25, wide: 1, cornerL: 0.2, cornerR: 0.2 },
+};
+// every standard viseme is also a VISEMES entry (hold('AA'), viseme:<name> actions)
+for (const [k, v] of Object.entries(STANDARD_VISEMES)) if (!(k in VISEMES)) VISEMES[k] = v;
+
+/** full mouth vector (all channels) of a viseme name, or null */
+export function visemeMouth(name) {
+  const v = VISEMES[name];
+  return v ? { ...zeroMouth(), ...v } : null;
+}
 
 /** Portuguese-ish letters -> visemes (good enough for a talking toilet). */
 const LETTER = {
@@ -55,14 +95,18 @@ export class FakeTalk {
     while (this.active && this.t > this.seq[this.i][1]) { this.t -= this.seq[this.i][1]; this.i++; }
     if (!this.active) return out;
     const shape = VISEMES[this.seq[this.i][0]];
-    for (const k of CHANNELS) out[k] = shape[k] || 0;
+    for (const k of ALL_CHANNELS) out[k] = shape[k] || 0;
     return out;
   }
 }
 
-/** Blend helper: max of several mouth vectors. */
+/** Blend helper: max of several mouth vectors (signed extra channels: the largest magnitude wins). */
 export function maxMouth(...ms) {
   const out = zeroMouth();
-  for (const m of ms) if (m) for (const k of CHANNELS) out[k] = Math.max(out[k], m[k] || 0);
+  for (const m of ms) {
+    if (!m) continue;
+    for (const k of CHANNELS) out[k] = Math.max(out[k], m[k] || 0);
+    for (const k of EXT_CHANNELS) if (Math.abs(m[k] || 0) > Math.abs(out[k])) out[k] = m[k];
+  }
   return out;
 }

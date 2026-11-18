@@ -117,6 +117,7 @@ when the character page reports ready (the panel may finish later).
 | `close_output` | – | `true` (compatibility no-op) |
 | `set_overlay_visible` | – | `true` (compatibility no-op) |
 | `get_windows` | – | `{ avatar: { mode, visible } }` |
+| `send_to_back` | – | `true`: puts the character window at the bottom of the z-order (out of the way, keeps rendering for OBS). Also in the tray: "Mandar para trás (continua no OBS)" |
 | `start_resize` | `{ direction: n\|s\|e\|w\|ne\|nw\|se\|sw }` | `true` (native resize drag of the borderless character window) |
 | `set_window_background` | `{ color: 'transparent' \| '#rrggbb' \| '#rrggbbaa', label? }` (label default `avatar`) | `true` (window/webview background behind the page = scene background) |
 | `cache_get` | `{ key }` | **raw** `ArrayBuffer` of `privada-data/cache/<key>.bin`; **empty = miss** |
@@ -203,3 +204,33 @@ Binary layout **PRVM** (little-endian, 4-byte aligned), same bytes in memory, in
 Persistence: Tauri `cache_get({key})` -> ArrayBuffer (empty = miss) / `cache_put(bytes, {headers:{'x-key': key}})`;
 browser: IndexedDB `privada-geo/meshes`. The page writes the per-outfit key list with key **`manifest`**
 (UTF-8 JSON `{ outfitId: [keys] }`) — the app must store that key as `cache/manifest.json` (what its startup preload reads).
+
+## Body proportions + mouth limits (2026-11-18, from Flanela's feedback)
+
+Theme JSON may carry a `body` block (all optional, defaults = 1 / 0):
+
+```jsonc
+"body": {
+  "tank": { "w": 1.0, "h": 1.0, "d": 1.0 },          // head (tank) scale factors, 0.6..1.6
+  "eyes": { "size": 1.0, "spacing": 1.0, "y": 0.0 }   // eye radius factor 0.5..1.8, spacing factor 0.6..1.6, vertical offset in m (-0.12..0.12)
+}
+```
+The panel edits it on the active outfit (forking built-ins into custom like other edits). JS `ToiletTuber` and the Rust rig
+(`set_body_dims(json)`) both apply it (sockets, eyes, collision box, paper roll position follow the tank size).
+
+`config.settings.mouth = { maxOpen: 0.65, curve: 1.6 }` — maxOpen scales the mic/viseme `open` channel (0..1) before the rig
+(1 = old behaviour), curve > 1 makes quiet speech open less (open' = maxOpen * open^curve). Applied in avatar.js before tuber.update.
+
+New default socket `lip_upper` on the lid's front edge (child of a lid bone, moves with the upper lip): mustaches attach there by
+default; old themes/configs with mustaches on `face` are migrated to `lip_upper` when loaded.
+
+**The character window never minimizes** (a minimized window stops rendering and OBS shows nothing).
+It is created with `minimizable(false)`, and a Win32 subclass turns every minimize into "send to back":
+`WM_SYSCOMMAND/SC_MINIMIZE` (taskbar click, Alt+Space, Win+Down) is swallowed; `SIZE_MINIMIZED`
+(Win+M, Win+D "show desktop", other tools) is undone immediately (restored without activation, then
+placed at the bottom). It stays in the taskbar (OBS window capture lists it).
+
+**Single instance.** `main()` first creates the named mutex `Local\PrivadaTuber-com.flanela.privadatuber`
+(before WebView2/Tauri/windows). A second launch finds it, sets the auto-reset event
+`Local\PrivadaTuber-activate` and exits with code 0 (no window). The running instance waits on that event
+and shows the character + panel. (tauri-plugin-single-instance was removed.)

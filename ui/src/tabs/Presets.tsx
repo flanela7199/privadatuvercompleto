@@ -1,6 +1,6 @@
 import React from 'react';
 import { useStore, resolveOutfit, outfitName, newId, rawOutfit } from '../state/config';
-import { mergeTheme } from '../lib/legacy';
+import { mergeTheme, migrateOutfit } from '../lib/legacy';
 import { clone, download, pickFile } from '../lib/catalog';
 import { clearThumbs, captureOutfitThumb, requestOutfitThumbs } from '../lib/thumbs';
 import { Section } from '../components/Section';
@@ -59,7 +59,8 @@ export function Presets() {
     const f = await pickFile('.json');
     if (!f) return;
     try {
-      const t = JSON.parse(await f.text());
+      // old JSONs had mustaches on `face`; move them to `lip_upper` BEFORE merging (else: two mustaches)
+      const t = migrateOutfit(JSON.parse(await f.text()));
       if (!t.slots && !t.materials) throw new Error('Esse arquivo não é um visual (faltam slots/materials).');
       update((d) => {
         const nid = newId();

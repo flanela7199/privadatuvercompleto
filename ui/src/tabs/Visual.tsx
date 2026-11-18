@@ -1,7 +1,7 @@
 import React from 'react';
 import { useStore } from '../state/config';
 import { listAccessories, MUSTACHE_IDS } from '../lib/legacy';
-import { CATS, MAT_KEYS, SOCKETS, SOCKET_OPTS, accInfo, clone, readAsDataURL } from '../lib/catalog';
+import { CATS, MAT_KEYS, SOCKETS, SOCKET_OPTS, BODY_DEFAULTS, accInfo, clone, readAsDataURL } from '../lib/catalog';
 import { Preview } from '../components/Preview';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
@@ -48,7 +48,8 @@ export function Visual({ active }: { active: boolean }) {
     const slot = sock || accInfo(id).socket || 'head_top';
     let index = 0;
     update((d) => {
-      if ((MUSTACHE_IDS as string[]).includes(id) && slot === 'face') d.work.slots.face = (d.work.slots.face || []).filter((e: any) => !(MUSTACHE_IDS as string[]).includes(e.id));
+      // one mustache at a time: replacing feels better than stacking (face or upper lip)
+      if ((MUSTACHE_IDS as string[]).includes(id)) for (const k of ['lip_upper', 'face']) if (d.work.slots[k]) d.work.slots[k] = d.work.slots[k].filter((e: any) => !(MUSTACHE_IDS as string[]).includes(e.id));
       (d.work.slots[slot] ||= []).push({ id, params: {} });
       index = d.work.slots[slot].length - 1;
     }, { fork: true });
@@ -75,6 +76,11 @@ export function Visual({ active }: { active: boolean }) {
     toast(<>Modelo <b>{f.name}</b> adicionado</>);
   };
 
+  const body = { tank: { ...BODY_DEFAULTS.tank, ...(work.body?.tank || {}) }, eyes: { ...BODY_DEFAULTS.eyes, ...(work.body?.eyes || {}) } };
+  const setBody = (part: 'tank' | 'eyes', k: string, v: number) => update((d) => {
+    d.work.body ||= {};
+    d.work.body[part] = { ...BODY_DEFAULTS[part], ...(d.work.body[part] || {}), [k]: v };
+  }, { fork: true });
   const T = selEntry?.transform || {};
   const pos = T.position || [0, 0, 0], rot = T.rotation || [0, 0, 0];
 
@@ -89,6 +95,20 @@ export function Visual({ active }: { active: boolean }) {
               <label key={k}>{n}<ColorField value={work.materials?.[k]?.color} onChange={(v) => update((d) => { d.work.materials[k] = { ...(d.work.materials[k] || d.work.materials.porcelain), color: v }; }, { fork: true })} /></label>
             ))}
           </div>
+        </Card>
+        <Card className="compact">
+          <div className="sec-h row" style={{ marginBottom: 8 }}>
+            <h3 style={{ margin: 0 }} className="grow">Corpo</h3>
+            <Button size="sm" tip="Volta às proporções originais" disabled={!work.body} onClick={() => update((d) => { delete d.work.body; }, { fork: true })}>Restaurar proporções</Button>
+          </div>
+          <Fields>
+            <Field label="Cabeça largura" tip="Largura do tanque"><Slider value={body.tank.w} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('tank', 'w', v)} /></Field>
+            <Field label="Cabeça altura" tip="Altura do tanque"><Slider value={body.tank.h} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('tank', 'h', v)} /></Field>
+            <Field label="Cabeça profund." tip="Profundidade do tanque"><Slider value={body.tank.d} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('tank', 'd', v)} /></Field>
+            <Field label="Olhos tamanho"><Slider value={body.eyes.size} min={0.5} max={1.8} step={0.01} fmt="x" onChange={(v) => setBody('eyes', 'size', v)} /></Field>
+            <Field label="Olhos distância" tip="Separação entre os olhos"><Slider value={body.eyes.spacing} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('eyes', 'spacing', v)} /></Field>
+            <Field label="Olhos altura" tip="Sobe/desce os olhos (metros)"><Slider value={body.eyes.y} min={-0.12} max={0.12} step={0.005} onChange={(v) => setBody('eyes', 'y', v)} /></Field>
+          </Fields>
         </Card>
         <Card>
           <h3 style={{ marginTop: 0 }}>Modelo próprio (.glb)</h3>

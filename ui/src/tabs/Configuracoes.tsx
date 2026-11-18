@@ -9,6 +9,7 @@ import { Select } from '../components/Select';
 import { Slider } from '../components/Slider';
 import { Toggle } from '../components/Toggle';
 import { useToast } from '../components/Toast';
+import { MouthLimits } from './Microfone';
 
 export function Configuracoes() {
   const { s, update, applyHotkeys, replaceConfig } = useStore();
@@ -63,6 +64,8 @@ export function Configuracoes() {
           <Field label="Boca em repouso" tip="Quanto a tampa fica entreaberta parada."><Slider value={st.restOpen} min={0} max={0.2} step={0.005} onChange={(v) => setS('restOpen', v)} /></Field>
           <Field label="Sensibilidade do olhar" tip="Maior = vira mais para o mouse."><Slider value={st.lookSensitivity} min={0.2} max={2} step={0.05} fmt="x" onChange={(v) => setS('lookSensitivity', v)} /></Field>
         </Fields>
+        <h3>Boca</h3>
+        <MouthLimits />
         <h3>Olhar para o mouse (todos os monitores)</h3>
         <Fields>
           <Field label="Alcance do olhar" tip="Quanto ele vira em direção ao mouse. 1 = normal."><Slider value={look.range} min={0.3} max={1.5} step={0.01} fmt="x" onChange={(v) => setL('range', v)} /></Field>

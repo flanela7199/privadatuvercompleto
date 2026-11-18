@@ -13,10 +13,12 @@
         "id": "sunglasses"
       }
     ],
-    "face": [
+    "lip_upper": [
       {
         "id": "mustache_pencil"
-      },
+      }
+    ],
+    "face": [
       {
         "id": "cigar"
       }

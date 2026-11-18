@@ -161,9 +161,11 @@ impl Action {
                 if t < 2.5 {
                     fx.paper.target_len = 3.4;
                     fx.paper.feed_speed = 1.7 * smooth(0.0, 0.35, t) * (1.0 - 0.3 * smooth(1.8, 2.5, t));
-                    let w = 30.0 * smooth(0.0, 0.45, t) * (1.0 - smooth(1.8, 2.5, t));
+                    // gentle breeze along his forward (the roll faces the camera): the paper
+                    // streams out over the lid and piles on the floor in front of the bowl
+                    let w = 12.0 * smooth(0.0, 0.45, t) * (1.0 - smooth(1.8, 2.5, t));
                     fx.paper.wind = fx.paper_out_dir * w;
-                    fx.paper.wind.y = w * 0.35;
+                    fx.paper.wind.y = w * 0.2;
                 } else {
                     fx.paper.wind = Vec3::ZERO;
                     fx.paper.target_len = fx.paper.length(); // stop feeding, let it settle
@@ -176,11 +178,13 @@ impl Action {
                         fx.emit("rip");
                     }
                 }
-                o.head_yaw = -0.25 * smooth(0.0, 0.3, t) * (1.0 - smooth(2.6, 3.2, t));
+                // the roll is on his own tank front (left, below the eye): a small turn and a
+                // look down at it, then down at the paper piling in front of the bowl
+                o.head_yaw = -0.05 * smooth(0.0, 0.3, t) * (1.0 - smooth(2.6, 3.2, t));
                 o.look = if t < 2.6 {
-                    Some((-0.9, -0.2))
+                    Some((-0.12, -0.55))
                 } else if t < 3.4 {
-                    Some((-0.6, -0.8))
+                    Some((-0.12, -0.85))
                 } else {
                     None
                 };

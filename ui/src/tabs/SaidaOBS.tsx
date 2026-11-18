@@ -37,7 +37,10 @@ export function SaidaOBS() {
   return (
     <div className="page">
       <Section title="OBS" desc={<>A própria janela da privada é a fonte do OBS. Os ajustes abaixo valem para a cena ativa: <b>{sc.name}</b>.</>}
-        right={<Button kind="primary" tip="Abre/traz para frente a janela do personagem" onClick={show}>🚽 Mostrar personagem</Button>}>
+        right={<div className="btns">
+          <Button kind="primary" tip="Abre/traz para frente a janela do personagem" onClick={show}>🚽 Mostrar personagem</Button>
+          <Button tip="Coloca a janela atrás das outras; o OBS continua capturando" onClick={() => invoke('send_to_back').catch(() => {})}>⤓ Mandar para trás (continua no OBS)</Button>
+        </div>}>
         <Fields>
           <Field label="Fundo" tip="O que aparece atrás da privada na janela">
             <Select value={bg} options={[['green', 'Chroma verde (#00FF00)'], ['color', 'Cor sólida'], ['transparent', 'Transparente']]} onChange={setBg} />

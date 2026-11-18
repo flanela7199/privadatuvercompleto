@@ -27,7 +27,7 @@ pub use json::Json;
 pub use mesh::Mesh;
 
 /// Bump when any builder's output changes (invalidates every cached mesh).
-pub const GEO_VERSION: u32 = 1;
+pub const GEO_VERSION: u32 = 3; // 3: mustaches fit the lid rim (lip_upper socket)
 pub const FORMAT: u32 = 1;
 
 pub fn build(kind: &str, params_json: &str) -> Result<Mesh, String> {
@@ -111,7 +111,7 @@ fn mustache_ctx<'a>(st: &'a hair::Style, p: &Json) -> hair::MustacheCtx<'a> {
     let prof = bowl.and_then(|b| b.get("profile")).and_then(Json::pairs).unwrap_or_else(hair::default_bowl_profile);
     let sz = bowl.map(|b| b.f("scaleZ", 1.22)).unwrap_or(1.22);
     let k = bowl.map(|b| b.f("egg", 0.08)).unwrap_or(0.08);
-    hair::MustacheCtx { st, surf: hair::BowlSurface::new(&prof, sz, k), l: p.f("length", 1.0), th: p.f("thickness", 1.0) }
+    hair::MustacheCtx { st, surf: hair::LipFront::new(&prof, sz, k), l: p.f("length", 1.0), th: p.f("thickness", 1.0) }
 }
 
 /// z of the mustache centre knot (socket space), for the JS SphereGeometry

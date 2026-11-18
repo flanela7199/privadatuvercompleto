@@ -16,10 +16,12 @@
         "id": "devil_horns"
       }
     ],
-    "face": [
+    "lip_upper": [
       {
         "id": "mustache_dali"
-      },
+      }
+    ],
+    "face": [
       {
         "id": "tongue"
       }

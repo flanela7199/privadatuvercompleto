@@ -101,7 +101,7 @@ for (let t = 13.8; t < 23.6; t += 0.7, ci++) {
   EVENTS.push([t, () => {
     const slots = {
       head_top: [{ id: hats[i % hats.length] }],
-      face: [{ id: mustaches[i % mustaches.length] }],
+      lip_upper: [{ id: mustaches[i % mustaches.length] }],
     };
     const e = eyes[Math.floor(i / 2) % eyes.length];
     if (e) slots.eyes = [{ id: e }];
@@ -109,7 +109,7 @@ for (let t = 13.8; t < 23.6; t += 0.7, ci++) {
     if (i >= 4) slots.back = [{ id: 'cape', params: { color: ['#7a1020', '#1d2f6b', '#1d4a2a'][i % 3] } }];
     if (i >= 5) slots.floor_right = [{ id: 'plunger' }];
     if (i >= 6) slots.floor_left = [{ id: 'rubber_duck' }];
-    if (i >= 9) slots.face.push({ id: 'cigar' });
+    if (i >= 9) slots.face = [{ id: 'cigar' }];
     accOnly(slots);
     if (i === 3) setTheme(outfit(tuber.theme, slots, { seat: '#1c1c1e', lid: '#1c1c1e' }));
     if (i === 8) setTheme(outfit(tuber.theme, slots, { seat: '#2f5d9c', lid: '#2f5d9c' }));
@@ -122,7 +122,7 @@ EVENTS.push(
   [26.2, () => setTheme(themes.golden)],
   [26.5, () => tuber.play('backflip')],
   [28.4, () => shapes('OA', 0.3)],
-  [29.4, () => setTheme(outfit(B, { head_top: [{ id: 'top_hat' }], eyes: [{ id: 'sunglasses' }], face: [hb], body_front: [{ id: 'bow_tie_real' }] }, {}))],
+  [29.4, () => setTheme(outfit(B, { head_top: [{ id: 'top_hat' }], eyes: [{ id: 'sunglasses' }], lip_upper: [hb], body_front: [{ id: 'bow_tie_real' }] }, {}))],
   [29.8, () => tuber.play('jump')],
   [31.4, () => { setTheme(themes.base); tuber.play('blink'); }],
 );

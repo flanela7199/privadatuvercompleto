@@ -58,9 +58,9 @@ registerAction('paper', {
     if (t < 2.5) {
       p.targetLen = 3.4;
       p.feedSpeed = 1.7 * smooth(0, 0.35, t) * (1 - 0.3 * smooth(1.8, 2.5, t));
-      const w = 30 * smooth(0, 0.45, t) * (1 - smooth(1.8, 2.5, t));
+      const w = 12 * smooth(0, 0.45, t) * (1 - smooth(1.8, 2.5, t));
       p.wind.copy(tb.paperOutDir).multiplyScalar(w);
-      p.wind.y = w * 0.35;
+      p.wind.y = w * 0.2;
     } else {
       p.wind.set(0, 0, 0);
       p.targetLen = p.length();                     // stop feeding, let it settle
@@ -71,8 +71,8 @@ registerAction('paper', {
         tb.emit('sfx', 'rip');
       }
     }
-    o.headYaw = -0.25 * smooth(0, 0.3, t) * (1 - smooth(2.6, 3.2, t));
-    o.look = t < 2.6 ? { x: -0.9, y: -0.2 } : t < 3.4 ? { x: -0.6, y: -0.8 } : null;
+    o.headYaw = -0.05 * smooth(0, 0.3, t) * (1 - smooth(2.6, 3.2, t));
+    o.look = t < 2.6 ? { x: -0.12, y: -0.55 } : t < 3.4 ? { x: -0.12, y: -0.85 } : null;
     o.mouth = t < 2.4 ? 0.3 + 0.15 * Math.sin(t * 20) : null;
   },
   end(tb) { const p = tb.paper; p.wind.set(0, 0, 0); p.feedSpeed = 0.6; p.targetLen = 0.24; },

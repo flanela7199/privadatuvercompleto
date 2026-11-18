@@ -48,7 +48,7 @@
   },
   "slots": {
     "head_top": [{ "id": "crown", "params": { "points": 8, "tilt": 0.12, "radius": 0.15 } }],
-    "face":     [{ "id": "mustache_handlebar" }]
+    "lip_upper": [{ "id": "mustache_handlebar" }]
   },
   "background": { "css": "radial-gradient(ellipse 90% 80% at 50% 38%, #ece8e1 0%, #d6d0c6 45%, #aaa397 85%, #8f897e 100%)" }
 }

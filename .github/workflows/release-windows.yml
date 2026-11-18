@@ -27,11 +27,17 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      # cache cargo registry + target; also save when a later step fails (first runs failed -> nothing was cached)
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          shared-key: release-windows
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
 
       # Rust core -> WebAssembly for the renderer (web/pkg), only if the wasm crate uses wasm-bindgen
       - name: Build privada-wasm
@@ -40,9 +46,20 @@ jobs:
           $meta = cargo metadata --format-version 1 | ConvertFrom-Json
           $wb = $meta.packages | Where-Object { $_.name -eq 'wasm-bindgen' } | Select-Object -First 1
           if (-not $wb) { Write-Host "privada-wasm has no wasm-bindgen yet - skipping (JS fallback)"; exit 0 }
-          cargo install wasm-bindgen-cli --version $wb.version --locked
+          # prebuilt wasm-bindgen (no compile): matches the crate version from Cargo.lock
+          $env:WB_VERSION = $wb.version
+          "WB_VERSION=$($wb.version)" | Out-File -Append $env:GITHUB_ENV
           cargo build -p privada-wasm --target wasm32-unknown-unknown --release
-          wasm-bindgen target/wasm32-unknown-unknown/release/privada_wasm.wasm --out-dir web/pkg --target web
+
+      - name: Install wasm-bindgen (prebuilt)
+        if: env.WB_VERSION != ''
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen@${{ env.WB_VERSION }}
+
+      - name: wasm-bindgen -> web/pkg
+        if: env.WB_VERSION != ''
+        run: wasm-bindgen target/wasm32-unknown-unknown/release/privada_wasm.wasm --out-dir web/pkg --target web
 
       # React control panel (ui/ -> web/panel)
       - name: Build panel (React)
@@ -52,8 +69,8 @@ jobs:
           npm ci || npm install
           npm run build
 
-      - name: Install Tauri CLI
-        run: npm install -g @tauri-apps/cli@^2
+      - name: Install Tauri CLI (prebuilt binary, cached by setup-node)
+        run: npm install -g @tauri-apps/cli@^2 --prefer-offline --no-audit --no-fund
 
       - name: Build app (NSIS installer)
         working-directory: crates/privada-app

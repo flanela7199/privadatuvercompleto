@@ -18,7 +18,7 @@ import { outfitThumbKey, accThumbKey } from './thumbkeys.js';
 import { buildAccessory, listAccessories } from '../accessories/index.js';
 import { MaterialLib } from '../rig/materials.js';
 import { DIM } from '../rig/ToiletTuber.js';
-import { makeResolver } from './outfits.js';
+import { makeResolver, migrateOutfit } from './outfits.js';
 import { DEFAULT_CONFIG } from './defaults.js';
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
@@ -76,16 +76,14 @@ async function loadPresets() {
 }
 const presetRaw = await loadPresets();
 const resolved = new Map();
-function resolveOutfit(id, seen = new Set()) {
+// Same resolution as the panel (web/src/app/outfits.js): custom > presets > themes, `extends`
+// merged, every raw outfit migrated (mustaches face -> lip_upper). Unknown id -> null.
+function resolveOutfit(id) {
   if (!id) return null;
   if (resolved.has(id)) return resolved.get(id);
-  const t = config.outfits?.[id] || presetRaw[id] || themes[id];
-  if (!t) return null;
-  let out = t;
-  if (t.extends && !seen.has(id)) {
-    seen.add(id);
-    out = mergeTheme(resolveOutfit(t.extends, seen) || themes.base, t);
-  }
+  const R = makeResolver({ themes, presets: presetRaw, outfits: config.outfits || {} });
+  if (!R.raw(id)) return null;
+  const out = R.resolve(id);
   resolved.set(id, out);
   return out;
 }
@@ -96,7 +94,7 @@ let geocache = null;
 try { geocache = await import('../rig/geocache.js'); } catch { /* not available: plain build */ }
 const activeId = config.activeOutfit || 'base';
 try { await geocache?.warmOutfit?.(activeId); } catch (e) { console.warn('[avatar] warmOutfit', e); }
-const firstTheme = config.outfitTheme || resolveOutfit(activeId) || themes.base;
+const firstTheme = (config.outfitTheme && migrateOutfit(config.outfitTheme)) || resolveOutfit(activeId) || migrateOutfit(themes.base);
 let outfitId = config.outfitTheme ? activeId : resolveOutfit(activeId) ? activeId : 'base';
 let outfitKey = JSON.stringify(firstTheme);
 const tuber = new ToiletTuber(firstTheme);
@@ -125,7 +123,7 @@ function applyOutfit(id) {
   wear(t, id);
 }
 function applyConfigOutfit() {
-  if (config.outfitTheme) wear(config.outfitTheme, config.activeOutfit);
+  if (config.outfitTheme) wear(migrateOutfit(config.outfitTheme), config.activeOutfit);
   else applyOutfit(config.activeOutfit || 'base');
 }
 
@@ -523,7 +521,7 @@ function flushThumbKeys() {
 }
 // panel asks for new/edited outfits
 listen('thumbs-request', async (p) => {
-  const items = (p?.outfits || []).map((t, i) => ({ id: t.id || `custom-${i}`, theme: t.extends ? mergeTheme(resolveOutfit(t.extends) || themes.base, t) : t }));
+  const items = (p?.outfits || []).map((t, i) => ({ id: t.id || `custom-${i}`, theme: migrateOutfit(t.extends ? mergeTheme(resolveOutfit(t.extends) || themes.base, t) : t) }));
   if (await queueMissing(items)) idleThumbs();
 });
 // after the splash: one thumbnail per idle slot, rendered right before a normal frame (no flash)
@@ -554,7 +552,8 @@ function frame(now) {
   if (isTauri) { if (micOn && now - rustMouthT < 500) mic = rustMouth; }
   else if (browserMic) mic = browserMic.update(dt);
   else if (OUTPUT && remoteMouth && now - remoteT < 500) mic = remoteMouth;
-  const mouth = maxMouth(mic, fake.update(dt));
+  const rawMouth = maxMouth(mic, fake.update(dt));
+  const mouth = shapeMouth(rawMouth);
 
   if (settings().autoBlink === false) tuber.blinkTimer = 1e9;
   else if (tuber.blinkTimer > 1e8) tuber.blinkTimer = 2;
@@ -571,7 +570,7 @@ function frame(now) {
     tuber.head.rotation.y += smoothExtra.y * 0.4;
     tuber.head.rotation.x -= smoothExtra.x;
   }
-  if (!OUTPUT && now - poseT > 33) { poseT = now; emit('avatar-pose', { look, mouth: isTauri ? null : mouth }); }
+  if (!OUTPUT && now - poseT > 33) { poseT = now; emit('avatar-pose', { look, mouth: isTauri ? null : rawMouth }); }
 
   // thumbnails: during the splash phase one per frame (window still hidden), afterwards at idle
   if (th.phase) {
@@ -603,6 +602,26 @@ function frame(now) {
   if (now - fpsT > 1000) { fps = Math.round((frames * 1000) / (now - fpsT)); frames = 0; fpsT = now; }
 }
 const smoothExtra = { x: 0, y: 0 };
+// streamer's mouth limits: settings.mouth = { maxOpen (0.65), curve (1.6) }
+//   open' = maxOpen * open^curve ; round/wide/sib scaled by maxOpen ; closed unchanged
+function shapeMouth(m) {
+  const cfg = settings().mouth || {};
+  const maxOpen = clamp(Number.isFinite(+cfg.maxOpen) ? +cfg.maxOpen : 0.65, 0, 1.5);
+  const curve = clamp(Number.isFinite(+cfg.curve) && +cfg.curve > 0 ? +cfg.curve : 1.6, 0.2, 5);
+  return {
+    open: maxOpen * Math.pow(clamp(m.open || 0, 0, 1), curve),
+    round: (m.round || 0) * maxOpen,
+    wide: (m.wide || 0) * maxOpen,
+    sib: (m.sib || 0) * maxOpen,
+    closed: m.closed || 0,
+    // extended channels from the rig (corners / jaw / upper-lip raise) pass through, scaled like the shape
+    cornerL: (m.cornerL || 0) * maxOpen,
+    cornerR: (m.cornerR || 0) * maxOpen,
+    jawSide: (m.jawSide || 0) * maxOpen,
+    jawFwd: (m.jawFwd || 0) * maxOpen,
+    upperRaise: (m.upperRaise || 0) * maxOpen,
+  };
+}
 let firstFrame = false;
 
 // rAF normally; a worker ticker takes over when hidden/occluded (OBS captures it behind other

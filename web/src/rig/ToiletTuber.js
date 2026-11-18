@@ -5,15 +5,17 @@
 //   ToiletTuber
 //   └ body                      yaw/pitch toward the mouse, breathing squash
 //     ├ bowl, water, hinge_L/R, neck_pipe
-//     ├ seat_pivot └ seat
-//     ├ lid_pivot  └ lid        = the MOUTH (opens with the microphone)
-//     ├ socket_face             (mustache...)
+//     ├ seat_pivot └ seat       = LOWER LIP (SkinnedMesh, seat_bone_0..7 hinge -> front)
+//     ├ lid_pivot  └ lid        = UPPER LIP (SkinnedMesh, lid_bone_0..7), opens with the mic
+//     │              └ lid_bone_7 └ socket_lip_upper (mustaches)
+//     ├ socket_face             (compat)
 //     └ head                    tank, pivots on the pipe
 //       ├ tank, tank_lid
 //       ├ eye_L/eye_R └ pupil_L/pupil_R (googly)
 //       ├ flush_handle
-//       ├ paper_holder └ paper_roll
+//       ├ paper_holder └ paper_roll   (tank front-left, axis X: unrolls toward the viewer)
 //       └ socket_head_top, socket_tank_front, socket_side_right
+// theme.body = { tank: {w,h,d}, eyes: {size, spacing, y} } resizes the tank (see bodyDims).
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { MaterialLib } from './materials.js';
@@ -45,13 +47,189 @@ export const DIM = {
   tank: { w: 0.95, h: 0.52, d: 0.36, y: 0.3, z: 0.14 },
   eye: { x: 0.172, y: 0.33, r: 0.14 },
   egg: 0.08,                                   // front of bowl/seat/lid narrower (elongated bowl)
-  seat: { rx: 0.405, rz: 0.495, hole: 0.62, h: 0.03 },
+  rimTop: 0.638, rimOuterR: 0.414,             // bowl rim glaze top / outer radius (lathe units)
+  // seat = LOWER LIP: bone chain hinge -> front (bone 0 at z0, then (2rz+0.02)/7 apart); per bone 1..7:
+  // front-down angle per unit drop, front-up per unit press, forward slide per unit drop (m)
+  seat: {
+    rx: 0.405, rz: 0.495, hole: 0.62, h: 0.03, bones: 8, z0: 0.03, maxDrop: 0.03,
+    dropAng: [0, 0, 0, 0, 0, 0.72, 0.1], pressAng: [0, 0, 0, 0, -0.04, -0.12, -0.05], slide: [0, 0, 0, 0.014, 0.022, 0.03, 0],
+  },
   mouth: { rest: 0.05, spout: [0, 0.69, 0.43], spoutDir: [0, 0.42, 0.9] }, // rest = lips slightly apart
-  lid: { rx: 0.4, rz: 0.49, depth: 0.018, dome: 0.018, edge: 0.012, bones: 8, maxHinge: 1.45 },
-  roll: { x: -0.6, y: 0.38, z: 0.16, r: 0.085, len: 0.19 },
+  // thick, soft upper lip; archRest = permanent arch weight, restCurl = front droop (rad per bone x w^2)
+  lid: { rx: 0.4, rz: 0.49, depth: 0.036, dome: 0.02, edge: 0.02, bones: 8, maxHinge: 1.45, archRest: 0.18, restCurl: -0.03 },
+  headTalkTilt: 0.15,                          // head tilts back with the opening (rad per rad of hinge)
+  jaw: { yaw: 0.1, fwd: 0.025 },               // lid + seat assembly: max yaw (jawSide 1), forward shift (jawFwd 1)
+  neckBaseY: 0.62,                             // the pipe turns into the bowl here; body.neck.length scales above
+  // paper roll on the tank front-left, axis along X (x/y/z = defaults, see bodyDims)
+  roll: { x: -0.3, y: 0.1, z: 0.43, r: 0.085, len: 0.19, xf: -0.3 / 0.95, above: 0.06, gap: 0.025 },
+  paperTop: 0.735,                             // closed-lid top for the paper collision
 };
 
+/**
+ * theme.body -> tank / eyes / handle / roll in head space (mirror of privada_core::dim::BodyDims).
+ * tank {w,h,d} factors 0.6..1.6 (bottom and back stay put), eyes {size 0.5..1.8, spacing 0.6..1.6, y -0.12..0.12 m},
+ * neck {length 0.6..1.6} (the pipe above the bowl: moves the head up/down).
+ */
+export function bodyDims(body = {}) {
+  const f = (v, a, b, d = 1) => (Number.isFinite(v) ? clamp(v, a, b) : d);
+  const t = body?.tank || {}, e = body?.eyes || {}, nk = body?.neck || {};
+  const w = f(t.w, 0.6, 1.6), h = f(t.h, 0.6, 1.6), d = f(t.d, 0.6, 1.6);
+  const T0 = DIM.tank, E0 = DIM.eye, R = DIM.roll;
+  const bottom = T0.y - T0.h / 2, back = T0.z - T0.d / 2;
+  const tank = { w: T0.w * w, h: T0.h * h, d: T0.d * d, y: 0, z: 0 };
+  tank.y = bottom + tank.h / 2; tank.z = back + tank.d / 2;
+  const front = tank.z + tank.d / 2;
+  const eye = { x: E0.x * f(e.spacing, 0.6, 1.6) * w, y: tank.y + (E0.y - T0.y) * h + f(e.y, -0.12, 0.12, 0), r: E0.r * f(e.size, 0.5, 1.8) };
+  const neck = f(nk.length, 0.6, 1.6);
+  return {
+    ...DIM, tank, eye, front, neck, headY: DIM.neckBaseY + (DIM.headY - DIM.neckBaseY) * neck,
+    handle: [0.34 * w, tank.y + 0.17 * h, front + 0.005],
+    roll: { ...R, x: R.xf * tank.w, y: bottom + R.above, z: front + R.r + R.gap },
+  };
+}
+
 const tmpV = new THREE.Vector3();
+
+// Derived rig constants (mirror of crates/privada-core/src/dim.rs)
+const SEAT_Y0 = 0.006;                                            // seat geometry above its pivot
+const SEAT_SEG = (2 * DIM.seat.rz + 0.02) / (DIM.seat.bones - 1);
+const LID_Z0 = -0.01;
+const LID_SEG = (2 * DIM.lid.rz + 0.02) / (DIM.lid.bones - 1);
+const LID_FRONT_Z = DIM.lid.rz - DIM.hingeZ + 0.004;              // lid front point, lid-pivot space
+const LID_PIVOT = [0, DIM.rimY + SEAT_Y0 + DIM.seat.h + 0.004, DIM.hingeZ - 0.004];
+
+/** Mouth channels beyond the base five (all optional, default 0); see input/visemes.js */
+export const MOUTH_EXT = ['cornerL', 'cornerR', 'jawSide', 'jawFwd', 'upperRaise'];
+/** blend shapes in morph-buffer order: lid (upper lip) first, then the seat (lower lip); L = the -x side (like eye_L) */
+export const LID_MORPHS = ['smile', 'pucker', 'arch', 'corner_L_up', 'corner_L_down', 'corner_R_up', 'corner_R_down', 'pucker_L', 'pucker_R'];
+export const SEAT_MORPHS = ['corner_L_up', 'corner_L_down', 'corner_R_up', 'corner_R_down', 'pucker_L', 'pucker', 'pucker_R'];
+function sidePucker(u, v, side, a) {
+  const c = 0.4 * side, w = Math.max(0, 1 - ((u - c) / 0.7) ** 2), v2 = v * v;
+  return [a[0] * side * (1 - u * u) * v2 - a[1] * (u - c) * w * v2, a[2] * w * v2, a[3] * w * v2];
+}
+/** lid blend shape k at a rest point (lid-pivot space x, z from the hinge) -> [dx, dy, dz] (mirror of rig.rs lid_morph) */
+export function lidMorph(k, x, z) {
+  const u = clamp(x / DIM.lid.rx, -1, 1), v = clamp(z / (2 * DIM.lid.rz), 0, 1);
+  const ul = Math.max(0, -u), ur = Math.max(0, u), fv = v ** 1.5, mid = 1 - u * u;
+  switch (k) {
+    case 0: return [0, 0.05 * u * u * fv - 0.012 * mid * v, 0];                         // smile: corners lift, centre tenses
+    case 1: return [-0.05 * u * v * v, 0.035 * mid * v * v, 0.03 * mid * v * v];       // pucker: centre up/out, corners in
+    case 2: { const vv = v ** 1.6; return [-0.025 * u * Math.abs(u) * vv, -0.11 * Math.abs(u) ** 2.2 * vv + 0.02 * mid * vv, 0]; } // arch
+    case 3: return [0, 0.045 * ul ** 2.2 * fv, 0];
+    case 4: return [-0.012 * ul * ul * fv, -0.06 * ul ** 2.2 * fv, 0];
+    case 5: return [0, 0.045 * ur ** 2.2 * fv, 0];
+    case 6: return [0.012 * ur * ur * fv, -0.06 * ur ** 2.2 * fv, 0];
+    case 7: return sidePucker(u, v, -1, [0.035, 0.03, 0.032, 0.026]);
+    case 8: return sidePucker(u, v, 1, [0.035, 0.03, 0.032, 0.026]);
+  }
+  return [0, 0, 0];
+}
+/** seat blend shape k at a rest point (seat-pivot space); never moves down (it lies on the rim) */
+export function seatMorph(k, x, z) {
+  const SS = DIM.seat;
+  const u = clamp(x / SS.rx, -1, 1), v = clamp((z + DIM.hingeZ + SS.rz) / (2 * SS.rz), 0, 1);
+  const ul = Math.max(0, -u), ur = Math.max(0, u), fv = v ** 1.5, mid = 1 - u * u, v2 = v * v;
+  switch (k) {
+    case 0: return [0, 0.03 * ul * ul * fv, 0];                                          // corner up (smile)
+    case 1: return [0, 0.018 * mid * (1 - 0.5 * u) * v2, 0.008 * mid * v2];             // frown: lip pouts up by the corner
+    case 2: return [0, 0.03 * ur * ur * fv, 0];
+    case 3: return [0, 0.018 * mid * (1 + 0.5 * u) * v2, 0.008 * mid * v2];
+    case 4: return sidePucker(u, v, -1, [0.03, 0.025, 0.018, 0.022]);
+    case 5: return [-0.03 * u * v2, 0.02 * mid * v2, 0.025 * mid * v2];
+    case 6: return sidePucker(u, v, 1, [0.03, 0.025, 0.018, 0.022]);
+  }
+  return [0, 0, 0];
+}
+/** relative morph targets (positions + normal deltas) on a geometry from a delta function */
+function addMorphs(geo, names, fn) {
+  const pos = geo.attributes.position, n = pos.count;
+  const base = geo.attributes.normal.array;
+  const P = [], N = [];
+  names.forEach((name, k) => {
+    const d = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) d.set(fn(k, pos.getX(i), pos.getZ(i)), i * 3);
+    const g2 = geo.clone(), p2 = g2.attributes.position;
+    for (let i = 0; i < n; i++) p2.setXYZ(i, p2.getX(i) + d[i * 3], p2.getY(i) + d[i * 3 + 1], p2.getZ(i) + d[i * 3 + 2]);
+    g2.computeVertexNormals();
+    const a = g2.attributes.normal.array, dn = new Float32Array(a.length);
+    for (let i = 0; i < a.length; i++) dn[i] = a[i] - base[i];
+    g2.dispose();
+    const pa = new THREE.Float32BufferAttribute(d, 3); pa.name = name;
+    P.push(pa); N.push(new THREE.Float32BufferAttribute(dn, 3));
+  });
+  geo.morphAttributes.position = P;
+  geo.morphAttributes.normal = N;
+  geo.morphTargetsRelative = true;
+}
+const _qy = new THREE.Quaternion(), _qx = new THREE.Quaternion(), _Y = new THREE.Vector3(0, 1, 0), _X = new THREE.Vector3(1, 0, 0);
+/** pivot rotation: jaw yaw, then the hinge about the (yawed) hinge axis (= Ry * Rx, as in Rust) */
+function setPivotQ(obj, yaw, ang) {
+  obj.quaternion.copy(_qy.setFromAxisAngle(_Y, yaw)).multiply(_qx.setFromAxisAngle(_X, ang));
+}
+
+/** egg outline radius of a body-space point in bowl-lathe units (undo eggify + z scale) */
+export function bowlR(x, z) {
+  const r = Math.hypot(x, z);
+  const x0 = r > 1e-5 ? x / (1 - DIM.egg * z / r) : x;
+  return Math.hypot(x0, z / DIM.bowlScaleZ);
+}
+const _t4 = new THREE.Matrix4(), _r4 = new THREE.Matrix4();
+/** bone chain matrices (pivot space): bone 0 at z0, then seg (+ slide[i]) apart, rotated ang[i]*gain about X */
+function chainInto(out, z0, seg, ang, slide, gain) {
+  for (let i = 0; i < out.length; i++) {
+    _t4.makeTranslation(0, 0, i === 0 ? z0 : seg + slide[i]);
+    _r4.makeRotationX(ang[i] * gain);
+    (i === 0 ? out[i].identity() : out[i].copy(out[i - 1])).multiply(_t4).multiply(_r4);
+  }
+  return out;
+}
+const _sa = new THREE.Vector3(), _sb = new THREE.Vector3();
+/** linear-blend skinning of a rest point (same weights as the meshes: 2 bones, linear in z) */
+function skinPoint(chain, z0, seg, x, y, z, out) {
+  const n = chain.length;
+  const f = clamp(z - z0, 0, seg * (n - 1) - 1e-4) / seg;
+  const b = Math.min(n - 2, Math.floor(f)), t = f - b;
+  _sa.set(x, y, z - (z0 + b * seg)).applyMatrix4(chain[b]);
+  _sb.set(x, y, z - (z0 + (b + 1) * seg)).applyMatrix4(chain[b + 1]);
+  return out.copy(_sa).multiplyScalar(1 - t).addScaledVector(_sb, t);
+}
+/** seat underside samples (seat-pivot space) over the front half of the ring, for the rim clamp */
+// (dense at the front edge, which curls down; the clamp keeps SEAT_RIM_MARGIN extra from the rim)
+const SEAT_UNDER = [], SEAT_RIM_MARGIN = 0.004;
+for (let j = 0; j < 11; j++) {
+  const th = 0.2 + (j * (Math.PI - 0.4)) / 10, sn = Math.sin(th);
+  const ex = DIM.seat.rx * Math.cos(th) * (1 - DIM.egg * sn), ez = DIM.seat.rz * sn;
+  for (const k of [DIM.seat.hole, 0.715, 0.81, 0.86, 0.9, 0.93, 0.955, 0.978, 1]) SEAT_UNDER.push([ex * k, SEAT_Y0, ez * k - DIM.hingeZ]);
+}
+// seat top samples (rest x, centred z) over the front ring, for the lid-above-seat floor
+const SEAT_TOP_XZ = [];
+for (const d of [-0.7, -0.35, 0, 0.35, 0.7]) {
+  const th = Math.PI / 2 + d, sn = Math.sin(th);
+  const ex = DIM.seat.rx * Math.cos(th) * (1 - DIM.egg * sn), ez = DIM.seat.rz * sn;
+  for (const k of [0.7, 0.85, 1]) SEAT_TOP_XZ.push([ex * k, ez * k]);
+}
+const LID_ZC = -DIM.hingeZ + 0.004;
+// outside of the bowl profile [y, r] (lathe units) for the paper collision
+const BOWL_OUTER = [[0, 0.3], [0.012, 0.312], [0.035, 0.3], [0.1, 0.25], [0.2, 0.225], [0.3, 0.24], [0.39, 0.3], [0.47, 0.36], [0.55, 0.395], [0.6, 0.41], [0.622, 0.412]];
+const PAPER_MARGIN = 0.012;
+function bowlOuterR(y) {
+  if (y >= 0.622) return 0.415;
+  for (let i = 1; i < BOWL_OUTER.length; i++) {
+    const [y0, r0] = BOWL_OUTER[i - 1], [y1, r1] = BOWL_OUTER[i];
+    if (y <= y1) return r0 + (r1 - r0) * clamp((y - y0) / (y1 - y0), 0, 1);
+  }
+  return 0.415;
+}
+/** body-space point inside the bowl / closed-lid volume -> pushed out (in place); false if outside */
+export function pushOutOfBowl(b) {
+  const top = DIM.paperTop + PAPER_MARGIN;
+  if (b.y < 0 || b.y > top) return false;
+  const r = bowlR(b.x, b.z), rw = bowlOuterR(b.y) + PAPER_MARGIN;
+  if (r >= rw) return false;
+  if (top - b.y <= (rw - r) * DIM.bowlScaleZ || r < 1e-4) b.y = top;
+  else { const k = rw / r; b.x *= k; b.z *= k; }
+  return true;
+}
 
 export class ToiletTuber {
   constructor(theme) {
@@ -69,7 +247,12 @@ export class ToiletTuber {
       handle: new Spring(400, 20),
       smile: new Spring(220, 18), pucker: new Spring(220, 18), arch: new Spring(200, 14),
       lean: new Spring(60, 11),
+      drop: new Spring(200, 16),     // lower lip drop 0..1 (slides the seat front out + curls it down)
+      cornerL: new Spring(220, 18), cornerR: new Spring(220, 18),
+      jawSide: new Spring(160, 16), jawFwd: new Spring(160, 16), upperRaise: new Spring(220, 18),
     };
+    this.morphW = new Array(LID_MORPHS.length + SEAT_MORPHS.length).fill(0);
+    this.jawYaw = 0; this.jawFwd = 0;
     // total look range (body + head): body ~55% of yaw / 30% of pitch, head the rest
     this.lookLimits = { yaw: (80 * Math.PI) / 180, pitch: (35 * Math.PI) / 180 };
     this.mouthVec = { open: 0, round: 0, wide: 0, closed: 0, sib: 0 };
@@ -103,11 +286,13 @@ export class ToiletTuber {
       this.mats.dispose();
     }
     this.mats = new MaterialLib(theme.materials);
+    this.dim = bodyDims(theme.body);
+    this.rust?.r.set_body_dims(JSON.stringify(theme.body || {}));
     this.build();
   }
 
   build() {
-    const M = this.mats, D = DIM;
+    const M = this.mats, D = this.dim || (this.dim = bodyDims(this.theme?.body));
     const mesh = (name, geo, mat, parent) => {
       const m = new THREE.Mesh(geo, mat);
       m.name = name; m.castShadow = true; m.receiveShadow = true;
@@ -130,7 +315,18 @@ export class ToiletTuber {
     const bowlGeo = new THREE.LatheGeometry(D.bowlProfile.map(([r, y]) => new THREE.Vector2(r, y)), 96);
     bowlGeo.scale(1, 1, D.bowlScaleZ);
     eggify(bowlGeo, D.egg);
-    const bowlMat = porcelain.clone(); bowlMat.side = THREE.DoubleSide;
+    // the bowl interior reads as the MOUTH CAVITY: vertex colours darken the inside toward the bottom
+    {
+      const np = D.bowlProfile.length, inner = D.bowlProfile.findIndex(([r, y], i) => i > 0 && y >= D.rimY - 0.001 && r < 0.39);
+      const bp = bowlGeo.attributes.position, col = new Float32Array(bp.count * 3);
+      for (let i = 0; i < bp.count; i++) {
+        const j = i % np, y = bp.getY(i);
+        const c = j < inner ? 1 : 0.3 + 0.7 * smoothstep(D.waterY - 0.02, D.rimY, y) ** 1.5;
+        col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = c;
+      }
+      bowlGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    }
+    const bowlMat = porcelain.clone(); bowlMat.side = THREE.DoubleSide; bowlMat.vertexColors = true;
     this.nodes.bowl = mesh('bowl', bowlGeo, bowlMat, body);
 
     // Water inside the bowl
@@ -147,23 +343,59 @@ export class ToiletTuber {
     this.nodes.swirl.position.y = D.waterY + 0.002;
     this.nodes.swirl.castShadow = false;
 
-    // Seat (rounded ring) and lid (= MOUTH), both hinged at the back
+    // Seat (rounded ring) = LOWER LIP and lid = UPPER LIP, both hinged at the back.
+    // The seat is a SkinnedMesh with a bone chain hinge -> front (like the lid): open vowels
+    // slide its front out over the bowl's front edge and curl it down, M/B/P press it up.
     const rubber = M.get('rubber', { color: '#1c1c1c', roughness: 0.85 });
     const seatPivot = group('seat_pivot', body, 0, D.rimY, D.hingeZ);
     const seatMat = M.get('seat', 'porcelain').clone();
     seatMat.side = THREE.DoubleSide;
-    const seat = mesh('seat', eggRevolve(D.seat.rx, D.seat.rz, D.egg, seatProfile(D.seat.rx, D.seat.hole, D.seat.h), 160), seatMat, seatPivot);
-    seat.position.set(0, 0.006, -D.hingeZ);
-    for (const [x, z] of [[0.3, 0.12], [-0.3, 0.12], [0.24, -0.3], [-0.24, -0.3]]) {
-      const b = mesh('seat_bumper', new THREE.CylinderGeometry(0.018, 0.02, 0.008, 16), rubber, seat);
-      b.position.set(x, -0.003, z);
+    const SS = D.seat;
+    const seatGeo = eggRevolve(SS.rx, SS.rz, D.egg, seatProfile(SS.rx, SS.hole, SS.h), 160);
+    seatGeo.translate(0, SEAT_Y0, -D.hingeZ);             // hinge at the pivot origin
+    const sB = SS.bones, sSeg = SEAT_SEG;
+    {
+      const si = [], sw = [], sp = seatGeo.attributes.position;
+      for (let i = 0; i < sp.count; i++) {
+        const f = clamp(sp.getZ(i) - SS.z0, 0, sSeg * (sB - 1) - 1e-4) / sSeg;
+        const b = Math.min(sB - 2, Math.floor(f)), t = f - b;
+        si.push(b, b + 1, 0, 0); sw.push(1 - t, t, 0, 0);
+      }
+      seatGeo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
+      seatGeo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
     }
+    addMorphs(seatGeo, SEAT_MORPHS, seatMorph);   // lower-lip corners / purse (never down)
+    const seat = new THREE.SkinnedMesh(seatGeo, seatMat);
+    seat.name = 'seat'; seat.castShadow = seat.receiveShadow = true;
+    seat.frustumCulled = false;
+    this.seatBones = [];
+    for (let i = 0; i < sB; i++) {
+      const b = new THREE.Bone();
+      b.name = `seat_bone_${i}`;
+      b.position.z = i === 0 ? SS.z0 : sSeg;
+      (i === 0 ? seat : this.seatBones[i - 1]).add(b);
+      this.seatBones.push(b);
+    }
+    seat.updateMatrixWorld(true);
+    seat.bind(new THREE.Skeleton(this.seatBones));
+    seatPivot.add(seat);
+    this.seatLip = this.seatBones.slice(1).map((_, i) => new Spring(260 - i * 18, 13 + i * 0.5));
+    this.seatAng = new Array(sB).fill(0); this.seatSlide = new Array(sB).fill(0); this.seatGain = 1; this.seatFloor = 0;
+    // rubber bumpers ride on the bone right behind them (pivot-space z -> bone-local z)
+    const onSeatBone = (name, geo, x, y, zc) => {
+      const z = zc - D.hingeZ, k = clamp(Math.floor((z - SS.z0) / sSeg), 0, sB - 1);
+      const b = mesh(name, geo, rubber, this.seatBones[k]);
+      b.position.set(x, y, z - (SS.z0 + k * sSeg));
+      return b;
+    };
+    for (const [x, z] of [[0.3, 0.12], [-0.3, 0.12], [0.24, -0.3], [-0.24, -0.3]])
+      onSeatBone('seat_bumper', new THREE.CylinderGeometry(0.018, 0.02, 0.008, 16), x, SEAT_Y0 - 0.003, z);
 
     // Lid is a SkinnedMesh with a bone chain hinge->front so it bends like a lip.
     const lidPivot = group('lid_pivot', body, 0, D.rimY + 0.006 + D.seat.h + 0.004, D.hingeZ - 0.004);
     const L = D.lid;
     const lidGeo = eggRevolve(L.rx, L.rz, D.egg, lidProfile(L.rx, L.depth, L.dome, L.edge), 160);
-    lidGeo.translate(0, 0, -D.hingeZ + 0.004);           // hinge at the pivot origin
+    lidGeo.translate(0, 0, LID_FRONT_Z - L.rz);           // hinge at the pivot origin
     const span = 2 * L.rz + 0.02, nB = L.bones, segL = span / (nB - 1);
     const si = [], sw = [];
     const lp = lidGeo.attributes.position;
@@ -174,41 +406,10 @@ export class ToiletTuber {
     }
     lidGeo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(si, 4));
     lidGeo.setAttribute('skinWeight', new THREE.Float32BufferAttribute(sw, 4));
-    // Blend shapes so the upper lip can curve with the sound:
-    //  smile  = corners lift, center tenses (E, I)
-    //  pucker = center front pushes up/out, corners pull in (O, U)
-    {
-      const n = lp.count, sm = new Float32Array(n * 3), pu = new Float32Array(n * 3), ar = new Float32Array(n * 3);
-      for (let i = 0; i < n; i++) {
-        const u = clamp(lp.getX(i) / L.rx, -1, 1), v = clamp(lp.getZ(i) / (2 * L.rz), 0, 1);
-        sm[i * 3 + 1] = 0.05 * u * u * v ** 1.5 - 0.012 * (1 - u * u) * v;
-        pu[i * 3] = -0.05 * u * v * v;
-        pu[i * 3 + 1] = 0.035 * (1 - u * u) * v * v;
-        pu[i * 3 + 2] = 0.03 * (1 - u * u) * v * v;
-        // arch: the upper-lip curve seen from the front - corners fold down toward the
-        // seat, the middle stays up, tight near the front edge
-        const vv = v ** 1.6;
-        ar[i * 3 + 1] = -0.11 * Math.pow(Math.abs(u), 2.2) * vv + 0.02 * (1 - u * u) * vv;
-        ar[i * 3] = -0.025 * u * Math.abs(u) * vv;   // corners tuck in a little
-      }
-      const morphNormal = (d) => {
-        const g2 = lidGeo.clone();
-        const p2 = g2.attributes.position;
-        for (let i = 0; i < n; i++) p2.setXYZ(i, p2.getX(i) + d[i * 3], p2.getY(i) + d[i * 3 + 1], p2.getZ(i) + d[i * 3 + 2]);
-        g2.computeVertexNormals();
-        const a = g2.attributes.normal.array, b = lidGeo.attributes.normal.array;
-        const out = new Float32Array(a.length);
-        for (let i = 0; i < a.length; i++) out[i] = a[i] - b[i];
-        g2.dispose();
-        return out;
-      };
-      const smA = new THREE.Float32BufferAttribute(sm, 3); smA.name = 'smile';
-      const puA = new THREE.Float32BufferAttribute(pu, 3); puA.name = 'pucker';
-      const arA = new THREE.Float32BufferAttribute(ar, 3); arA.name = 'arch';
-      lidGeo.morphAttributes.position = [smA, puA, arA];
-      lidGeo.morphAttributes.normal = [smA, puA, arA].map((a) => new THREE.Float32BufferAttribute(morphNormal(a.array), 3));
-      lidGeo.morphTargetsRelative = true;
-    }
+    // Blend shapes so the upper lip can curve with the sound (formulas shared with Rust: lidMorph):
+    //  smile = corners lift, centre tenses (E, I); pucker = centre front up/out (O, U);
+    //  arch = upper-lip curve (corners fold down); corner_L/R_up/down; pucker_L/R (pursed to a side)
+    addMorphs(lidGeo, LID_MORPHS, lidMorph);
     const lidMat = M.get('lid', 'porcelain').clone();
     lidMat.side = THREE.DoubleSide;
     const lid = new THREE.SkinnedMesh(lidGeo, lidMat);
@@ -226,10 +427,8 @@ export class ToiletTuber {
     lid.bind(new THREE.Skeleton(this.lidBones));
     lidPivot.add(lid);
     this.lipSprings = this.lidBones.slice(1).map((_, i) => new Spring(300 - i * 28, 8 + i * 0.8));
-    for (const [x, z] of [[0.26, 0.2], [-0.26, 0.2]]) {
-      const b = mesh('lid_bumper', new THREE.CylinderGeometry(0.016, 0.018, 0.006, 16), rubber, seat);
-      b.position.set(x, D.seat.h + 0.004, z);
-    }
+    for (const [x, z] of [[0.26, 0.2], [-0.26, 0.2]])
+      onSeatBone('lid_bumper', new THREE.CylinderGeometry(0.016, 0.018, 0.006, 16), x, SEAT_Y0 + D.seat.h + 0.004, z);
     Object.assign(this.nodes, { seatPivot, seat, lidPivot, lid });
 
     // Hinge: porcelain-colored covers over chrome posts, like a real seat hinge
@@ -271,18 +470,18 @@ export class ToiletTuber {
     const front = T.z + T.d / 2;
     for (const sx of [1, -1]) {
       const bolt = mesh('tank_bolt', new THREE.CylinderGeometry(0.02, 0.02, 0.025, 6), M.get('bolt', 'chrome'), head);
-      bolt.position.set(0.3 * sx, T.y - T.h / 2 - 0.012, T.z);
+      bolt.position.set(0.3 * sx * (T.w / DIM.tank.w), T.y - T.h / 2 - 0.012, T.z);
       const washer = mesh('tank_washer', new THREE.CylinderGeometry(0.03, 0.03, 0.005, 24), rubber, head);
-      washer.position.set(0.3 * sx, T.y - T.h / 2 - 0.002, T.z);
+      washer.position.set(0.3 * sx * (T.w / DIM.tank.w), T.y - T.h / 2 - 0.002, T.z);
     }
     // fill-valve inlet under the tank (left)
     const inlet = mesh('tank_inlet', new THREE.CylinderGeometry(0.03, 0.03, 0.04, 6), M.get('valve', 'chrome'), head);
-    inlet.position.set(-0.36, T.y - T.h / 2 - 0.02, T.z - 0.06);
+    inlet.position.set(-0.36 * (T.w / DIM.tank.w), T.y - T.h / 2 - 0.02, T.z - 0.06);
 
     // Googly eyes
     this.eyes = [];
     for (const s of [-1, 1]) {
-      const E = D.eye;
+      const E = D.eye;   // follows theme.body (size, spacing, height)
       const eye = group(s < 0 ? 'eye_L' : 'eye_R', head, E.x * s, E.y, front + 0.004);
       const white = mesh('eye_white', new THREE.CylinderGeometry(E.r, E.r, 0.025, 48), M.get('eyeWhite'), eye);
       white.rotation.x = Math.PI / 2; white.position.z = 0.0125;
@@ -296,7 +495,7 @@ export class ToiletTuber {
     }
 
     // Flush handle (front, upper right)
-    const handle = this.nodes.handle = group('flush_handle', head, 0.34, T.y + 0.17, front + 0.005);
+    const handle = this.nodes.handle = group('flush_handle', head, ...D.handle);
     const esc = mesh('handle_escutcheon', new THREE.CylinderGeometry(0.036, 0.04, 0.012, 32), chrome, handle);
     esc.rotation.x = Math.PI / 2; esc.position.z = 0.006;
     const nut = mesh('handle_nut', new THREE.CylinderGeometry(0.022, 0.022, 0.016, 6), chrome, handle);
@@ -307,39 +506,46 @@ export class ToiletTuber {
     const knob = mesh('handle_knob', new THREE.SphereGeometry(0.014, 16, 12), chrome, handle);
     knob.position.set(-0.132, -0.02, 0.04);
 
-    // Toilet-paper holder on the left side of the tank
+    // Toilet-paper holder on the tank FRONT-LEFT (below the left eye, viewer's left): two arms
+    // out of the tank face and a rod along X, so the roll faces the camera and unrolls toward it
     const R = D.roll;
-    const holder = group('paper_holder', head, -T.w / 2, R.y, R.z);
-    const plate = mesh('holder_plate', new RoundedBoxGeometry(0.02, 0.07, 0.07, 3, 0.008), chrome, holder);
-    plate.position.set(-0.008, 0, -R.len / 2 - 0.03);
-    const arm = mesh('holder_arm', new THREE.CylinderGeometry(0.012, 0.012, Math.abs(R.x + T.w / 2), 12), chrome, holder);
-    arm.rotation.z = Math.PI / 2; arm.position.set((R.x + T.w / 2) / 2, 0, -R.len / 2 - 0.03);
-    const rod = mesh('holder_rod', new THREE.CylinderGeometry(0.01, 0.01, R.len + 0.07, 12), chrome, holder);
-    rod.rotation.x = Math.PI / 2; rod.position.set(R.x + T.w / 2, 0, 0);
-    const roll = this.nodes.roll = group('paper_roll', holder, R.x + T.w / 2, 0, 0);
+    const holder = group('paper_holder', head, R.x, R.y, front);
+    const out = R.z - front;                                  // roll axis in front of the face
+    const ax = R.len / 2 + 0.022;
+    for (const sx of [1, -1]) {
+      const plate = mesh('holder_plate', new RoundedBoxGeometry(0.05, 0.07, 0.014, 3, 0.006), chrome, holder);
+      plate.position.set(ax * sx, 0, 0.007);
+      const arm = mesh('holder_arm', new THREE.CylinderGeometry(0.011, 0.011, out, 12), chrome, holder);
+      arm.rotation.x = Math.PI / 2; arm.position.set(ax * sx, 0, out / 2);
+    }
+    const rod = mesh('holder_rod', new THREE.CylinderGeometry(0.01, 0.01, 2 * ax + 0.02, 12), chrome, holder);
+    rod.rotation.z = Math.PI / 2; rod.position.set(0, 0, out);
+    const roll = this.nodes.roll = group('paper_roll', holder, 0, 0, out);
     const paperMat = M.get('paper');
     const outer = mesh('roll_paper', new THREE.CylinderGeometry(R.r, R.r, R.len, 48, 1, true), paperMat, roll);
-    outer.rotation.x = Math.PI / 2;
+    outer.rotation.z = Math.PI / 2;
     const core = mesh('roll_core', new THREE.CylinderGeometry(0.024, 0.024, R.len + 0.004, 24, 1, true), M.get('cardboard'), roll);
-    core.rotation.x = Math.PI / 2; core.material.side = THREE.DoubleSide;
+    core.rotation.z = Math.PI / 2; core.material.side = THREE.DoubleSide;
     for (const s of [1, -1]) {
       const cap = mesh('roll_end', new THREE.RingGeometry(0.024, R.r, 48), M.get('rollEnd', 'paper'), roll);
-      cap.position.z = (R.len / 2) * s; if (s < 0) cap.rotation.y = Math.PI;
+      cap.position.x = (R.len / 2) * s; cap.rotation.y = (Math.PI / 2) * s;
     }
-    const seam = mesh('roll_seam', new THREE.BoxGeometry(0.004, 0.004, R.len), M.get('outline'), roll);
+    const seam = mesh('roll_seam', new THREE.BoxGeometry(R.len, 0.004, 0.004), M.get('outline'), roll);
     seam.position.set(0, R.r, 0);
 
     // Sockets for theme accessories
     this.sockets = {
       face: faceSock,
       head_top: group('socket_head_top', head, 0, T.y + T.h / 2 + 0.065, T.z),
-      tank_front: group('socket_tank_front', head, 0, T.y - 0.17, front + 0.01),
+      tank_front: group('socket_tank_front', head, 0, T.y - 0.17 * (T.h / DIM.tank.h), front + 0.01),
       side_right: group('socket_side_right', head, T.w / 2 + 0.01, T.y, T.z),
       body_front: group('socket_body_front', body, 0, 0.25, 0.27),
-      neck: group('socket_neck', body, 0, 0.86, D.pipeZ + 0.09),
-      eyes: group('socket_eyes', head, 0, DIM.eye.y, front + 0.045),
+      neck: group('socket_neck', body, 0, D.neckBaseY + (0.86 - D.neckBaseY) * D.neck, D.pipeZ + 0.09),
+      eyes: group('socket_eyes', head, 0, D.eye.y, front + 0.045),
       back: group('socket_back', head, 0, T.y, T.z - T.d / 2 - 0.01),
       lid_top: group('socket_lid_top', this.lidBones[6], 0, L.depth + 0.006, 0.06),
+      // upper lip: the lid's front point (underside), child of the front-most lid bone, +z out
+      lip_upper: group('socket_lip_upper', this.lidBones[nB - 1], 0, 0, LID_FRONT_Z - (LID_Z0 + (nB - 1) * segL)),
       floor_left: group('socket_floor_left', this.root, -0.62, 0, 0.15),
       floor_right: group('socket_floor_right', this.root, 0.62, 0, 0.15),
     };
@@ -360,7 +566,7 @@ export class ToiletTuber {
     this.torn = new PaperStrip(stripMat, R.len * 0.96);
     this.torn.anchored = false; this.torn.fade = 0;
     this.fx.add(this.paper.mesh, this.torn.mesh);
-    this.paperOutDir = new THREE.Vector3(-1, 0, 0);
+    this.paperOutDir = new THREE.Vector3(0, 0, 1);
     this.root.updateMatrixWorld(true);
     this.updatePaperAnchor();
     this.paper.reset(this.paper.anchor);
@@ -375,7 +581,7 @@ export class ToiletTuber {
       a.traverse((o) => { if (o.isMesh && !o.userData.keepGeo) o.geometry?.dispose(); });
     }
     this.accessories = [];
-    const ctx = { THREE, mats: this.mats, theme: this.theme, dim: DIM };
+    const ctx = { THREE, mats: this.mats, theme: this.theme, dim: this.dim || DIM };
     for (const [slot, entries] of Object.entries(this.theme.slots || {})) {
       const sock = this.sockets[slot];
       if (!sock) { console.warn(`[theme] unknown socket "${slot}"`); continue; }
@@ -419,19 +625,144 @@ export class ToiletTuber {
     this.paper.reset(this.paper.anchor);
   }
 
+  // The roll faces the camera (axis X, in front of the tank face): the paper leaves from the
+  // roll's front, falls toward the viewer and the paper action blows it forward (+z).
   updatePaperAnchor() {
-    const R = DIM.roll;
+    const R = this.dim.roll;
     const roll = this.nodes.roll;
     roll.getWorldPosition(tmpV);
     const q = new THREE.Quaternion();
     this.head.getWorldQuaternion(q);
-    const left = new THREE.Vector3(-1, 0, 0).applyQuaternion(q);
+    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
     const rs = this.paper.rollRadiusScale ?? 1;
-    this.nodes.roll.scale.set(rs, rs, 1);
-    this.paper.anchor.copy(tmpV).addScaledVector(left, R.r * rs);
-    this.paper.widthDir.set(0, 0, 1).applyQuaternion(q);
+    this.nodes.roll.scale.set(1, rs, rs);
+    this.paper.anchor.copy(tmpV).addScaledVector(fwd, R.r * rs);
+    this.paper.widthDir.set(1, 0, 0).applyQuaternion(q);
     this.paper.emitDir.set(0, -1, 0).applyQuaternion(q);
-    this.paperOutDir.copy(left);
+    this.paperOutDir.copy(fwd);
+  }
+
+  /** paper rests on the lid / drapes over the bowl instead of passing through it (as in Rust) */
+  collidePaper(ps) {
+    if (!ps.pts.length) return;
+    const inv = this._binv || (this._binv = new THREE.Matrix4());
+    inv.copy(this.body.matrixWorld).invert();
+    const b = this._pb || (this._pb = new THREE.Vector3());
+    for (let i = ps.anchored ? 1 : 0; i < ps.pts.length; i++) {
+      const { p, q } = ps.pts[i];
+      b.copy(p).applyMatrix4(inv);
+      if (!pushOutOfBowl(b)) continue;
+      b.applyMatrix4(this.body.matrixWorld);
+      q.add(b).sub(p).multiplyScalar(0.45).addScaledVector(b, 0.55);   // move with the push + friction
+      p.copy(b);
+    }
+  }
+
+  /* ------------------------------------------------------- lower lip */
+  // Seat = LOWER LIP (mirror of Rig::apply_seat): open vowels slide its front out over the
+  // bowl's front edge and curl it down (max DIM.seat.maxDrop), M/B/P/F press it up toward the
+  // lid; a binary search on the curl keeps it out of the bowl rim.
+  applySeat(dt) {
+    const m = this.mouthVec, SS = DIM.seat;
+    const drop = Math.max(0, this.s.drop.x);
+    const press = clamp(m.closed + 0.2 * m.sib, 0, 1);
+    const slide = drop * (2 - Math.min(drop, 1));     // the front slides out first, so a small drop clears the rim
+    const S = this.seatLip;
+    for (let i = 0; i < S.length; i++) {
+      const flap = i >= 5 ? Math.sin(this.time * 14 - i * 0.9 + 2) * 0.05 * this.talkAmt : 0;
+      S[i].target = SS.dropAng[i] * drop + SS.pressAng[i] * press + flap;
+      for (let k = 0; k < 3; k++) S[i].step(dt / 3);
+      this.seatAng[i + 1] = S[i].x;
+      this.seatSlide[i + 1] = SS.slide[i] * slide;
+    }
+    let gain = 1;
+    if (this.seatHitsBowl(1)) {
+      let lo = 0, hi = 1;
+      for (let it = 0; it < 7; it++) {
+        const mid = (lo + hi) / 2;
+        this.seatHitsBowl(mid) ? (hi = mid) : (lo = mid);
+      }
+      gain = lo;
+    }
+    this.seatGain = gain;
+    this.seatBones.forEach((b, i) => {
+      if (!i) return;
+      b.position.z = SEAT_SEG + this.seatSlide[i];
+      b.rotation.x = this.seatAng[i] * gain;
+    });
+  }
+
+  seatChain(gain) {
+    const ch = this._seatChain || (this._seatChain = this.seatBones.map(() => new THREE.Matrix4()));
+    return chainInto(ch, DIM.seat.z0, SEAT_SEG, this.seatAng, this.seatSlide, gain);
+  }
+
+  /** the seat pivot (body space) from the current seat lift */
+  seatPivotMatrix() {
+    const piv = this.nodes.seatPivot;
+    piv.updateMatrix();
+    return piv.matrix;
+  }
+
+  /** true if the deformed seat underside enters the bowl rim or drops > maxDrop below rest */
+  /** rest point + this frame's blend shapes (seat: k0 = LID_MORPHS.length) -> out */
+  morphed(fn, k0, nk, x, y, z, out) {
+    out.set(x, y, z);
+    const w = this.morphW;
+    for (let k = 0; k < nk; k++) {
+      if (!w[k0 + k]) continue;
+      const d = fn(k, x, z);
+      out.x += d[0] * w[k0 + k]; out.y += d[1] * w[k0 + k]; out.z += d[2] * w[k0 + k];
+    }
+    return out;
+  }
+
+  seatHitsBowl(gain) {
+    const ch = this.seatChain(gain), pm = this.seatPivotMatrix();
+    const p = this._sp || (this._sp = new THREE.Vector3()), mv = this._mv || (this._mv = new THREE.Vector3());
+    const minY = DIM.rimY + SEAT_Y0 - DIM.seat.maxDrop;
+    for (const [x, y, z] of SEAT_UNDER) {
+      this.morphed(seatMorph, LID_MORPHS.length, SEAT_MORPHS.length, x, y, z, mv);
+      skinPoint(ch, DIM.seat.z0, SEAT_SEG, mv.x, mv.y, mv.z, p).applyMatrix4(pm);
+      if (p.y < minY || (p.y < DIM.rimTop + 0.002 && bowlR(p.x, p.z) < DIM.rimOuterR + SEAT_RIM_MARGIN)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Lowest lid hinge keeping the lid underside above the seat top (both curled + morphed, jaw
+   * included): seat-top points over the front ring vs the lid underside at the same rest x
+   * (z +- 5 cm), compared as angles around the lid hinge. Mirror of Rig::seat_lid_floor.
+   */
+  seatLidFloor() {
+    const ch = this.seatChain(this.seatGain);
+    const lp = this.nodes.lidPivot;
+    const lid0 = this._lid0 || (this._lid0 = new THREE.Matrix4());
+    const q0 = this._q0 || (this._q0 = new THREE.Quaternion());
+    q0.setFromAxisAngle(_Y, this.jawYaw);
+    lid0.compose(lp.position, q0, lp.scale).invert().multiply(this.seatPivotMatrix());
+    const lb = this.lidBones;
+    const lc = this._lidChain || (this._lidChain = lb.map(() => new THREE.Matrix4()));
+    const ang = this._lidAng || (this._lidAng = lb.map(() => 0));
+    const zero = this._lidZero || (this._lidZero = lb.map(() => 0));
+    lb.forEach((b, i) => { ang[i] = b.rotation.x; });
+    chainInto(lc, LID_Z0, LID_SEG, ang, zero, 1);
+    const p = this._sp || (this._sp = new THREE.Vector3()), mv = this._mv || (this._mv = new THREE.Vector3());
+    const nl = LID_MORPHS.length;
+    let floor = -Infinity;
+    for (const [x, zc] of SEAT_TOP_XZ) {
+      this.morphed(seatMorph, nl, SEAT_MORPHS.length, x, SEAT_Y0 + DIM.seat.h, zc - DIM.hingeZ, mv);
+      skinPoint(ch, DIM.seat.z0, SEAT_SEG, mv.x, mv.y, mv.z, p).applyMatrix4(lid0);
+      const aSeat = Math.atan2(p.y, p.z);
+      let aLid = Infinity;
+      for (const dz of [-0.05, 0, 0.05]) {
+        this.morphed(lidMorph, 0, nl, x, 0, zc + LID_ZC + dz, mv);
+        skinPoint(lc, LID_Z0, LID_SEG, mv.x, mv.y, mv.z, p);
+        aLid = Math.min(aLid, Math.atan2(p.y, p.z));
+      }
+      floor = Math.max(floor, aSeat - aLid);
+    }
+    return floor + 0.004;
   }
 
   /* -------------------------------------------------------------- lip */
@@ -449,14 +780,19 @@ export class ToiletTuber {
       const pout = 0.3 * w * w * m.round;          // O/U: front edge curls up and out
       const tense = -0.06 * w * (m.wide + m.sib);  // E/I/S: tight, flatter lip
       const flap = Math.sin(this.time * 14 - i * 0.9) * 0.04 * w * this.talkAmt;
-      S[i].target = lift + sag + pout + tense + flap + (open > 1.2 ? -0.12 * w : 0);
+      // rest: the front droops a little (thick upper lip); upperRaise curls it up
+      const shape = DIM.lid.restCurl * w * w + 0.3 * w * w * m.upperRaise;
+      S[i].target = lift + sag + pout + tense + flap + shape + (open > 1.2 ? -0.12 * w : 0);
       for (let k = 0; k < 3; k++) S[i].step(dt / 3);
       bones[i + 1].rotation.x = -S[i].x;
     }
-    // hinge with collision clamp against the tank (binary search on the angle)
-    let hinge = Math.min(Math.max(0, open, this.s.seat.x + 0.006), DIM.lid.maxHinge);
+    // hinge: never below the seat (lower lip: rigid lift + its curl), then the collision
+    // clamp against the tank (binary search on the angle)
+    const floor = Math.max(0, this.seatLidFloor(), this.s.seat.x + 0.006);
+    this.seatFloor = floor;
+    let hinge = Math.min(Math.max(open, floor), DIM.lid.maxHinge);
     if (this.lidHitsHead(hinge)) {
-      let lo = 0, hi = hinge;
+      let lo = Math.min(floor, hinge), hi = hinge;
       for (let it = 0; it < 7; it++) {
         const mid = (lo + hi) / 2;
         this.lidHitsHead(mid) ? (hi = mid) : (lo = mid);
@@ -476,17 +812,25 @@ export class ToiletTuber {
       if (!this.lidTouching && this.s.lid.v > 2) this.emit('sfx', { type: 'clack', v: this.s.lid.v * 0.5 });
       this.lidTouching = true;
     } else this.lidTouching = false;
-    this.nodes.lidPivot.rotation.x = -hinge;
+    setPivotQ(this.nodes.lidPivot, this.jawYaw, -hinge);
     this.hinge = hinge;
-    const inf = this.nodes.lid.morphTargetInfluences;
-    if (inf) { inf[0] = this.s.smile.x; inf[1] = this.s.pucker.x; inf[2] = this.s.arch.x; }
+    this.applyMorphs(this.morphW);
+  }
+
+  /** blend-shape weights (lid first, then seat) onto the meshes */
+  applyMorphs(w) {
+    const li = this.nodes.lid.morphTargetInfluences, si = this.nodes.seat.morphTargetInfluences, nl = LID_MORPHS.length;
+    if (li) for (let k = 0; k < nl; k++) li[k] = w[k];
+    if (si) for (let k = 0; k < SEAT_MORPHS.length; k++) si[k] = w[nl + k];
   }
 
   lidHitsHead(hinge) {
     const piv = this.nodes.lidPivot;
-    piv.rotation.x = -hinge;
+    setPivotQ(piv, this.jawYaw, -hinge);
     piv.updateMatrixWorld(true);
-    const T = DIM.tank, m = 0.035, front = T.z + T.d / 2 + 0.07; // eyes/handle stick out in front
+    const T = this.dim.tank, m = 0.035, front = this.dim.front + 0.07; // eyes/handle stick out in front
+    const R = this.dim.roll;                                          // + the paper roll / holder
+    const rlx = R.len / 2 + 0.05, rly = R.r + 0.03, rz0 = this.dim.front - 0.01, rz1 = R.z + R.r + 0.03;
     const p = this._p || (this._p = new THREE.Vector3());
     const bones = this.lidBones;
     const seg = bones[1].position.z;
@@ -500,6 +844,7 @@ export class ToiletTuber {
         this.head.worldToLocal(p);
         if (p.y > T.y - T.h / 2 - m && p.y < T.y + T.h / 2 + 0.1 &&
             p.z > T.z - T.d / 2 - m && p.z < front && Math.abs(p.x) < T.w / 2 + m) return true;
+        if (Math.abs(p.x - R.x) < rlx && Math.abs(p.y - R.y) < rly && p.z > rz0 && p.z < rz1) return true;
       }
     }
     // also never fold back through the neck pipe
@@ -515,6 +860,7 @@ export class ToiletTuber {
     const look = input.look ?? { x: 0, y: 0 };
     const mi = typeof input.mouth === 'number' ? { open: input.mouth } : (input.mouth || {});
     r.set_input(look.x || 0, look.y || 0, mi.open || 0, mi.round || 0, mi.wide || 0, mi.closed || 0, mi.sib || 0);
+    r.set_input_ext?.(mi.cornerL || 0, mi.cornerR || 0, mi.jawSide || 0, mi.jawFwd || 0, mi.upperRaise || 0);
     r.update(dtRaw);
 
     // pose: local TRS per animated node
@@ -526,6 +872,7 @@ export class ToiletTuber {
         flush_handle: this.nodes.handle, paper_roll: this.nodes.roll, water: this.nodes.water, water_swirl: this.nodes.swirl,
       };
       this.lidBones.forEach((b, i) => { by[`lid_bone_${i}`] = b; });
+      this.seatBones.forEach((b, i) => { by[`seat_bone_${i}`] = b; });
       this.poseNodes = R.order.map((n) => by[n] || null);
     }
     const P = R.view(BUF.POSE);
@@ -537,9 +884,7 @@ export class ToiletTuber {
       o.scale.set(P[k + 7], P[k + 8], P[k + 9]);
     });
     const S = R.view(BUF.SCALARS);
-    const M = R.view(BUF.MORPHS);
-    const inf = this.nodes.lid.morphTargetInfluences;
-    if (inf) { inf[0] = M[0]; inf[1] = M[1]; inf[2] = M[2]; }
+    this.applyMorphs(R.view(BUF.MORPHS));
     this.hinge = S[SC.HINGE];
     this.time = S[SC.TIME];
     if (this.waterTex) this.waterTex.offset.x = S[SC.WATER_TEX_OFFSET];
@@ -633,9 +978,11 @@ export class ToiletTuber {
     const lx = clamp(look.x, -1, 1), ly = clamp(look.y, -1, 1);
     // mouth: number (0..1 open) or viseme vector {open, round, wide, closed, sib}
     const mi = typeof input.mouth === 'number' ? { open: input.mouth } : (input.mouth || {});
+    const c01 = (v) => clamp(v || 0, 0, 1), c11 = (v) => clamp(v || 0, -1, 1);
     const m = o.mouth != null
-      ? { open: o.mouth, round: 0, wide: 0, closed: 0, sib: 0 }
-      : { open: clamp(mi.open || 0, 0, 1), round: clamp(mi.round || 0, 0, 1), wide: clamp(mi.wide || 0, 0, 1), closed: clamp(mi.closed || 0, 0, 1), sib: clamp(mi.sib || 0, 0, 1) };
+      ? { open: o.mouth, round: 0, wide: 0, closed: 0, sib: 0, cornerL: 0, cornerR: 0, jawSide: 0, jawFwd: 0, upperRaise: 0 }
+      : { open: c01(mi.open), round: c01(mi.round), wide: c01(mi.wide), closed: c01(mi.closed), sib: c01(mi.sib),
+          cornerL: c11(mi.cornerL), cornerR: c11(mi.cornerR), jawSide: c11(mi.jawSide), jawFwd: c01(mi.jawFwd), upperRaise: c01(mi.upperRaise) };
     this.mouthVec = m;
     const mouthIn = m.open;
     this.talkAmt = Math.max(m.open, m.round, m.wide, m.sib);
@@ -650,11 +997,15 @@ export class ToiletTuber {
     S.lean.target = -side * 0.07;
     S.hRoll.target = -lx * 0.06 - side * 0.05;
     S.lid.target = o.mouth != null && o.mouth > 0.9 ? 1.45
-      : Math.max(0, rest + m.open * 0.9 + m.round * 0.12 + m.sib * 0.04);
+      : Math.max(0, rest + m.open * 0.9 + m.round * 0.12 + m.sib * 0.04 + m.upperRaise * 0.06);
     S.smile.target = m.wide * 0.9 - m.round * 0.3;
     S.pucker.target = m.round;
     // the arch (visible upper-lip curve) grows with the opening; smiling flattens it
     S.arch.target = clamp(m.open * 1.1 + m.round * 0.5 + m.sib * 0.3 + (o.mouth != null && o.mouth > 0.9 ? 0.6 : 0) - m.wide * 0.35, 0, 1.3);
+    // lower lip: open vowels drop it (O/U pout it out a little), M/B/P closes it
+    S.drop.target = clamp(1.3 * m.open + 0.3 * m.round - 0.8 * m.closed, 0, 1);
+    S.cornerL.target = m.cornerL; S.cornerR.target = m.cornerR;
+    S.jawSide.target = m.jawSide; S.jawFwd.target = m.jawFwd; S.upperRaise.target = m.upperRaise;
     S.lift.target = o.lift;
     S.squash.target = o.squash;
     S.eyeScale.target = o.eyeScale;
@@ -668,8 +1019,8 @@ export class ToiletTuber {
         if (S.lid.v < -2.5) this.emit('sfx', { type: 'clack', v: -S.lid.v });
         S.lid.x = 0; S.lid.v = -S.lid.v * 0.3;
       }
-      // lower lip (seat) rises to meet the upper lip on M/B/P, F/V and rounded O/U
-      S.seat.target = m.closed * 0.045 + m.round * 0.035 + m.sib * 0.012 + Math.min(S.lid.x, 0.3) * 0.03;
+      // lower lip (seat) rises to meet the upper lip on M/B/P, F/V (a bit on S)
+      S.seat.target = m.closed * 0.035 + m.sib * 0.01;
       S.hRoll.target += -S.hYaw.v * 0.002;
     }
 
@@ -685,15 +1036,30 @@ export class ToiletTuber {
       Math.cos(this.time * 51) * 0.005 * o.shake + (o.flip ? fz : 0));
 
     // head
-    this.headE = [S.hPitch.x - talk * 0.1 + Math.sin(this.time * 70) * 0.02 * o.shake,
+    this.headE = [S.hPitch.x - talk * DIM.headTalkTilt + Math.sin(this.time * 70) * 0.02 * o.shake,
       S.hYaw.x, S.hRoll.x + Math.sin(this.time * 1.3) * 0.015];
     this.head.rotation.set(...this.headE);
     this.root.updateMatrixWorld(true);   // collision checks use this frame's body/head (as in Rust)
-    this.head.position.y = DIM.headY + talk * 0.025;
+    this.head.position.y = this.dim.headY + talk * 0.025;
 
-    // mouth
+    // mouth blend shapes (lid, then seat); L/R corners are signed (up / down)
+    {
+      const side = clamp(S.jawSide.x, -1, 1), pk = S.pucker.x, cl = S.cornerL.x, cr = S.cornerR.x;
+      const pl = pk * Math.max(0, -side), pm = pk * (1 - Math.abs(side)), pr = pk * Math.max(0, side);
+      const up = (v) => Math.max(0, v), dn = (v) => Math.max(0, -v);
+      const W = this.morphW;
+      [S.smile.x, pm, S.arch.x + DIM.lid.archRest, up(cl), dn(cl), up(cr), dn(cr), pl, pr,
+        up(cl), dn(cl), up(cr), dn(cr), pl * 0.8, pm * 0.8, pr * 0.8].forEach((v, i) => { W[i] = v; });
+      // jaw: the lid + seat assembly yaws to the side and slides forward together
+      this.jawYaw = DIM.jaw.yaw * side;
+      this.jawFwd = DIM.jaw.fwd * clamp(S.jawFwd.x, 0, 1);
+      this.nodes.seatPivot.position.z = DIM.hingeZ + this.jawFwd;
+      this.nodes.lidPivot.position.z = LID_PIVOT[2] + this.jawFwd;
+    }
+    // mouth: lower lip first (the lid stays above it), then the lid
+    setPivotQ(this.nodes.seatPivot, this.jawYaw, -Math.max(0, S.seat.x));
+    this.applySeat(dt);
     this.applyLid(dt, talk);
-    this.nodes.seatPivot.rotation.x = -Math.max(0, S.seat.x);
 
     // eyes (googly: springy pupils that sag a bit with gravity)
     const lead = (v) => Math.tanh(v * 2.2) / Math.tanh(2.2);   // pupils lead and saturate early
@@ -706,7 +1072,7 @@ export class ToiletTuber {
       if (this.blinkT >= 0) { this.blinkT += dt; blink = Math.sin(Math.min(1, this.blinkT / 0.15) * Math.PI); if (this.blinkT > 0.15) this.blinkT = -1; }
       else blink = 0;
     }
-    const maxOff = DIM.eye.r * 0.5;
+    const maxOff = this.dim.eye.r * 0.5;
     let px = S.px.x, py = S.py.x;
     const len = Math.hypot(px, py);
     if (len > 1) { px /= len; py /= len; }
@@ -740,13 +1106,16 @@ export class ToiletTuber {
     this.root.updateMatrixWorld(true);
     this.updatePaperAnchor();
     const feeding = this.paper.length() < this.paper.targetLen;
-    if (feeding) this.nodes.roll.rotation.z += (this.paper.feedSpeed / (DIM.roll.r * (this.paper.rollRadiusScale ?? 1))) * dt;
+    // the roll's axis is X: its front turns down while the paper feeds
+    if (feeding) this.nodes.roll.rotation.x += (this.paper.feedSpeed / (DIM.roll.r * (this.paper.rollRadiusScale ?? 1))) * dt;
     this.paper.update(dt);
     if (this.torn.fade > 0) {
       this.torn.update(dt);
       this.torn.fade -= dt * 0.5;
       if (this.torn.fade <= 0) { this.torn.pts = []; this.torn.update(0); }
     }
+    this.collidePaper(this.paper);
+    this.collidePaper(this.torn);
     this.jet.origin.copy(this.body.localToWorld(tmpV.set(0, DIM.waterY, 0)));   // bowl center
     this.jet.mouth.copy(this.body.localToWorld(tmpV.fromArray(DIM.mouth.spout)));  // between the lips
     const q = new THREE.Quaternion();

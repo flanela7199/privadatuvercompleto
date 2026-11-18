@@ -1,5 +1,5 @@
-//! Mustache hair strands, bowl surface fit and the 12 built-in mustache styles
-//! (ports of hairStrands / bowlSurface / mustacheHalves in web/src/accessories/index.js).
+//! Mustache hair strands, lid-rim (upper lip) fit and the 12 built-in mustache styles
+//! (ports of hairStrands / eggZ / bowlSurface / lipFront / mustacheHalves in web/src/accessories/index.js).
 use super::curve::CatmullRom;
 use super::mesh::Mesh;
 use super::shapes::tapered_tube;
@@ -115,10 +115,45 @@ pub fn hair_strands(curve: &CatmullRom, radius: &dyn Fn(f64) -> f64, o: &HairOpt
     Mesh { positions: pos, normals: nor, uvs: uv, indices: idx }
 }
 
-/* ------------------------------------------------------- bowl surface */
+/* ------------------------------------------------------- lip_upper fit */
 
-pub const FACE_Y: f64 = 0.5;
-pub const FACE_Z: f64 = 0.464;
+// lip_upper socket (web/src/rig/ToiletTuber.js): on the lid's front edge. Origin = front point of the
+// lid outline (lid-local x = 0, z = DIM.lid.rz) at the lid underside; +z out, +y up, child of a lid bone.
+// With the lid closed it sits at body (0, LIP_Y, LIP_Z). Same values as `LIP` in accessories/index.js.
+/// lid_pivot y = DIM.rimY + 0.006 + DIM.seat.h + 0.004
+pub const LIP_Y: f64 = 0.677;
+/// lid centre is at body z 0 -> front point = DIM.lid.rz
+pub const LIP_Z: f64 = 0.49;
+/// DIM.lid outline (egg = DIM.egg)
+pub const LIP_RX: f64 = 0.4;
+pub const LIP_RZ: f64 = 0.49;
+pub const LIP_EGG: f64 = 0.08;
+/// DIM.seat outline, just under the lid, between LIP_SEAT_Y0..LIP_SEAT_Y1 (socket space, lid closed)
+pub const LIP_SEAT_RX: f64 = 0.405;
+pub const LIP_SEAT_RZ: f64 = 0.495;
+pub const LIP_SEAT_Y0: f64 = -0.034;
+pub const LIP_SEAT_Y1: f64 = -0.004;
+/// mustache centre line, below the socket origin (hangs a little over the lip gap)
+pub const LIP_DROP: f64 = -0.006;
+/// stand-off from the rim
+pub const LIP_GAP: f64 = 0.006;
+
+/// z of an egg outline (x = rx cos(th) (1 - k sin(th)), z = rz sin(th)) at |x| = ax, front half
+pub fn egg_z(rx: f64, rz: f64, k: f64, ax: f64) -> f64 {
+    if ax >= rx {
+        return 0.0;
+    }
+    let (mut lo, mut hi) = (0.0f64, PI / 2.0);
+    for _ in 0..28 {
+        let mid = (lo + hi) / 2.0;
+        if rx * mid.cos() * (1.0 - k * mid.sin()) > ax {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    rz * ((lo + hi) / 2.0).sin()
+}
 
 pub fn default_bowl_profile() -> Vec<[f64; 2]> {
     vec![
@@ -127,14 +162,17 @@ pub fn default_bowl_profile() -> Vec<[f64; 2]> {
     ]
 }
 
+/// bowl front glaze, relative to a socket at body (oy, oz)
 pub struct BowlSurface {
     outer: Vec<[f64; 2]>,
     sz: f64,
     k: f64,
+    oy: f64,
+    oz: f64,
 }
 
 impl BowlSurface {
-    pub fn new(prof: &[[f64; 2]], sz: f64, k: f64) -> Self {
+    pub fn new(prof: &[[f64; 2]], sz: f64, k: f64, oy: f64, oz: f64) -> Self {
         let mut top = 1;
         for i in 1..prof.len() {
             if prof[i][1] >= prof[top][1] {
@@ -143,7 +181,7 @@ impl BowlSurface {
                 break;
             }
         }
-        BowlSurface { outer: prof[1..=top].to_vec(), sz, k }
+        BowlSurface { outer: prof[1..=top].to_vec(), sz, k, oy, oz }
     }
     fn r_at(&self, y: f64) -> f64 {
         let o = &self.outer;
@@ -168,7 +206,7 @@ impl BowlSurface {
     }
     /// z of the bowl's front glaze at socket-space (x, y), relative to the socket
     pub fn surf(&self, x: f64, y: f64) -> f64 {
-        let r = self.r_at(FACE_Y + y);
+        let r = self.r_at(self.oy + y);
         let ax = x.abs();
         let mut z = 0.0;
         if ax < r {
@@ -183,7 +221,34 @@ impl BowlSurface {
             }
             z = self.at(r, (lo + hi) / 2.0).1;
         }
-        z - FACE_Z
+        z - self.oz
+    }
+}
+
+/// what the mustache lies on at lip-socket-space (x, y): the lid's front rim, and below the lid the
+/// seat rim / bowl glaze (lid closed) so hanging parts stay in front of them (`lipFront`)
+pub struct LipFront {
+    bowl: BowlSurface,
+}
+
+impl LipFront {
+    pub fn new(prof: &[[f64; 2]], sz: f64, k: f64) -> Self {
+        LipFront { bowl: BowlSurface::new(prof, sz, k, LIP_Y, LIP_Z) }
+    }
+    pub fn front(&self, x: f64, y: f64) -> f64 {
+        let ax = x.abs();
+        let mut z = egg_z(LIP_RX, LIP_RZ, LIP_EGG, ax) - LIP_Z;
+        if y < LIP_SEAT_Y1 {
+            if y >= LIP_SEAT_Y0 {
+                z = z.max(egg_z(LIP_SEAT_RX, LIP_SEAT_RZ, LIP_EGG, ax) - LIP_Z);
+            }
+            z = z.max(self.bowl.surf(ax, y));
+        }
+        z
+    }
+    /// shape space (mustache centre line y = 0) -> socket space
+    pub fn surf(&self, x: f64, y: f64) -> f64 {
+        self.front(x, y + LIP_DROP)
     }
 }
 
@@ -310,12 +375,16 @@ pub const STYLE_IDS: [&str; 12] = [
 
 pub struct MustacheCtx<'a> {
     pub st: &'a Style,
-    pub surf: BowlSurface,
+    pub surf: LipFront,
     pub l: f64,
     pub th: f64,
 }
 
 impl MustacheCtx<'_> {
+    /// trimY of the style in socket space
+    fn trim_y(&self) -> Option<f64> {
+        self.st.trim_y.map(|t| t + LIP_DROP)
+    }
     fn radius(&self, t: f64) -> f64 {
         (self.st.radius)(t) * self.th
     }
@@ -332,7 +401,7 @@ impl MustacheCtx<'_> {
                 z = z.max(self.surf.surf(x, h));
             }
         }
-        z + 0.008 + r * 0.55
+        z + LIP_GAP + r * 0.55
     }
     fn half_points(&self, side: f64) -> Vec<V3> {
         let n = self.st.pts.len();
@@ -342,7 +411,7 @@ impl MustacheCtx<'_> {
             .enumerate()
             .map(|(i, &[x, y])| {
                 let (xx, yy) = (x * self.l, y * self.l);
-                v3(xx * side, yy, self.z_of(xx, yy, self.radius(i as f64 / (n - 1) as f64)))
+                v3(xx * side, yy + LIP_DROP, self.z_of(xx, yy, self.radius(i as f64 / (n - 1) as f64)))
             })
             .collect()
     }
@@ -350,7 +419,7 @@ impl MustacheCtx<'_> {
     pub fn core(&self, side: f64) -> Mesh {
         let pts = self.half_points(side);
         let mut m = tapered_tube(&pts, &|t| self.radius(t) * 0.78, 96, 12);
-        if let Some(ty) = self.st.trim_y {
+        if let Some(ty) = self.trim_y() {
             for i in 0..m.vertex_count() {
                 if (m.positions[i * 3 + 1] as f64) < ty {
                     m.positions[i * 3 + 1] = ty as f32;
@@ -364,7 +433,7 @@ impl MustacheCtx<'_> {
     pub fn hair(&self, side: f64, si: i64) -> Mesh {
         let curve = CatmullRom::new(self.half_points(side));
         let mut o = self.st.hair.clone();
-        o.trim_y = self.st.trim_y;
+        o.trim_y = self.trim_y();
         o.seed = 11 + si * 101;
         hair_strands(&curve, &|t| self.radius(t), &o)
     }
@@ -373,16 +442,16 @@ impl MustacheCtx<'_> {
         let kr = self.st.knot * self.th;
         let pts: Vec<V3> = [-0.03f64, 0.0, 0.03]
             .iter()
-            .map(|&x| v3(x, if x != 0.0 { 0.0 } else { -0.002 }, self.z_of(x.abs(), 0.0, kr)))
+            .map(|&x| v3(x, (if x != 0.0 { 0.0 } else { -0.002 }) + LIP_DROP, self.z_of(x.abs(), 0.0, kr)))
             .collect();
         let curve = CatmullRom::new(pts);
         let o = HairOpts {
             count: self.st.mid, seg: 6, start: [0.0, 0.4], len: [0.4, 0.7], twist: 0.3,
-            thick: self.st.hair.thick, trim_y: self.st.trim_y, seed: 5, ..HairOpts::default()
+            thick: self.st.hair.thick, trim_y: self.trim_y(), seed: 5, ..HairOpts::default()
         };
         hair_strands(&curve, &|_| kr * 0.95, &o)
     }
-    /// knot sphere z (socket space) so JS can place its SphereGeometry
+    /// knot sphere z (socket space; its y is LIP_DROP) so JS can place its SphereGeometry
     pub fn knot_z(&self) -> f64 {
         let kr = self.st.knot * self.th;
         self.z_of(0.0, 0.0, kr)

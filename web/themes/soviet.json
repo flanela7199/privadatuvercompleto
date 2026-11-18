@@ -16,7 +16,7 @@
   },
   "slots": {
     "head_top":   [{ "id": "ushanka" }],
-    "face":       [{ "id": "mustache_walrus" }],
+    "lip_upper":  [{ "id": "mustache_walrus" }],
     "tank_front": [{ "id": "star_badge", "params": { "radius": 0.055 } }]
   },
   "background": { "css": "radial-gradient(ellipse 90% 80% at 50% 38%, #b5493d 0%, #84271f 50%, #4d1410 90%, #3a0f0c 100%)" }

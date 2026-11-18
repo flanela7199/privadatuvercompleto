@@ -24,10 +24,12 @@
         "id": "monocle"
       }
     ],
-    "face": [
+    "lip_upper": [
       {
         "id": "mustache_english"
-      },
+      }
+    ],
+    "face": [
       {
         "id": "pipe"
       }
