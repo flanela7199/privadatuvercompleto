@@ -31,14 +31,9 @@ Object.keys(rawT).forEach(resT);
 // loadPresets('../presets/') -> raw presets keyed by t.id || file id
 const presets = {};
 for (const id of read('presets/index.json')) { const t = read(`presets/${id}.json`); presets[t.id || id] = t; }
-const s = { cfg: { outfits: {} }, themes, presets };
-const rawOutfit = (id) => s.cfg.outfits?.[id] || s.presets[id] || s.themes[id] || null;
-function resolveOutfit(id, depth = 0) {
-  const t = rawOutfit(id);
-  if (!t) return clone(s.themes.base);
-  if (t.extends && depth < 6) return mergeTheme(rawOutfit(t.extends) ? resolveOutfit(t.extends, depth + 1) : s.themes.base, t);
-  return clone(t);
-}
+// shared resolver used by the panel AND the static generator (web/src/app/outfits.js)
+const { makeResolver } = await import('../src/app/outfits.js');
+const { resolve: resolveOutfit } = makeResolver({ themes, presets });
 /* ---- the thumbnail key used by outfitThumb / the cards ---- */
 function hash(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16).padStart(8, '0'); }
 const keyOf = (t) => `outfit-${hash(JSON.stringify({ m: t.materials, s: t.slots }))}`;
@@ -67,6 +62,7 @@ for (const id of ids) {
     const r = sizeOf(boxRoot), b = sizeOf(boxBody);
     if (boxRoot.isEmpty() || !Number.isFinite(r.x + r.y + r.z)) notes.push('ROOT BOX EMPTY/NaN');
     if (r.length() > b.length() * 1.6) notes.push(`root box ${(r.length() / b.length()).toFixed(1)}x body box (fx/floor stuff in frame)`);
+    if (boxBody.isEmpty() || !Number.isFinite(b.x + b.y + b.z)) { notes.push('BODY BOX EMPTY/NaN (generator would fail)'); fails++; }
     console.log(id.padEnd(20), ms.toFixed(0).padStart(6), String(Object.keys(theme.materials || {}).length).padStart(5), String(Object.values(theme.slots || {}).flat().length).padStart(6),
       ` ${r.x.toFixed(2)}x${r.y.toFixed(2)}x${r.z.toFixed(2)}`.padEnd(30), ` ${b.x.toFixed(2)}x${b.y.toFixed(2)}x${b.z.toFixed(2)}`.padEnd(30), notes.join('; '));
   } catch (e) {

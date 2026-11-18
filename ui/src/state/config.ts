@@ -5,20 +5,18 @@
 // (throttled 80 ms, trailing) after every change.
 import React from 'react';
 import { invoke, listen, emit } from '../lib/bridge';
-import { loadThemes, mergeTheme, DEFAULT_CONFIG } from '../lib/legacy';
+import { loadThemes, DEFAULT_CONFIG, makeResolver, loadPresets } from '../lib/legacy';
+import { captureOutfitThumb, requestOutfitThumbs } from '../lib/thumbs';
 import { clone, normalizeConfig } from '../lib/catalog';
 
 export type State = { ready: boolean; cfg: any; work: any; themes: Record<string, any>; presets: Record<string, any>; hkFailed: string[] };
 type Action = { type: 'init'; state: State } | { type: 'update'; fn: (d: State) => void; fork?: boolean };
 
 /* ------------------------------------------------------------ outfit logic */
-export const rawOutfit = (s: State, id: string) => s.cfg.outfits?.[id] || s.presets[id] || s.themes[id] || null;
-export function resolveOutfit(s: State, id: string, depth = 0): any {
-  const t = rawOutfit(s, id);
-  if (!t) return clone(s.themes.base);
-  if (t.extends && depth < 6) return mergeTheme(rawOutfit(s, t.extends) ? resolveOutfit(s, t.extends, depth + 1) : s.themes.base, t);
-  return clone(t);
-}
+// same resolution code as the static-thumbnail generator (web/src/app/outfits.js)
+const resolver = (s: State) => makeResolver({ themes: s.themes, presets: s.presets, outfits: s.cfg.outfits });
+export const rawOutfit = (s: State, id: string) => resolver(s).raw(id);
+export function resolveOutfit(s: State, id: string): any { return resolver(s).resolve(id); }
 export const outfitName = (s: State, id: string) => rawOutfit(s, id)?.name || id;
 export const allOutfits = (s: State): [string, string][] => [
   ...Object.entries(s.cfg.outfits || {}).map(([id, t]: any) => [id, '★ ' + (t.name || id)] as [string, string]),
@@ -82,17 +80,6 @@ type Ctx = {
 const C = React.createContext<Ctx>(null as any);
 export const useStore = () => React.useContext(C);
 
-async function loadPresets() {
-  try {
-    const r = await fetch('../presets/index.json');
-    if (!r.ok) return {};
-    const out: Record<string, any> = {};
-    await Promise.all((await r.json()).map(async (id: string) => {
-      try { const t = await (await fetch(`../presets/${id}.json`)).json(); out[t.id || id] = t; } catch (e) { console.warn('[preset]', id, e); }
-    }));
-    return out;
-  } catch { return {}; }
-}
 
 const EMPTY: State = { ready: false, cfg: normalizeConfig(null), work: null, themes: {}, presets: {}, hkFailed: [] };
 
@@ -132,7 +119,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       emit('loading', { progress: 0.1, text: 'carregando temas…' });
       const themes = await loadThemes('../themes/');
       emit('loading', { progress: 0.25, text: 'carregando presets…' });
-      const presets = await loadPresets();
+      const presets = await loadPresets('../presets/');
       emit('loading', { progress: 0.4, text: 'lendo configuração…' });
       const loaded = await invoke('load_config').catch(() => null);
       const next = build({ ...EMPTY, themes, presets }, loaded);
@@ -169,6 +156,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     clearTimeout(emitT.current.timer);
     if (since >= 80) fire(); else emitT.current.timer = setTimeout(fire, 80 - since);
   }, [s.cfg, s.work, s.ready]);
+
+  // user outfit edited -> refresh its thumbnail from the character window (debounced)
+  const capT = React.useRef<any>(0);
+  React.useEffect(() => {
+    if (!s.ready) return;
+    const id = s.cfg.activeOutfit;
+    if (!s.cfg.outfits?.[id]) return;
+    clearTimeout(capT.current);
+    const resolved = s.work;
+    capT.current = setTimeout(() => { captureOutfitThumb(resolved); requestOutfitThumbs([resolved]); }, 1500);
+    return () => clearTimeout(capT.current);
+  }, [s.work, s.ready]);
 
   const applyOutfit = React.useCallback((id: string) => update((d) => { d.cfg.activeOutfit = id; d.work = resolveOutfit(d, id); }), [update]);
   const activateScene = React.useCallback((i: number) => {

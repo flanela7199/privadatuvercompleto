@@ -1,5 +1,5 @@
 import React from 'react';
-import { accessoryThumb, presetThumb, customThumb, onThumbsChanged } from '../lib/thumbs';
+import { accessoryThumb, outfitThumb, outfitThumbKey, onThumbsChanged } from '../lib/thumbs';
 
 export const CATEGORY_ICON: Record<string, string> = {
   Chapéus: '🎩', Olhos: '🕶️', Rosto: '👄', Bigodes: '🥸', Corpo: '👔', Objetos: '🧸', Outros: '📦',
@@ -7,14 +7,13 @@ export const CATEGORY_ICON: Record<string, string> = {
 
 /**
  * Thumbnail image:
- *   acc="id"              accessory (static web/thumbs image, else rendered once + cached)
- *   preset="id"           built-in preset/theme (static image only)
- *   preset="id" custom    user outfit (frame captured from the character window)
+ *   acc="id"                       accessory (app cache -> static seed -> rendered once + cached)
+ *   preset="id" outfit={resolved}  any outfit (app cache by outfitThumbKey(resolved) -> static seed)
  * Requested when the element is on screen; skeleton while loading; fallback icon (with the
  * reason in the tooltip) when there is no image.
  */
-export function Thumb({ acc, preset, custom, theme, className = 'img', icon = '📦', onClick, title }: {
-  acc?: string; preset?: string; custom?: boolean; theme?: any; className?: string; icon?: string; onClick?: () => void; title?: string;
+export function Thumb({ acc, preset, outfit, custom, theme, className = 'img', icon = '📦', onClick, title }: {
+  acc?: string; preset?: string; outfit?: any; custom?: boolean; theme?: any; className?: string; icon?: string; onClick?: () => void; title?: string;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
   const [visible, setVisible] = React.useState(false);
@@ -22,6 +21,7 @@ export function Thumb({ acc, preset, custom, theme, className = 'img', icon = '�
   const [err, setErr] = React.useState<string | null>(null);
   const [gen, setGen] = React.useState(0);
   React.useEffect(() => onThumbsChanged(() => setGen((g) => g + 1)), []);
+  const outKey = outfit ? outfitThumbKey(outfit) : '';
 
   React.useEffect(() => {
     const el = ref.current;
@@ -43,15 +43,15 @@ export function Thumb({ acc, preset, custom, theme, className = 'img', icon = '�
   React.useEffect(() => {
     if (!visible) return;
     let live = true;
-    const p = acc ? accessoryThumb(acc, theme) : preset ? (custom ? customThumb(preset) : presetThumb(preset)) : Promise.resolve(null);
+    const p = acc ? accessoryThumb(acc, theme) : preset && outfit ? outfitThumb(preset, outfit) : Promise.resolve(null);
     p.then((u) => {
       if (!live) return;
       setUrl(u);
-      setErr(u ? null : custom ? 'Sem miniatura ainda (salve o visual com a janela do personagem aberta)'
-        : preset ? 'Miniatura estática não encontrada (rode o gerador: npm run thumbs)' : 'Não consegui gerar a miniatura (veja o console)');
+      setErr(u ? null : preset ? (custom ? 'Miniatura ainda não gerada (abra a janela do personagem; ela gera ao carregar)' : 'Miniatura ainda não gerada (a janela do personagem gera ao carregar)')
+        : 'Não consegui gerar a miniatura (veja o console)');
     }).catch((e) => { console.error('[thumb]', acc || preset, e); if (live) { setUrl(null); setErr(String(e?.message || e)); } });
     return () => { live = false; };
-  }, [acc, preset, custom, visible, gen]);
+  }, [acc, preset, outKey, visible, gen]);
 
   const loading = !url && !err;
   return (

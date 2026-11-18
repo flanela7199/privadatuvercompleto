@@ -13,7 +13,12 @@ import { FakeTalk, maxMouth, zeroMouth } from '../input/visemes.js';
 import { sfx } from '../audio/sfx.js';
 import '../accessories/extra.js';
 import '../accessories/glb.js';
-import { isTauri, invoke, listen, emit } from './bridge.js';
+import { isTauri, invoke, invokeRaw, listen, emit } from './bridge.js';
+import { outfitThumbKey, accThumbKey } from './thumbkeys.js';
+import { buildAccessory, listAccessories } from '../accessories/index.js';
+import { MaterialLib } from '../rig/materials.js';
+import { DIM } from '../rig/ToiletTuber.js';
+import { makeResolver } from './outfits.js';
 import { DEFAULT_CONFIG } from './defaults.js';
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
@@ -409,6 +414,127 @@ async function preloadOutfits() {
   next();
 }
 
+/* ------------------------------------------------ outfit thumbnails */
+// Generated at load (people keep creating presets) with THIS window's GPU renderer: each missing
+// thumbnail is rendered into a 256x256 corner of the default framebuffer (same tone mapping and
+// colour pipeline as the live view, no second WebGL context), copied out in the same task, then
+// overwritten by the normal frame. Cached in Rust: thumb_get / thumb_put (key below).
+// same key as the panel (ui/src/lib/thumbs.ts): outfitThumbKey(resolvedTheme) -> "thumb_o-<hash>_v<n>"
+const thumbKey = (id, theme) => outfitThumbKey(theme);
+const TH = 256;
+const th = { queue: [], phase: false, phaseT0: 0, total: 0, done: 0, keys: [], cam: new THREE.PerspectiveCamera(26, 1, 0.05, 50), out: null };
+function allOutfits() {
+  // resolve exactly like the panel (web/src/app/outfits.js makeResolver)
+  const { raw, resolve } = makeResolver({ themes, presets: presetRaw, outfits: config.outfits || {} });
+  const ids = new Set([...Object.keys(themes), ...Object.keys(presetRaw), ...Object.keys(config.outfits || {})]);
+  const list = [], seen = new Set();
+  for (const id of ids) {
+    if (!raw(id)) continue;
+    const t = resolve(id), key = thumbKey(id, t);
+    if (seen.has(key)) continue;            // same look under two ids -> one thumbnail
+    seen.add(key);
+    list.push({ id, theme: t });
+  }
+  for (const id of listAccessories()) if (id !== 'glb') list.push({ id, acc: true });
+  return list;
+}
+async function queueMissing(items) {
+  const checks = await Promise.all(items.map(async (it) => {
+    const key = it.acc ? accThumbKey(it.id) : thumbKey(it.id, it.theme);
+    try { const b = await invoke('thumb_get', { key }); return b && (b.byteLength ?? b.length) > 0 ? null : { ...it, key }; }
+    catch { return { ...it, key }; }
+  }));
+  const miss = checks.filter(Boolean).filter((m) => !th.queue.some((q) => q.key === m.key));
+  th.queue.push(...miss);
+  return miss.length;
+}
+// Render one thumbnail synchronously into the canvas corner and start its async encode/upload.
+function renderOneThumb() {
+  const it = th.queue.shift();
+  if (!it) return false;
+  let tb = null, accMats = null;
+  try {
+    if (it.acc) {
+      // accessory alone, base-theme materials, same lights/camera pipeline
+      accMats = new MaterialLib(themes.base.materials);
+      const obj = buildAccessory({ THREE, mats: accMats, theme: themes.base, dim: DIM }, { id: it.id, params: {} });
+      if (!obj) throw new Error('unknown accessory');
+      const g = new THREE.Group(); g.add(obj);
+      tb = { root: g, body: g, mats: accMats };
+      g.updateMatrixWorld(true);
+    } else {
+      tb = new ToiletTuber(it.theme);
+      for (let i = 0; i < 8; i++) tb.update(1 / 30, { look: { x: 0.25, y: 0.05 }, mouth: zeroMouth() });
+      tb.root.updateMatrixWorld(true);
+    }
+    // frame on the BODY only: fx InstancedMesh matrices (water drops/foam) are non-finite and
+    // Box3.setFromObject ignores `visible`, which made the whole box NaN (blank thumbnails)
+    const box = new THREE.Box3().setFromObject(tb.body);
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    if (!Number.isFinite(sphere.radius) || !Number.isFinite(sphere.center.x + sphere.center.y + sphere.center.z) || sphere.radius <= 0) {
+      throw new Error('non-finite bounds');
+    }
+    const c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
+    const r = Math.max(sz.x, sz.y, sz.z) * 0.62;
+    const d = r / Math.tan(THREE.MathUtils.degToRad(13));
+    th.cam.position.set(c.x + d * 0.32, c.y + d * 0.12, c.z + d * 0.94);
+    th.cam.lookAt(c);
+    th.cam.clearViewOffset();
+    th.cam.updateProjectionMatrix();
+
+    const pr = renderer.getPixelRatio();
+    const S = TH / pr;                                         // logical px -> exactly 256 device px
+    const prevClear = renderer.getClearColor(new THREE.Color()), prevAlpha = renderer.getClearAlpha();
+    tuber.root.visible = false;
+    scene.add(tb.root);
+    renderer.setScissorTest(true);
+    renderer.setViewport(0, 0, S, S); renderer.setScissor(0, 0, S, S);
+    renderer.setClearColor(0x000000, 0); renderer.clear();
+    renderer.render(scene, th.cam);
+    if (!th.out) { th.out = new OffscreenCanvas(TH, TH); th.outCtx = th.out.getContext('2d'); }
+    const cv = renderer.domElement;
+    th.outCtx.clearRect(0, 0, TH, TH);
+    th.outCtx.drawImage(cv, 0, cv.height - TH, TH, TH, 0, 0, TH, TH);   // GL viewport origin = bottom-left
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, innerWidth, innerHeight);
+    renderer.setClearColor(prevClear, prevAlpha);
+    scene.remove(tb.root);
+    tuber.root.visible = true;
+    const key = it.key;
+    th.out.convertToBlob({ type: 'image/webp', quality: 0.9 })
+      .then((b) => b.arrayBuffer())
+      .then((buf) => invokeRaw('thumb_put', new Uint8Array(buf), { 'x-key': key }))
+      .then(() => { th.keys.push(key); })
+      .catch((e) => console.warn('[avatar] thumb_put', key, e));
+  } catch (e) {
+    console.warn('[avatar] thumbnail failed', it.id, e);
+    scene.remove(tb?.root); tuber.root.visible = true;
+    renderer.setScissorTest(false); renderer.setViewport(0, 0, innerWidth, innerHeight);
+  } finally {
+    if (tb) { tb.root.traverse((o) => o.geometry?.dispose?.()); tb.mats?.dispose?.(); }
+  }
+  th.done++;
+  return true;
+}
+function flushThumbKeys() {
+  setTimeout(() => {   // give the last encodes a moment
+    if (th.keys.length) { emit('thumbs-updated', { keys: th.keys.splice(0) }); }
+  }, 400);
+}
+// panel asks for new/edited outfits
+listen('thumbs-request', async (p) => {
+  const items = (p?.outfits || []).map((t, i) => ({ id: t.id || `custom-${i}`, theme: t.extends ? mergeTheme(resolveOutfit(t.extends) || themes.base, t) : t }));
+  if (await queueMissing(items)) idleThumbs();
+});
+// after the splash: one thumbnail per idle slot, rendered right before a normal frame (no flash)
+let idleScheduled = false;
+function idleThumbs() {
+  if (idleScheduled || !th.queue.length) return;
+  idleScheduled = true;
+  const idle = window.requestIdleCallback || ((cb) => setTimeout(cb, 60));
+  idle(() => { idleScheduled = false; th.wantOne = true; });
+}
+
 /* --------------------------------------------------------------- loop */
 let last = performance.now(), lastRaf = performance.now(), lastFrame = 0;
 function frame(now) {
@@ -447,13 +573,31 @@ function frame(now) {
   }
   if (!OUTPUT && now - poseT > 33) { poseT = now; emit('avatar-pose', { look, mouth: isTauri ? null : mouth }); }
 
+  // thumbnails: during the splash phase one per frame (window still hidden), afterwards at idle
+  if (th.phase) {
+    if (th.queue.length && now - th.phaseT0 < 6000) {
+      renderOneThumb();
+      loading(0.75 + 0.25 * (th.done / Math.max(1, th.total)), `gerando miniaturas ${th.done}/${th.total}`);
+    } else {
+      th.phase = false;
+      loading(1.0, 'pronto!');
+      invoke('page_ready', { label: 'avatar' }).catch(() => {});
+      flushThumbKeys();
+      preloadOutfits();
+      idleThumbs();   // anything left after the 6 s cap continues after showing
+    }
+  } else if (th.wantOne) {
+    th.wantOne = false;
+    if (renderOneThumb()) { if (th.queue.length) idleThumbs(); else flushThumbKeys(); }
+  }
   stage.render(dt, !!config.render?.ao);
   if (pv.until) capturePreview(now);
   if (!firstFrame) {
     firstFrame = true;
-    loading(1.0, 'pronto!');
-    invoke('page_ready', { label: 'avatar' }).catch(() => {});
-    preloadOutfits();
+    // first real frame is on the (hidden) window: generate missing thumbnails, then show it
+    th.phase = true; th.phaseT0 = now;
+    queueMissing(allOutfits()).then((n) => { th.total = n; th.done = 0; th.phaseT0 = performance.now(); if (!n) th.queue.length = 0; })
+      .catch(() => { th.queue.length = 0; });
   }
   frames++;
   if (now - fpsT > 1000) { fps = Math.round((frames * 1000) / (now - fpsT)); frames = 0; fpsT = now; }

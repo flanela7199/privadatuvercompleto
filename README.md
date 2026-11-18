@@ -67,3 +67,20 @@ Sockets: `head_top, eyes, tank_front, face, lid_top, body_front, side_right, bac
 - Mouse: global cursor position relative to the window. Mic: `cpal` RMS → gate → mouth (same as `src/input/mic.js`).
 - Themes: same JSON; accessories as GLB parts per id.
 - Hotkeys for actions (global shortcuts), plus effects as particles.
+
+## Maintainers: static thumbnails (`web/thumbs/`)
+
+The control panel never builds the character to make thumbnails. Built-in presets/themes and
+accessories use **pre-generated images** in `web/thumbs/` (`presets/<id>.webp`,
+`accessories/<id>.webp`, `index.json` with a hash per item). Regenerate them after adding or
+changing presets, themes or accessory art (bump `ACC_ART_VERSION` in `web/src/app/thumbkeys.js`
+for accessory art):
+
+```sh
+cd ui && npm run thumbs   # starts tools/capture_server.py on :8766
+# open http://127.0.0.1:8766/tools/gen-thumbs.html — it renders everything (256 px WebP),
+# POSTs each file to /thumb?path=..., writes index.json, and sets the tab title to DONE
+```
+
+User-saved outfits get their thumbnail from the character window (mirrored frame) when saved/edited.
+Accessories without a static image are rendered once at runtime and cached on disk.

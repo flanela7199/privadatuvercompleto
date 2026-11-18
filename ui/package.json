@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "thumbs": "echo Open http://127.0.0.1:8766/tools/gen-thumbs.html (writes web/thumbs/, title DONE when finished) && python ../tools/capture_server.py 8766"
   },
   "dependencies": {
     "react": "^18.3.1",

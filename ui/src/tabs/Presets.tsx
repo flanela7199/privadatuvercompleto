@@ -2,7 +2,7 @@ import React from 'react';
 import { useStore, resolveOutfit, outfitName, newId, rawOutfit } from '../state/config';
 import { mergeTheme } from '../lib/legacy';
 import { clone, download, pickFile } from '../lib/catalog';
-import { clearThumbs, captureCustomThumb } from '../lib/thumbs';
+import { clearThumbs, captureOutfitThumb, requestOutfitThumbs } from '../lib/thumbs';
 import { Section } from '../components/Section';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
@@ -20,7 +20,7 @@ export function Presets() {
     const active = s.cfg.activeOutfit === id;
     return (
       <div key={`${id}.${gen}`} className={`preset ${active ? 'active' : ''}`}>
-        <Thumb preset={id} custom={isMine} icon="🚽" title="Clique para usar" onClick={() => applyOutfit(id)} />
+        <Thumb preset={id} outfit={resolveOutfit(s, id)} custom={isMine} icon="🚽" title="Clique para usar" onClick={() => applyOutfit(id)} />
         <div className="nm">{t.name || id}</div>
         <div className="tag">{isMine ? 'meu preset' : s.themes[id] ? 'tema' : 'preset pronto'}{active ? ' · em uso' : ''}</div>
         <div className="btns">
@@ -51,8 +51,9 @@ export function Presets() {
     const nid = newId();
     update((d) => { d.cfg.outfits[nid] = { ...clone(d.work), id: nid, name: n }; delete d.cfg.outfits[nid].extends; d.cfg.activeOutfit = nid; d.work = d.cfg.outfits[nid]; });
     toast(<>Preset <b>{n}</b> salvo</>);
-    // the character window already wears it: grab its picture as the preset thumbnail
-    setTimeout(() => captureCustomThumb(nid), 400);
+    // immediate image = mirror of the character window (it wears it); proper render requested too
+    const resolved = { ...clone(s.work), id: nid, name: n };
+    setTimeout(() => { captureOutfitThumb(resolved); requestOutfitThumbs([resolved]); }, 400);
   };
   const importJson = async () => {
     const f = await pickFile('.json');
@@ -66,6 +67,8 @@ export function Presets() {
         d.cfg.outfits[nid] = { ...mergeTheme(base, t), id: nid, name: t.name || f.name.replace(/\.json$/i, '') };
         delete d.cfg.outfits[nid].extends;
         d.cfg.activeOutfit = nid; d.work = clone(d.cfg.outfits[nid]);
+        const resolved = clone(d.cfg.outfits[nid]);
+        setTimeout(() => { captureOutfitThumb(resolved); requestOutfitThumbs([resolved]); }, 400);
       });
       toast('Visual importado');
     } catch (err: any) { toast(err.message, 'err'); }

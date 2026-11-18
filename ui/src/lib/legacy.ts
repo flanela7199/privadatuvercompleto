@@ -7,6 +7,8 @@ export { ACCESSORY_INFO } from '../../../web/src/accessories/extra.js';
 export { MaterialLib } from '../../../web/src/rig/materials.js';
 export { CHANNELS } from '../../../web/src/input/visemes.js';
 export { DEFAULT_CONFIG, ACTIONS } from '../../../web/src/app/defaults.js';
+export { makeResolver, loadPresets } from '../../../web/src/app/outfits.js';
+export { outfitThumbKey, accThumbKey } from '../../../web/src/app/thumbkeys.js';
 import '../../../web/src/accessories/glb.js';
 
 export async function loadMic(): Promise<any> {
