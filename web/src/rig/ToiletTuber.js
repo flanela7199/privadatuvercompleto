@@ -23,6 +23,11 @@ import { Spring } from '../anim/spring.js';
 import { ACTIONS } from '../anim/actions.js';
 import { WaterJet } from '../fx/waterJet.js';
 import { PaperStrip } from '../fx/paperStrip.js';
+import { loadWasm, WasmRig, BUF, SC } from './wasmrig.js';
+
+// The per-frame logic runs in Rust (crates/privada-core via web/pkg) when available;
+// this file then only builds the meshes and APPLIES the Rust pose. Pure-JS fallback below.
+const WASM = await loadWasm();
 
 /** All proportions in one place (meters-ish, origin on the floor). */
 export const DIM = {
@@ -65,12 +70,18 @@ export class ToiletTuber {
       smile: new Spring(220, 18), pucker: new Spring(220, 18), arch: new Spring(200, 14),
     };
     this.mouthVec = { open: 0, round: 0, wide: 0, closed: 0, sib: 0 };
+    this.rust = WASM ? new WasmRig(WASM, (Math.random() * 4294967295) >>> 0) : null;
     this.restOpen = DIM.mouth.rest;
     this.blinkTimer = 2 + Math.random() * 3;
     this.blinkT = -1;
     this.swirlSpeed = 0;
     this.setTheme(theme);
   }
+
+  /** true when the Rust/wasm rig drives the character */
+  get usesRust() { return !!this.rust; }
+  get restOpen() { return this._restOpen; }
+  set restOpen(v) { this._restOpen = v; this.rust?.r.set_rest(v); }
 
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   emit(type, data) { for (const fn of this.listeners) fn(type, data); }
@@ -345,6 +356,8 @@ export class ToiletTuber {
     this.root.updateMatrixWorld(true);
     this.updatePaperAnchor();
     this.paper.reset(this.paper.anchor);
+    this.poseNodes = null;      // Rust pose -> node map (rebuilt lazily after a rebuild)
+    this.puddleVersion = -1;
   }
 
   /** (Re)build only the accessories from this.theme.slots (cheap: no full rebuild). */
@@ -382,6 +395,7 @@ export class ToiletTuber {
 
   /* ------------------------------------------------------- actions API */
   play(name) {
+    if (this.rust) { if (!this.rust.r.play(name)) console.warn(`[action] unknown "${name}"`); return; }
     const def = ACTIONS[name];
     if (!def) return console.warn(`[action] unknown "${name}"`);
     this.active = this.active.filter((a) => a.def !== def);
@@ -476,7 +490,109 @@ export class ToiletTuber {
   }
 
   /* ----------------------------------------------------------- update */
+  /* ------------------------------------------------ Rust-driven update */
+  updateRust(dtRaw, input) {
+    const R = this.rust, r = R.r;
+    const look = input.look ?? { x: 0, y: 0 };
+    const mi = typeof input.mouth === 'number' ? { open: input.mouth } : (input.mouth || {});
+    r.set_input(look.x || 0, look.y || 0, mi.open || 0, mi.round || 0, mi.wide || 0, mi.closed || 0, mi.sib || 0);
+    r.update(dtRaw);
+
+    // pose: local TRS per animated node
+    if (!this.poseNodes) {
+      const eye = (s) => this.eyes.find((e) => e.s === s);
+      const by = {
+        body: this.body, head: this.head, lid_pivot: this.nodes.lidPivot, seat_pivot: this.nodes.seatPivot,
+        eye_L: eye(-1).eye, eye_R: eye(1).eye, pupil_L: eye(-1).pupil, pupil_R: eye(1).pupil,
+        flush_handle: this.nodes.handle, paper_roll: this.nodes.roll, water: this.nodes.water, water_swirl: this.nodes.swirl,
+      };
+      this.lidBones.forEach((b, i) => { by[`lid_bone_${i}`] = b; });
+      this.poseNodes = R.order.map((n) => by[n] || null);
+    }
+    const P = R.view(BUF.POSE);
+    this.poseNodes.forEach((o, i) => {
+      if (!o) return;
+      const k = i * 10;
+      o.position.set(P[k], P[k + 1], P[k + 2]);
+      o.quaternion.set(P[k + 3], P[k + 4], P[k + 5], P[k + 6]);
+      o.scale.set(P[k + 7], P[k + 8], P[k + 9]);
+    });
+    const S = R.view(BUF.SCALARS);
+    const M = R.view(BUF.MORPHS);
+    const inf = this.nodes.lid.morphTargetInfluences;
+    if (inf) { inf[0] = M[0]; inf[1] = M[1]; inf[2] = M[2]; }
+    this.hinge = S[SC.HINGE];
+    this.time = S[SC.TIME];
+    if (this.waterTex) this.waterTex.offset.x = S[SC.WATER_TEX_OFFSET];
+    this.swirlTex.rotation = S[SC.SWIRL_ROT];
+    this.nodes.swirl.material.opacity = S[SC.SWIRL_OPACITY];
+
+    // accessories keep their JS secondary motion, fed from Rust state
+    const st = {
+      dt: S[SC.DT], time: S[SC.TIME], mouth: S[SC.ST_MOUTH], talk: S[SC.ST_TALK],
+      headYawVel: S[SC.HEAD_YAW_VEL], headPitchVel: S[SC.HEAD_PITCH_VEL], lift: S[SC.ST_LIFT],
+    };
+    for (const a of this.accessories) a.traverse((x) => x.userData.update?.(st));
+
+    // water FX
+    const J = this.jet;
+    J.drops.mesh.instanceMatrix.array.set(R.view(BUF.DROPS)); J.drops.mesh.instanceMatrix.needsUpdate = true;
+    J.foam.mesh.instanceMatrix.array.set(R.view(BUF.FOAM)); J.foam.mesh.instanceMatrix.needsUpdate = true;
+    const streamOn = S[SC.STREAM_VISIBLE] > 0.5;
+    J.stream.visible = streamOn;
+    if (streamOn) {
+      const g = J.stream.geometry;
+      g.attributes.position.array.set(R.view(BUF.STREAM_POS)); g.attributes.position.needsUpdate = true;
+      g.attributes.uv.array.set(R.view(BUF.STREAM_UV)); g.attributes.uv.needsUpdate = true;
+      g.computeVertexNormals();
+    }
+    const RP = R.view(BUF.RIPPLES);
+    J.ripples.forEach((m, i) => {
+      const k = i * 5;
+      m.visible = RP[k + 4] > 0.5;
+      if (!m.visible) return;
+      m.position.x = RP[k]; m.position.z = RP[k + 1];
+      m.scale.set(RP[k + 2], 1, RP[k + 2]);
+      m.material.opacity = RP[k + 3];
+    });
+    const PU = R.view(BUF.PUDDLE);
+    J.puddle.position.x = PU[0]; J.puddle.position.z = PU[1];
+    J.puddle.scale.set(PU[2], 1, PU[3]);
+    J.puddle.material.opacity = PU[4];
+    if (S[SC.PUDDLE_VERSION] !== this.puddleVersion) {
+      this.puddleVersion = S[SC.PUDDLE_VERSION];
+      const rad = R.view(BUF.PUDDLE_RADIAL), pos = J.puddle.geometry.attributes.position, base = J.puddleBase;
+      for (let i = 1; i < pos.count; i++) { const f = rad[i - 1] ?? 1; pos.setXYZ(i, base[i * 3] * f, 0, base[i * 3 + 2] * f); }
+      pos.needsUpdate = true;
+    }
+
+    // paper strips
+    const strip = (ps, pos, uv, perf, count, np, op) => {
+      const n = S[count] | 0, nperf = S[np] | 0;
+      ps.geo.attributes.position.array.set(R.view(pos)); ps.geo.attributes.position.needsUpdate = true;
+      ps.geo.attributes.uv.array.set(R.view(uv)); ps.geo.attributes.uv.needsUpdate = true;
+      ps.geo.setDrawRange(0, Math.max(0, n - 1) * 6);
+      if (n > 1) ps.geo.computeVertexNormals();
+      ps.perfGeo.attributes.position.array.set(R.view(perf)); ps.perfGeo.attributes.position.needsUpdate = true;
+      ps.perfGeo.setDrawRange(0, nperf * 2);
+      if (nperf) ps.perf.computeLineDistances();
+      ps.mat.opacity = S[op];
+      ps.perfMat.opacity = S[op] * 0.9;
+    };
+    strip(this.paper, BUF.PAPER_POS, BUF.PAPER_UV, BUF.PAPER_PERF, SC.PAPER_COUNT, SC.PAPER_PERF, SC.PAPER_OPACITY);
+    strip(this.torn, BUF.TORN_POS, BUF.TORN_UV, BUF.TORN_PERF, SC.TORN_COUNT, SC.TORN_PERF, SC.TORN_OPACITY);
+
+    // sound events
+    const ev = r.drain_events();
+    if (ev) for (const e of ev.split(String.fromCharCode(10))) {
+      if (e.startsWith('clack:')) this.emit('sfx', { type: 'clack', v: parseFloat(e.slice(6)) });
+      else this.emit('sfx', e);
+    }
+  }
+
+  /* ----------------------------------------------------------- update */
   update(dtRaw, input) {
+    if (this.rust) return this.updateRust(dtRaw, input);
     const dt = Math.min(dtRaw, 1 / 20);
     this.time += dt;
     const o = { mouth: null, headPitch: 0, headYaw: 0, lift: 0, shake: 0, squash: 0, eyeScale: 1, swirl: 0, handle: 0, blink: null, look: null, flip: 0, spin: 0 };

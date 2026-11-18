@@ -3018,6 +3018,7 @@ name = "privada-wasm"
 version = "0.1.0"
 dependencies = [
  "privada-core",
+ "wasm-bindgen",
 ]
 
 [[package]]

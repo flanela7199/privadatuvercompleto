@@ -13,3 +13,6 @@ pub mod dsp;
 pub mod paper;
 pub mod util;
 pub mod water;
+pub mod actions;
+pub mod rig;
+pub mod toss;

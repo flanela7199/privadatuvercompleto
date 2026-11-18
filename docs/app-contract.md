@@ -28,30 +28,58 @@ Run: `source tools/env.sh && cd crates/privada-app && tauri dev` (Tauri CLI at D
 
 ## Rust in the webview (privada-wasm)
 
-JS ToiletTuber keeps building the three.js meshes; per frame it calls the Rust rig and only APPLIES results:
+All per-frame character logic is Rust (`crates/privada-core`): springs, look/head/body, blink,
+googly pupils, mouth vector -> lid hinge + 7 lip-bone springs + smile/pucker/arch morphs + seat
+lower lip, lid-vs-tank collision clamp (transform hierarchy), squash/breath/shake/flip, handle,
+water level/swirl, actions (flush paper jump backflip no gargle blink), water FX (drops, foam,
+column, ripples, puddle), paper strip (verlet, perforations, tear, roll shrink), and `Toss`.
+JS (`web/src/rig/ToiletTuber.js`) only builds the three.js meshes/accessories and APPLIES results.
+Build: `sh tools/build_wasm.sh` (cargo wasm32 release + wasm-bindgen --target web -> `web/pkg/`).
 
 ```js
-import init, { Rig, Toss } from '../pkg/privada_wasm.js';
-const rig = new Rig();                       // dims identical to DIM in ToiletTuber.js
-rig.set_input(lookX, lookY, open, round, wide, closed, sib);
-rig.play('flush');                           // actions: flush paper jump backflip no gargle blink
-rig.update(dt);
-rig.pose()        // Float32Array, NODE_ORDER x [px,py,pz, qx,qy,qz,qw, sx,sy,sz]
-rig.node_order()  // string[] node names (body, head, lid_pivot, lid_bone_1.., seat_pivot, eye_L, pupil_L, ...)
-rig.morphs()      // Float32Array [smile, pucker, arch]
-rig.fx()          // Float32Array: water drops (instance TRS), stream points, puddle, paper strip points (layout in core docs)
-rig.drain_events()// string[] sfx events ("flush", "clack:4.2", ...)
-const toss = new Toss();                     // drag / throw / bounce physics for the overlay
-toss.grab(x, y); toss.drag(x, y, t); toss.release(t); toss.update(dt, w, h) -> [x, y, angle, squash]
+import { loadWasm, WasmRig, BUF, SC } from './rig/wasmrig.js';   // ToiletTuber does this itself
+const rig = new WasmRig(await loadWasm(), seed);  // rig.r = the wasm Rig, rig.order = NODE_ORDER
+rig.r.set_input(lookX, lookY, open, round, wide, closed, sib);
+rig.r.play('flush');                              // -> false if unknown
+rig.r.update(dt);
+rig.view(BUF.POSE)      // zero-copy Float32Array: NODE_ORDER x [px,py,pz, qx,qy,qz,qw, sx,sy,sz] (local)
+rig.view(BUF.MORPHS)    // [smile, pucker, arch]
+rig.view(BUF.SCALARS)   // SC.* : hinge, accessory state (mouth/talk/headYawVel/headPitchVel/lift/time/dt), swirl, FX counts
+rig.view(BUF.DROPS)     // 900 x 16 instance matrices; FOAM 360 x 16; STREAM_POS/UV; RIPPLES 18 x 5; PUDDLE 5; PUDDLE_RADIAL 121
+rig.view(BUF.PAPER_POS) // + PAPER_UV / PAPER_PERF and TORN_* (counts in SC.PAPER_COUNT ...)
+rig.r.drain_events()    // '
+'-separated sfx: flush splash paper rip gargle boing whoosh drip clack:<v>
 ```
-If `web/pkg/` is missing (plain browser), the existing JS code path keeps working.
+NODE_ORDER: `body head lid_pivot lid_bone_1..7 seat_pivot eye_L eye_R pupil_L pupil_R flush_handle paper_roll water water_swirl`.
+Full buffer table: `crates/privada-wasm/src/lib.rs`. `?nowasm` or a missing `web/pkg/` -> the pure-JS rig runs instead.
+
+### Toss (overlay drag / throw / bounce, screen px; mirrors JsToss in avatar.js)
+
+```js
+const toss = new pkg.Toss();
+toss.set_rest(x, y);          // resting point (x = center, y = feet), snaps there when at rest
+toss.set_size(w, h);          // character box, so wall/ceiling bounces respect his size
+toss.grab(x, y); toss.drag(x, y, t); toss.release(t);   // t in seconds; throw velocity from the last 6 samples
+toss.update(dt, W, H)         // -> [x, y, angle, squash]; states rest -> held -> fly -> ground -> hop -> rest
+toss.take_impact()            // max impact speed (px/s) since last call (dizzy eyes + clack); 900 on landing the hop
+toss.reset(); toss.is_held(); toss.is_busy();
+```
 
 ## Windows
 
 | label | page | default |
 |---|---|---|
-| `avatar` | avatar.html | **overlay mode**: borderless, transparent, always on top, covers the primary monitor, skip taskbar, click-through except over the character (`auto`). **window mode** (for OBS): normal 1280×720 borderless window with a solid/chroma background. |
+| `avatar` | avatar.html | desktop **overlay**: borderless, transparent, covers the primary monitor, skip taskbar, click-through except over the character (`auto`); always-on-top is per scene (`scene.alwaysOnTop`, default false). Can switch to **window mode** (`set_avatar_mode`) or be hidden (`set_overlay_visible`). |
+| `output` | avatar.html?output=1&bg=… | **OBS window** ("Captura de janela"): borderless, resizable, default 1280×720, in the taskbar, not on top; the page draws the background (chroma / solid / real transparent). Opened with `open_output`. |
 | `control` | control.html | normal decorated window 1100×760, opened from tray / hotkey / right-click on the character |
+
+All webviews run with `--disable-background-timer-throttling --disable-renderer-backgrounding
+--disable-backgrounding-occluded-windows` (identical args are required by WebView2), so the avatar keeps
+rendering at full fps when unfocused, behind other windows or captured by OBS. Cursor polling, mic and
+global hotkeys are native threads and never pause. Windows are created/shown without stealing focus
+(except the control panel when explicitly opened). Extra Rust → page events: `click-through` (bool, the
+overlay's current ignore-mouse state), `click-mode` (`auto`/`on`), `mic-enabled` (bool), `mic-error` (string),
+`output-background` (string, to the `output` window when `open_output` is called again).
 
 ## Events (bridge.listen / bridge.emit)
 
@@ -75,9 +103,13 @@ If `web/pkg/` is missing (plain browser), the existing JS code path keeps workin
 | `set_audio` | `{ audio: AudioCfg }` | `true` |
 | `set_hit_rect` | `{ rect: {x,y,w,h} \| null }` logical px inside the avatar window | `true` |
 | `set_click_through` | `{ mode: 'auto' \| 'on' \| 'off' }` | `true` |
-| `set_avatar_mode` | `{ mode: 'overlay' \| 'window', width?, height? }` | `true` |
+| `set_avatar_mode` | `{ mode: 'overlay' \| 'window', width?, height?, alwaysOnTop? }` (alwaysOnTop default false) | `true` |
 | `get_monitor` | – | `{ x, y, width, height, scale }` of the avatar window's monitor (physical px) |
 | `open_control` | – | `true` |
+| `open_output` | `{ width?, height?, background? }` (background e.g. `chroma`, `#00ff00`, `transparent`) | `true` |
+| `close_output` | – | `true` |
+| `set_overlay_visible` | `{ visible }` | `true` |
+| `get_windows` | – | `{ avatar: { mode, visible }, output: { open } }` |
 | `quit` | – | – |
 
 ## Actions (hotkeys, commands, tray)

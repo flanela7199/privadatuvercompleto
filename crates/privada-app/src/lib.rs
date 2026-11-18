@@ -295,10 +295,10 @@ struct WindowsInfo {
 
 #[tauri::command]
 fn get_windows(app: AppHandle) -> WindowsInfo {
-    let ws = app.state::<WinState>();
+    let mode = app.state::<WinState>().mode.lock().unwrap().clone();
     let visible = app.get_webview_window("avatar").and_then(|w| w.is_visible().ok()).unwrap_or(false);
     WindowsInfo {
-        avatar: AvatarWin { mode: ws.mode.lock().unwrap().clone(), visible },
+        avatar: AvatarWin { mode, visible },
         output: OutputWin { open: app.get_webview_window("output").is_some() },
     }
 }
