@@ -50,7 +50,7 @@ rig.view(BUF.PAPER_POS) // + PAPER_UV / PAPER_PERF and TORN_* (counts in SC.PAPE
 rig.r.drain_events()    // '
 '-separated sfx: flush splash paper rip gargle boing whoosh drip clack:<v>
 ```
-NODE_ORDER: `body head lid_pivot lid_bone_1..7 seat_pivot eye_L eye_R pupil_L pupil_R flush_handle paper_roll water water_swirl`.
+NODE_ORDER: `body head lid_pivot lid_bone_1..7 seat_pivot eye_L eye_R pupil_L pupil_R flush_handle paper_roll water water_swirl seat_bone_1..7` (see "Mouth rig").
 Full buffer table: `crates/privada-wasm/src/lib.rs`. `?nowasm` or a missing `web/pkg/` -> the pure-JS rig runs instead.
 
 ### Toss (overlay drag / throw / bounce, screen px; mirrors JsToss in avatar.js)
@@ -211,17 +211,44 @@ Theme JSON may carry a `body` block (all optional, defaults = 1 / 0):
 
 ```jsonc
 "body": {
-  "tank": { "w": 1.0, "h": 1.0, "d": 1.0 },          // head (tank) scale factors, 0.6..1.6
-  "eyes": { "size": 1.0, "spacing": 1.0, "y": 0.0 }   // eye radius factor 0.5..1.8, spacing factor 0.6..1.6, vertical offset in m (-0.12..0.12)
+  "tank": { "w": 1.0, "h": 1.0, "d": 1.0 },          // head (tank) scale factors, 0.6..1.6 (tank bottom + back stay put)
+  "eyes": { "size": 1.0, "spacing": 1.0, "y": 0.0 },  // eye radius factor 0.5..1.8, spacing factor 0.6..1.6, vertical offset in m (-0.12..0.12)
+  "neck": { "length": 1.0 },                          // neck pipe above the bowl, 0.6..1.6 (moves the head up/down)
+  "roll": { "mount": "side" }                         // paper roll: "side" (default, holder on the tank's left side face,
+                                                      // roll axis Z) | "front" (tank front-left below the eye, axis X)
 }
 ```
-The panel edits it on the active outfit (forking built-ins into custom like other edits). JS `ToiletTuber` and the Rust rig
-(`set_body_dims(json)`) both apply it (sockets, eyes, collision box, paper roll position follow the tank size).
+The panel edits it on the active outfit (forking built-ins into custom like other edits). JS `ToiletTuber` (`bodyDims()`) and
+the Rust rig (`set_body_dims(json)`, called by `setTheme`) both apply it: eyes, handle, sockets, the lid-vs-tank collision box
+and the paper roll position follow the tank size. On both roll mounts the `paper` action streams the strip FORWARD (his +z,
+toward the camera; small head turn) and it piles on the floor in front of the bowl; paper rests on the lid / drapes off the
+bowl instead of passing through it.
+
+### Mouth rig (lid = upper lip, seat = lower lip)
+
+* Input vector (visemes.js / `set_input` + `set_input_ext`): `open round wide closed sib` (0..1) plus optional
+  `cornerL cornerR` (-1 down .. 1 up; **L = the -x side, same side as `eye_L`**), `jawSide` (-1..1, also purses the lips
+  that way), `jawFwd` (0..1), `upperRaise` (0..1) and `lips` (0..1, lip activity from avatar.js `shapeMouth`: the lips fold
+  and chatter even when `open` is capped). `STANDARD_VISEMES` (visemes.js, mirrored in `privada_core::rig`) maps the 15
+  standard vtuber visemes (AA AH AO AW_OW CH_J_SH EH_AE EY FV IH_AY L M_P_B N_NG_DH OY_UH_UW R_ER W Y_IY) + rest.
+* Lower lip: on speech the seat front rolls OUT and DOWN over the bowl's front (never into the bowl: clamp against the rim,
+  opening and outer wall), presses up/in on M/B/P and tucks under the upper lip on F/V. Upper lip: the lid front third folds
+  up/out on O/U, down on open vowels; pucker pushes it forward. The lid hinge never goes below the (curled) seat.
+* `NODE_ORDER` (26): `body head lid_pivot lid_bone_1..7 seat_pivot eye_L eye_R pupil_L pupil_R flush_handle paper_roll water
+  water_swirl seat_bone_1..7` (seat bones appended; the seat is a SkinnedMesh `seat` with `seat_bone_0..7` hinge -> front;
+  bones carry full TRS: they slide and lift, not only rotate).
+* `BUF.MORPHS` (16 weights, `morph_names()`): lid `smile pucker arch corner_L_up corner_L_down corner_R_up corner_R_down
+  pucker_L pucker_R`, then seat `seat_corner_L_up seat_corner_L_down seat_corner_R_up seat_corner_R_down seat_pucker_L
+  seat_pucker seat_pucker_R` (ToiletTuber builds the targets from the same formulas, `lidMorph` / `seatMorph`).
+* Extra wasm API: `set_input_ext(cornerL, cornerR, jawSide, jawFwd, upperRaise, lips)`, `lip_upper_matrix()` (16 floats,
+  world matrix of the `lip_upper` socket), `lip_metrics()` ([seat front travel m, seat roll deg, lid curl deg, lid forward m]),
+  `seat_front()`, `standard_visemes()` (JSON), `morph_names()`.
 
 `config.settings.mouth = { maxOpen: 0.65, curve: 1.6 }` — maxOpen scales the mic/viseme `open` channel (0..1) before the rig
 (1 = old behaviour), curve > 1 makes quiet speech open less (open' = maxOpen * open^curve). Applied in avatar.js before tuber.update.
 
-New default socket `lip_upper` on the lid's front edge (child of a lid bone, moves with the upper lip): mustaches attach there by
+New default socket `lip_upper` on the lid's front edge (child of `lid_bone_7`, origin = the lid's front point on its underside,
+body (0, 0.677, 0.49) with the lid closed, +z out, +y up; moves with the upper lip in JS and Rust mode): mustaches attach there by
 default; old themes/configs with mustaches on `face` are migrated to `lip_upper` when loaded.
 
 **The character window never minimizes** (a minimized window stops rendering and OBS shows nothing).

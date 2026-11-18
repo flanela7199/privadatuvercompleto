@@ -2,7 +2,7 @@ import React from 'react';
 import { useStore, live, useLiveTick } from '../state/config';
 import { invoke, emit, isTauri } from '../lib/bridge';
 import { CHANNELS, loadMic } from '../lib/legacy';
-import { VISEMES, shapeOpen } from '../lib/catalog';
+import { STANDARD_VISEME_LIST, shapeOpen } from '../lib/catalog';
 import { Section, Field, Fields } from '../components/Section';
 import { Button } from '../components/Button';
 import { Select } from '../components/Select';
@@ -58,6 +58,15 @@ export function Microfone() {
   micEnabled = a.enabled;
   const [devs, setDevs] = React.useState<string[] | null>(null);
   const [bm, setBm] = React.useState(!!browserMic);
+  // smile test: held while the toggles are on; re-sent as a heartbeat, cleared on leave
+  const [smile, setSmile] = React.useState({ cornerL: false, cornerR: false });
+  React.useEffect(() => {
+    const send = () => emit('mouth-test', { cornerL: smile.cornerL ? 1 : 0, cornerR: smile.cornerR ? 1 : 0 });
+    send();
+    const on = smile.cornerL || smile.cornerR;
+    const iv = on ? setInterval(send, 1000) : 0;
+    return () => { if (iv) clearInterval(iv); if (on) emit('mouth-test', { cornerL: 0, cornerR: 0 }); };
+  }, [smile]);
   React.useEffect(() => { invoke('audio_devices').then((d: any) => setDevs(d || [])).catch(() => setDevs([])); }, []);
 
   const set = (k: string, v: any) => {
@@ -105,8 +114,18 @@ export function Microfone() {
         <MouthLimits />
       </Section>
       <Section title="Nível e forma da boca"><Meters mouth={s.cfg.settings.mouth} /></Section>
-      <Section title="Testar formas da boca" desc="Mostra cada forma na privada.">
-        <div className="btns vis-btns">{VISEMES.map((v) => <Button key={v} onClick={() => runAction(`viseme:${v}`)}>{v}</Button>)}</div>
+      <Section title="Testar formas da boca" desc="Os visemas padrão — clique para a privada fazer a forma.">
+        <div className="vis-grid">
+          {STANDARD_VISEME_LIST.map(([v, hint]) => (
+            <Button key={v} size="sm" tip={hint} onClick={() => runAction(`viseme:${v}`)}><b>{v.replace(/_/g, ' ')}</b><span className="mut">{hint}</span></Button>
+          ))}
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <Fields>
+            <Field label="Sorriso esquerdo" tip="Teste: levanta o canto esquerdo da boca (cornerL)"><Toggle checked={smile.cornerL} onChange={(v) => setSmile({ ...smile, cornerL: v })} /></Field>
+            <Field label="Sorriso direito" tip="Teste: levanta o canto direito da boca (cornerR)"><Toggle checked={smile.cornerR} onChange={(v) => setSmile({ ...smile, cornerR: v })} /></Field>
+          </Fields>
+        </div>
       </Section>
     </div>
   );

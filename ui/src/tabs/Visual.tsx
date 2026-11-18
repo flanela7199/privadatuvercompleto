@@ -11,6 +11,7 @@ import { ColorField } from '../components/ColorField';
 import { Field, Fields } from '../components/Section';
 import { EmptyState } from '../components/EmptyState';
 import { Thumb, CATEGORY_ICON } from '../components/Thumb';
+import { Segmented } from '../components/Segmented';
 import { useToast } from '../components/Toast';
 
 type Sel = { slot: string; index: number } | null;
@@ -76,8 +77,8 @@ export function Visual({ active }: { active: boolean }) {
     toast(<>Modelo <b>{f.name}</b> adicionado</>);
   };
 
-  const body = { tank: { ...BODY_DEFAULTS.tank, ...(work.body?.tank || {}) }, eyes: { ...BODY_DEFAULTS.eyes, ...(work.body?.eyes || {}) } };
-  const setBody = (part: 'tank' | 'eyes', k: string, v: number) => update((d) => {
+  const body = { tank: { ...BODY_DEFAULTS.tank, ...(work.body?.tank || {}) }, eyes: { ...BODY_DEFAULTS.eyes, ...(work.body?.eyes || {}) }, neck: { ...BODY_DEFAULTS.neck, ...(work.body?.neck || {}) }, roll: { ...BODY_DEFAULTS.roll, ...(work.body?.roll || {}) } };
+  const setBody = (part: 'tank' | 'eyes' | 'neck' | 'roll', k: string, v: number | string) => update((d) => {
     d.work.body ||= {};
     d.work.body[part] = { ...BODY_DEFAULTS[part], ...(d.work.body[part] || {}), [k]: v };
   }, { fork: true });
@@ -105,9 +106,13 @@ export function Visual({ active }: { active: boolean }) {
             <Field label="Cabeça largura" tip="Largura do tanque"><Slider value={body.tank.w} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('tank', 'w', v)} /></Field>
             <Field label="Cabeça altura" tip="Altura do tanque"><Slider value={body.tank.h} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('tank', 'h', v)} /></Field>
             <Field label="Cabeça profund." tip="Profundidade do tanque"><Slider value={body.tank.d} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('tank', 'd', v)} /></Field>
+            <Field label="Pescoço (cano)" tip="Comprimento do cano: sobe/desce a cabeça"><Slider value={body.neck.length} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('neck', 'length', v)} /></Field>
             <Field label="Olhos tamanho"><Slider value={body.eyes.size} min={0.5} max={1.8} step={0.01} fmt="x" onChange={(v) => setBody('eyes', 'size', v)} /></Field>
             <Field label="Olhos distância" tip="Separação entre os olhos"><Slider value={body.eyes.spacing} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('eyes', 'spacing', v)} /></Field>
             <Field label="Olhos altura" tip="Sobe/desce os olhos (metros)"><Slider value={body.eyes.y} min={-0.12} max={0.12} step={0.005} onChange={(v) => setBody('eyes', 'y', v)} /></Field>
+            <Field label="Rolo de papel" tip="Onde fica o suporte do papel higiênico">
+              <Segmented value={body.roll.mount} options={[['side', 'Do lado (padrão)'], ['front', 'Na frente']]} onChange={(v) => setBody('roll', 'mount', v)} />
+            </Field>
           </Fields>
         </Card>
         <Card>

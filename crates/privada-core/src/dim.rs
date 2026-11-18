@@ -43,13 +43,26 @@ pub const SEAT_ZC: f32 = -HINGE_Z;
 pub const SEAT_BONES: usize = 8;
 pub const SEAT_Z0: f32 = 0.03;
 pub const SEAT_SEG: f32 = (2.0 * SEAT_RZ + 0.02) / (SEAT_BONES as f32 - 1.0);
-/// the lower lip's front may drop at most this far below its rest height
-pub const SEAT_MAX_DROP: f32 = 0.03;
-/// per bone (1..7): front-down angle per unit of `drop`, front-up per unit of `press`,
-/// forward slide (m) per unit of `drop` (pushes the front out over the bowl's front edge)
-pub const SEAT_DROP_ANG: [f32; SEAT_BONES - 1] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.72, 0.1];
-pub const SEAT_PRESS_ANG: [f32; SEAT_BONES - 1] = [0.0, 0.0, 0.0, 0.0, -0.04, -0.12, -0.05];
-pub const SEAT_SLIDE: [f32; SEAT_BONES - 1] = [0.0, 0.0, 0.0, 0.014, 0.022, 0.03, 0.0];
+/// sanity limit only: the lower lip may roll out and down OVER the bowl's front (never into it)
+pub const SEAT_MAX_DROP: f32 = 0.15;
+/// Lower lip, per bone (1..7):
+/// * `SEAT_DROP_ANG` front-down roll (rad) per unit of `drop` (bone 7 < 0 = the edge droops further),
+/// * `SEAT_PRESS_ANG` front-up (rad) per unit of `press` (M/B/P),
+/// * `SEAT_SLIDE` forward slide (m) per unit of `drop`: pushes the front out over the bowl's front,
+/// * `SEAT_LIFT` lift (m) per unit of `drop`: the roll starts above the rim,
+/// * `SEAT_PRESS_SLIDE` / `SEAT_TUCK_SLIDE` backward slide (m) on press (M/B/P) / tuck (F/V, under the upper lip).
+pub const SEAT_DROP_ANG: [f32; SEAT_BONES - 1] = [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, -0.3];
+pub const SEAT_PRESS_ANG: [f32; SEAT_BONES - 1] = [0.0, 0.0, 0.0, 0.0, -0.06, -0.2, -0.08];
+pub const SEAT_SLIDE: [f32; SEAT_BONES - 1] = [0.0, 0.0, 0.0, 0.02, 0.03, 0.045, 0.0];
+pub const SEAT_LIFT: [f32; SEAT_BONES - 1] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.03, 0.0];
+pub const SEAT_PRESS_SLIDE: [f32; SEAT_BONES - 1] = [0.0, 0.0, 0.0, 0.0, -0.015, -0.02, 0.0];
+pub const SEAT_TUCK_SLIDE: [f32; SEAT_BONES - 1] = [0.0, 0.0, 0.0, 0.0, -0.02, -0.025, 0.0];
+/// Upper lip (lid bones 1..7): share of the front curl per bone (sums to 1: the front third folds),
+/// full curl up/out (rad, O/U pucker) and down (rad, open vowels), forward slide (m) per unit of pucker.
+pub const LID_CURL_W: [f32; LID_BONES - 1] = [0.0, 0.0, 0.0, 0.1, 0.25, 0.3, 0.35];
+pub const LID_CURL_UP: f32 = 1.0;
+pub const LID_CURL_DOWN: f32 = 0.6;
+pub const LID_POUT_SLIDE: [f32; LID_BONES - 1] = [0.0, 0.0, 0.0, 0.01, 0.03, 0.035, 0.02];
 
 pub const MOUTH_REST: f32 = 0.05;
 pub const SPOUT: [f32; 3] = [0.0, 0.69, 0.43];
@@ -82,16 +95,19 @@ pub const LID_FRONT_Z: f32 = LID_RZ + LID_ZC;
 /// socket `lip_upper`: child of lid_bone_7, at the lid's front point on its underside
 pub const LIP_UPPER: [f32; 3] = [0.0, 0.0, LID_FRONT_Z - (LID_Z0 + (LID_BONES as f32 - 1.0) * LID_SEG)];
 
-/// paper roll: radius, length (along X: the roll faces the camera)
+/// paper roll: radius, length. Two mounts (`theme.body.roll.mount`):
+/// * `side` (default): holder on the tank's left side face, roll axis along Z;
+/// * `front`: tank front-left below the eye, roll axis along X (faces the camera).
 pub const ROLL_R: f32 = 0.085;
 pub const ROLL_LEN: f32 = 0.19;
-/// roll x as a fraction of the tank width, height above the tank bottom, gap to the tank face
+/// side mount: roll centre beyond the side face / above the tank centre / ahead of its centre
+pub const ROLL_SIDE_OUT: f32 = 0.125;
+pub const ROLL_SIDE_UP: f32 = 0.08;
+pub const ROLL_SIDE_FWD: f32 = 0.02;
+/// front mount: roll x as a fraction of the tank width, height above the tank bottom, gap to the tank face
 pub const ROLL_X_F: f32 = -0.3 / 0.95;
 pub const ROLL_ABOVE_BOTTOM: f32 = 0.06;
 pub const ROLL_GAP: f32 = 0.025;
-pub const ROLL_X: f32 = ROLL_X_F * TANK_W;
-pub const ROLL_Y: f32 = TANK_BOTTOM + ROLL_ABOVE_BOTTOM;
-pub const ROLL_Z: f32 = TANK_FRONT + ROLL_R + ROLL_GAP;
 
 /// flush handle position in head space
 pub const HANDLE: [f32; 3] = [0.34, TANK_Y + 0.17, TANK_FRONT + 0.005];
@@ -110,8 +126,9 @@ pub struct BodyDims {
     pub eye_x: f32,
     pub eye_y: f32,
     pub eye_r: f32,
-    /// paper roll centre (head space)
+    /// paper roll centre (head space) and its mount (false = side, true = front)
     pub roll: [f32; 3],
+    pub roll_front: bool,
     pub handle: [f32; 3],
     /// neck length factor (0.6..1.6) and the resulting head pivot height (body space)
     pub neck: f32,
@@ -145,11 +162,23 @@ impl BodyDims {
             eye_x: EYE_X * esp * w,
             eye_y: tank_y + (EYE_Y - TANK_Y) * h + ey,
             eye_r: EYE_R * es,
-            roll: [ROLL_X_F * tw, TANK_BOTTOM + ROLL_ABOVE_BOTTOM, front + ROLL_R + ROLL_GAP],
+            roll: [-(tw / 2.0 + ROLL_SIDE_OUT), tank_y + ROLL_SIDE_UP * h, tank_z + ROLL_SIDE_FWD],
+            roll_front: false,
             handle: [HANDLE[0] * w, tank_y + (HANDLE[1] - TANK_Y) * h, front + 0.005],
             neck: 1.0,
             head_y: HEAD_Y,
         }
+    }
+    /// paper roll mount: side face (default) or tank front-left
+    pub fn with_roll_mount(mut self, front: bool) -> Self {
+        let h = self.tank_h / TANK_H;
+        self.roll_front = front;
+        self.roll = if front {
+            [ROLL_X_F * self.tank_w, TANK_BOTTOM + ROLL_ABOVE_BOTTOM, self.front() + ROLL_R + ROLL_GAP]
+        } else {
+            [-(self.tank_w / 2.0 + ROLL_SIDE_OUT), self.tank_y + ROLL_SIDE_UP * h, self.tank_z + ROLL_SIDE_FWD]
+        };
+        self
     }
     /// neck length factor (pipe above the bowl), 0.6..1.6
     pub fn with_neck(mut self, length: f32) -> Self {
@@ -157,14 +186,16 @@ impl BodyDims {
         self.head_y = NECK_BASE_Y + (HEAD_Y - NECK_BASE_Y) * self.neck;
         self
     }
-    /// `{"tank":{"w","h","d"},"eyes":{"size","spacing","y"},"neck":{"length"}}` (all optional);
-    /// bad JSON -> defaults
+    /// `{"tank":{"w","h","d"},"eyes":{"size","spacing","y"},"neck":{"length"},"roll":{"mount":"side"|"front"}}`
+    /// (all optional); bad JSON -> defaults
     pub fn from_json(s: &str) -> Self {
         let j = Json::parse(s).unwrap_or(Json::Null);
         let (t, e, n) = (j.get("tank"), j.get("eyes"), j.get("neck"));
+        let front = j.get("roll").is_some_and(|r| r.s("mount", "side") == "front");
         let g = |o: Option<&Json>, k: &str, d: f64| o.map_or(d, |o| o.f(k, d)) as f32;
         Self::new(g(t, "w", 1.0), g(t, "h", 1.0), g(t, "d", 1.0), g(e, "size", 1.0), g(e, "spacing", 1.0), g(e, "y", 0.0))
             .with_neck(g(n, "length", 1.0))
+            .with_roll_mount(front)
     }
     /// tank front face z (head space)
     pub fn front(&self) -> f32 {
@@ -180,7 +211,9 @@ mod tests {
         let d = BodyDims::default();
         assert!((d.tank_y - 0.3).abs() < 1e-6 && (d.tank_z - 0.14).abs() < 1e-6);
         assert!((d.eye_y - EYE_Y).abs() < 1e-6 && (d.front() - TANK_FRONT).abs() < 1e-6);
-        assert!((d.roll[0] + 0.3).abs() < 1e-6);
+        assert!((d.roll[0] + 0.6).abs() < 1e-6 && (d.roll[1] - 0.38).abs() < 1e-6 && (d.roll[2] - 0.16).abs() < 1e-6 && !d.roll_front);
+        let fr = BodyDims::from_json(r#"{"roll":{"mount":"front"}}"#);
+        assert!(fr.roll_front && (fr.roll[0] + 0.3).abs() < 1e-6 && (fr.roll[2] - 0.43).abs() < 1e-6);
         let j = BodyDims::from_json(r#"{"tank":{"w":1.2,"h":0.8},"eyes":{"size":1.5,"y":0.05,"spacing":9}}"#);
         assert!((j.tank_w - 1.14).abs() < 1e-5 && (j.tank_d - TANK_D).abs() < 1e-6);
         assert!((j.eye_r - 0.21).abs() < 1e-5 && (j.eye_x - EYE_X * 1.6 * 1.2).abs() < 1e-5);

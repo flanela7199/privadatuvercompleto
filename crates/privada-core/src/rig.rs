@@ -72,6 +72,8 @@ pub struct Mouth {
     pub jaw_side: f32,
     pub jaw_fwd: f32,
     pub upper_raise: f32,
+    /// lip activity 0..1 (avatar.js shapeMouth): the lips fold/chatter even when `open` is capped
+    pub lips: f32,
 }
 
 /// channel order of [`Mouth::from_channels`] / [`STANDARD_VISEMES`]
@@ -79,7 +81,7 @@ pub const MOUTH_CHANNELS: [&str; 10] = ["open", "round", "wide", "closed", "sib"
 
 impl Mouth {
     pub fn from_channels(c: [f32; 10]) -> Mouth {
-        Mouth { open: c[0], round: c[1], wide: c[2], closed: c[3], sib: c[4], corner_l: c[5], corner_r: c[6], jaw_side: c[7], jaw_fwd: c[8], upper_raise: c[9] }
+        Mouth { open: c[0], round: c[1], wide: c[2], closed: c[3], sib: c[4], corner_l: c[5], corner_r: c[6], jaw_side: c[7], jaw_fwd: c[8], upper_raise: c[9], lips: 0.0 }
     }
     pub fn channels(&self) -> [f32; 10] {
         [self.open, self.round, self.wide, self.closed, self.sib, self.corner_l, self.corner_r, self.jaw_side, self.jaw_fwd, self.upper_raise]
@@ -91,8 +93,28 @@ impl Mouth {
         Mouth {
             open: u(self.open), round: u(self.round), wide: u(self.wide), closed: u(self.closed), sib: u(self.sib),
             corner_l: sg(self.corner_l), corner_r: sg(self.corner_r), jaw_side: sg(self.jaw_side), jaw_fwd: u(self.jaw_fwd), upper_raise: u(self.upper_raise),
+            lips: u(self.lips),
         }
     }
+    /// what avatar.js `shapeMouth` sends for a raw viseme: `open` capped (max_open * open^curve),
+    /// everything else at full strength, plus `lips`
+    pub fn shaped(&self, max_open: f32, curve: f32) -> Mouth {
+        let o = clamp(self.open, 0.0, 1.0);
+        Mouth { open: max_open * o.powf(curve), lips: clamp(o.powf(0.7) + self.round * 0.6 + self.wide * 0.4, 0.0, 1.0), ..*self }
+    }
+}
+
+/// Headless lip measurements (see [`Rig::lip_metrics`])
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LipMetrics {
+    /// seat front-centre edge displacement from rest (m, body space)
+    pub seat_travel: f32,
+    /// roll of the seat front (deg, + = rolled out/down, - = pressed up)
+    pub seat_roll: f32,
+    /// curl of the lid front third relative to the lid (deg, + = up/out, - = down)
+    pub lid_curl: f32,
+    /// forward shift of the lid front-centre point in lid space (m)
+    pub lid_fwd: f32
 }
 
 /// The 15 standard vtuber visemes (+ rest) as channel values [`MOUTH_CHANNELS`].
@@ -154,18 +176,18 @@ pub fn lid_morph(k: usize, x: f32, z: f32) -> Vec3 {
         // smile: corners lift, centre tenses (E, I)
         0 => Vec3::new(0.0, 0.05 * u * u * fv - 0.012 * mid * v, 0.0),
         // pucker: centre front pushes up/out, corners pull in (O, U)
-        1 => Vec3::new(-0.05 * u * v * v, 0.035 * mid * v * v, 0.03 * mid * v * v),
+        1 => Vec3::new(-0.05 * u * v * v, 0.04 * mid * v * v, 0.05 * mid * v * v),
         // arch: the upper-lip curve seen from the front - corners fold down, middle stays up
         2 => {
             let vv = v.powf(1.6);
             Vec3::new(-0.025 * u * u.abs() * vv, -0.11 * u.abs().powf(2.2) * vv + 0.02 * mid * vv, 0.0)
         }
-        3 => Vec3::new(0.0, 0.045 * ul.powf(2.2) * fv, 0.0),
-        4 => Vec3::new(-0.012 * ul * ul * fv, -0.06 * ul.powf(2.2) * fv, 0.0),
-        5 => Vec3::new(0.0, 0.045 * ur.powf(2.2) * fv, 0.0),
-        6 => Vec3::new(0.012 * ur * ur * fv, -0.06 * ur.powf(2.2) * fv, 0.0),
-        7 => side_pucker(u, v, -1.0, [0.035, 0.03, 0.032, 0.026]),
-        8 => side_pucker(u, v, 1.0, [0.035, 0.03, 0.032, 0.026]),
+        3 => Vec3::new(0.0, 0.09 * ul.powf(2.2) * fv, 0.0),
+        4 => Vec3::new(-0.024 * ul * ul * fv, -0.12 * ul.powf(2.2) * fv, 0.0),
+        5 => Vec3::new(0.0, 0.09 * ur.powf(2.2) * fv, 0.0),
+        6 => Vec3::new(0.024 * ur * ur * fv, -0.12 * ur.powf(2.2) * fv, 0.0),
+        7 => side_pucker(u, v, -1.0, [0.035, 0.03, 0.04, 0.045]),
+        8 => side_pucker(u, v, 1.0, [0.035, 0.03, 0.04, 0.045]),
         _ => Vec3::ZERO,
     }
 }
@@ -180,14 +202,14 @@ pub fn seat_morph(k: usize, x: f32, z: f32) -> Vec3 {
     let (mid, v2) = (1.0 - u * u, v * v);
     match k {
         // corner up: the lower-lip corner rises (smile)
-        0 => Vec3::new(0.0, 0.03 * ul * ul * fv, 0.0),
+        0 => Vec3::new(0.0, 0.06 * ul * ul * fv, 0.0),
         // corner down (frown): the lower lip pouts up next to that corner, the corner stays
-        1 => Vec3::new(0.0, 0.018 * mid * (1.0 - 0.5 * u) * v2, 0.008 * mid * v2),
-        2 => Vec3::new(0.0, 0.03 * ur * ur * fv, 0.0),
-        3 => Vec3::new(0.0, 0.018 * mid * (1.0 + 0.5 * u) * v2, 0.008 * mid * v2),
-        4 => side_pucker(u, v, -1.0, [0.03, 0.025, 0.018, 0.022]),
-        5 => Vec3::new(-0.03 * u * v2, 0.02 * mid * v2, 0.025 * mid * v2),
-        6 => side_pucker(u, v, 1.0, [0.03, 0.025, 0.018, 0.022]),
+        1 => Vec3::new(0.0, 0.036 * mid * (1.0 - 0.5 * u) * v2, 0.016 * mid * v2),
+        2 => Vec3::new(0.0, 0.06 * ur * ur * fv, 0.0),
+        3 => Vec3::new(0.0, 0.036 * mid * (1.0 + 0.5 * u) * v2, 0.016 * mid * v2),
+        4 => side_pucker(u, v, -1.0, [0.03, 0.025, 0.02, 0.04]),
+        5 => Vec3::new(-0.03 * u * v2, 0.02 * mid * v2, 0.04 * mid * v2),
+        6 => side_pucker(u, v, 1.0, [0.03, 0.025, 0.02, 0.04]),
         _ => Vec3::ZERO,
     }
 }
@@ -218,6 +240,9 @@ struct Springs {
     jaw_side: Spring,
     jaw_fwd: Spring,
     upper_raise: Spring,
+    /// lower lip pressed up/in (M/B/P) and tucked under the upper lip (F/V)
+    press: Spring,
+    tuck: Spring,
 }
 
 impl Springs {
@@ -247,6 +272,8 @@ impl Springs {
             jaw_side: Spring::new(160.0, 16.0),
             jaw_fwd: Spring::new(160.0, 16.0),
             upper_raise: Spring::new(220.0, 18.0),
+            press: Spring::new(220.0, 18.0),
+            tuck: Spring::new(220.0, 18.0),
         }
     }
     /// same order as `for (const k in S)` in the JS rig
@@ -257,6 +284,7 @@ impl Springs {
             &mut self.squash, &mut self.eye_scale, &mut self.handle, &mut self.smile,
             &mut self.pucker, &mut self.arch, &mut self.lean, &mut self.drop, &mut self.corner_l,
             &mut self.corner_r, &mut self.jaw_side, &mut self.jaw_fwd, &mut self.upper_raise,
+            &mut self.press, &mut self.tuck,
         ] {
             s.step(h);
         }
@@ -301,12 +329,12 @@ pub fn bowl_r(x: f32, z: f32) -> f32 {
 /// Seat bone matrices in seat-pivot space (the seat SkinnedMesh is identity under seat_pivot):
 /// bone 0 at z = SEAT_Z0, bone i = SEAT_SEG (+ slide) ahead of bone i-1, rotated by angle * gain
 /// about X (positive = front down).
-fn seat_chain(ang: &[f32; SEAT_BONES], slide: &[f32; SEAT_BONES], gain: f32) -> [Mat4; SEAT_BONES] {
+fn seat_chain(ang: &[f32; SEAT_BONES], slide: &[f32; SEAT_BONES], lift: &[f32; SEAT_BONES], gain: f32) -> [Mat4; SEAT_BONES] {
     let mut m = Mat4::IDENTITY;
     let mut out = [Mat4::IDENTITY; SEAT_BONES];
     for i in 0..SEAT_BONES {
         let z = if i == 0 { SEAT_Z0 } else { SEAT_SEG + slide[i] };
-        m = m * Mat4::from_translation(Vec3::new(0.0, 0.0, z)) * Mat4::from_rotation_x(ang[i] * gain);
+        m = m * Mat4::from_translation(Vec3::new(0.0, lift[i], z)) * Mat4::from_rotation_x(ang[i] * gain);
         out[i] = m;
     }
     out
@@ -339,7 +367,7 @@ fn seat_under_samples() -> Vec<Vec3> {
 /// ring radius factors of the underside samples (dense at the front edge, which curls down)
 const SEAT_UNDER_S: [f32; 9] = [SEAT_HOLE, 0.715, 0.81, 0.86, 0.9, 0.93, 0.955, 0.978, 1.0];
 /// the clamp keeps this extra radial margin from the rim (covers the gaps between samples)
-const SEAT_RIM_MARGIN: f32 = 0.004;
+const SEAT_RIM_MARGIN: f32 = 0.008;
 /// seat top samples (rest x, centred z) over the front ring, for the lid-above-seat floor
 static SEAT_TOP_XZ: std::sync::LazyLock<Vec<(f32, f32)>> = std::sync::LazyLock::new(|| {
     let mut v = Vec::with_capacity(15);
@@ -391,6 +419,14 @@ pub fn push_out_of_bowl(b: Vec3) -> Option<Vec3> {
         Some(Vec3::new(b.x * k, b.y, b.z * k))
     }
 }
+/// true if a body-space point is inside the bowl (rim, opening or wall), with an extra radial margin
+pub fn in_bowl(p: Vec3, margin: f32) -> bool {
+    if p.y >= RIM_TOP + 0.002 + margin * 0.25 {
+        return false;
+    }
+    let lim = if p.y >= 0.622 { RIM_OUTER_R } else { bowl_outer_r(p.y) + 0.002 };
+    bowl_r(p.x, p.z) < lim + margin
+}
 /// Paper rests on the lid / drapes over the bowl instead of passing through it.
 fn collide_paper(strip: &mut PaperStrip, bm: Mat4, inv: Mat4) {
     let start = usize::from(strip.anchored);
@@ -414,7 +450,10 @@ pub struct Rig {
     /// seat bone angles / slides of this frame (before the rim clamp) and the clamp factor
     seat_ang: [f32; SEAT_BONES],
     seat_slide: [f32; SEAT_BONES],
+    seat_lift: [f32; SEAT_BONES],
     seat_gain: f32,
+    /// lid bone forward slides (pucker)
+    lid_slide: [f32; LID_BONES],
     /// lowest lid hinge that keeps the lid above the (curled) seat
     seat_floor: f32,
     /// seat underside sample points (seat-pivot space) for the rim clamp
@@ -494,7 +533,9 @@ impl Rig {
             dims,
             seat_ang: [0.0; SEAT_BONES],
             seat_slide: [0.0; SEAT_BONES],
+            seat_lift: [0.0; SEAT_BONES],
             seat_gain: 1.0,
+            lid_slide: [0.0; LID_BONES],
             seat_floor: 0.0,
             seat_under: seat_under_samples(),
             time: 0.0,
@@ -617,7 +658,7 @@ impl Rig {
     /// Lower lip state: (drop below rest of the front centre underside in m (>0 = lower),
     /// forward slide of the front edge in m), in body space.
     pub fn seat_front(&self) -> (f32, f32) {
-        let chain = seat_chain(&self.seat_ang, &self.seat_slide, self.seat_gain);
+        let chain = seat_chain(&self.seat_ang, &self.seat_slide, &self.seat_lift, self.seat_gain);
         let v = self.seat_morphed(Vec3::new(0.0, SEAT_Y0, SEAT_ZC + SEAT_RZ));
         let p = self.seat_pivot.mat().transform_point3(skin(&chain, SEAT_Z0, SEAT_SEG, v));
         (RIM_Y + SEAT_Y0 - p.y, p.z - (HINGE_Z + SEAT_ZC + SEAT_RZ))
@@ -631,6 +672,32 @@ impl Rig {
         self.body_m() * self.head.mat()
     }
 
+    /// Headless lip measurements (tests / parity script), see [`LipMetrics`].
+    pub fn lip_metrics(&self) -> LipMetrics {
+        let chain = seat_chain(&self.seat_ang, &self.seat_slide, &self.seat_lift, self.seat_gain);
+        let pm = self.seat_pivot.mat();
+        let y = SEAT_Y0 + SEAT_H * 0.5;
+        let sp = |k: f32| pm.transform_point3(skin(&chain, SEAT_Z0, SEAT_SEG, self.seat_morphed(Vec3::new(0.0, y, SEAT_ZC + SEAT_RZ * k))));
+        let rest = Vec3::new(0.0, RIM_Y + y, HINGE_Z + SEAT_ZC + SEAT_RZ);
+        let (front, back) = (sp(1.0), sp(0.85));
+        let d = front - back;
+        let mut m = Mat4::IDENTITY;
+        let mut lc = [Mat4::IDENTITY; LID_BONES];
+        for (i, b) in self.bones.iter().enumerate() {
+            m *= b.mat();
+            lc[i] = m;
+        }
+        let lp = |z: f32| skin(&lc, LID_Z0, LID_SEG, self.lid_morphed(Vec3::new(0.0, 0.0, z)));
+        let (lf, lb) = (lp(LID_FRONT_Z), lp(0.8));
+        let e = lf - lb;
+        LipMetrics {
+            seat_travel: (front - rest).length(),
+            seat_roll: (-d.y).atan2(d.z).to_degrees(),
+            lid_curl: e.y.atan2(e.z).to_degrees(),
+            lid_fwd: lf.z - LID_FRONT_Z,
+        }
+    }
+
     /// eyes / handle / roll rest positions from the body dims (head space)
     fn place_body_nodes(&mut self) {
         let d = self.dims;
@@ -639,21 +706,32 @@ impl Rig {
         self.eyes[1].p = Vec3::new(d.eye_x, d.eye_y, ez);
         self.handle.p = Vec3::from(d.handle);
         self.head.p.y = d.head_y;
-        // paper_holder sits on the tank face at (roll x, roll y, front); the roll in front of it
-        self.roll.p = Vec3::new(0.0, 0.0, d.roll[2] - d.front());
+        self.roll.p = if d.roll_front {
+            // paper_holder on the tank face at (roll x, roll y, front); the roll in front of it
+            Vec3::new(0.0, 0.0, d.roll[2] - d.front())
+        } else {
+            // paper_holder on the left side face at (-w/2, roll y, roll z); the roll out to the side
+            Vec3::new(d.roll[0] + d.tank_w / 2.0, 0.0, 0.0)
+        };
     }
 
-    /// The roll faces the camera (axis along X, in front of the tank face): the paper leaves
-    /// from the roll's front, falls down toward the viewer and the paper action blows it forward.
+    /// Paper leaves the roll along its tangent (down), from the outer side (side mount, axis Z)
+    /// or the front (front mount, axis X); the paper action always blows it FORWARD (his +z).
     fn update_paper_anchor(&mut self) {
         let hm = self.head_m();
         let (_, hq, _) = hm.to_scale_rotation_translation();
         let roll_world = hm.transform_point3(Vec3::from(self.dims.roll));
         let fwd = hq * Vec3::Z;
         let rs = self.paper.roll_radius_scale;
-        self.roll.s = Vec3::new(1.0, rs, rs);
-        self.paper.anchor = roll_world + fwd * ROLL_R * rs;
-        self.paper.width_dir = hq * Vec3::X;
+        if self.dims.roll_front {
+            self.roll.s = Vec3::new(1.0, rs, rs);
+            self.paper.anchor = roll_world + fwd * ROLL_R * rs;
+            self.paper.width_dir = hq * Vec3::X;
+        } else {
+            self.roll.s = Vec3::new(rs, rs, 1.0);
+            self.paper.anchor = roll_world + hq * Vec3::NEG_X * ROLL_R * rs;
+            self.paper.width_dir = hq * Vec3::Z;
+        }
         self.paper.emit_dir = hq * Vec3::NEG_Y;
         self.paper_out_dir = fwd;
     }
@@ -703,7 +781,7 @@ impl Rig {
                 {
                     return true;
                 }
-                if p.cmpgt(rlo).all() && p.cmplt(rhi).all() {
+                if d.roll_front && p.cmpgt(rlo).all() && p.cmplt(rhi).all() {
                     return true;
                 }
             }
@@ -727,12 +805,12 @@ impl Rig {
     }
 
     fn seat_hits_bowl(&self, gain: f32) -> bool {
-        let chain = seat_chain(&self.seat_ang, &self.seat_slide, gain);
+        let chain = seat_chain(&self.seat_ang, &self.seat_slide, &self.seat_lift, gain);
         let pm = self.seat_pivot.mat();
         let min_y = RIM_Y + SEAT_Y0 - SEAT_MAX_DROP;
         self.seat_under.iter().any(|v| {
             let p = pm.transform_point3(skin(&chain, SEAT_Z0, SEAT_SEG, self.seat_morphed(*v)));
-            p.y < min_y || (p.y < RIM_TOP + 0.002 && bowl_r(p.x, p.z) < RIM_OUTER_R + SEAT_RIM_MARGIN)
+            p.y < min_y || in_bowl(p, SEAT_RIM_MARGIN)
         })
     }
 
@@ -740,21 +818,22 @@ impl Rig {
     /// it down (max SEAT_MAX_DROP), M/B/P/F press it up toward the lid; a clamp keeps it out
     /// of the bowl rim (binary search on the curl).
     fn apply_seat(&mut self, dt: f32) {
-        let m = self.mouth;
         let drop = self.s.drop.x.max(0.0);
-        let press = clamp(m.closed + 0.2 * m.sib, 0.0, 1.0);
+        let (press, tuck) = (self.s.press.x.max(0.0), self.s.tuck.x.max(0.0));
         // the front slides out first (ease-out), so even a small drop clears the rim
         let slide = drop * (2.0 - drop.min(1.0));
         let n = self.seat_lip.len();
         for i in 0..n {
-            let flap = if i >= 5 { (self.time * 14.0 - i as f32 * 0.9 + 2.0).sin() * 0.05 * self.talk_amt } else { 0.0 };
+            // lip chatter while talking (talk_amt includes `lips`)
+            let flap = if i >= 5 { (self.time * 14.0 - i as f32 * 0.9 + 2.0).sin() * 0.06 * self.talk_amt } else { 0.0 };
             let s = &mut self.seat_lip[i];
             s.target = SEAT_DROP_ANG[i] * drop + SEAT_PRESS_ANG[i] * press + flap;
             for _ in 0..3 {
                 s.step(dt / 3.0);
             }
             self.seat_ang[i + 1] = s.x;
-            self.seat_slide[i + 1] = SEAT_SLIDE[i] * slide;
+            self.seat_slide[i + 1] = SEAT_SLIDE[i] * slide + SEAT_PRESS_SLIDE[i] * press + SEAT_TUCK_SLIDE[i] * tuck;
+            self.seat_lift[i + 1] = SEAT_LIFT[i] * drop;
         }
         let mut gain = 1.0;
         if self.seat_hits_bowl(1.0) {
@@ -771,7 +850,7 @@ impl Rig {
         }
         self.seat_gain = gain;
         for i in 1..SEAT_BONES {
-            self.seat_bones[i].p.z = SEAT_SEG + self.seat_slide[i];
+            self.seat_bones[i].p = Vec3::new(0.0, self.seat_lift[i], SEAT_SEG + self.seat_slide[i]);
             self.seat_bones[i].q = Quat::from_rotation_x(self.seat_ang[i] * gain);
         }
     }
@@ -780,7 +859,7 @@ impl Rig {
     /// morphed, jaw included): for seat-top points over the front ring, compare their angle
     /// around the lid hinge with the lid underside at the same rest x (and z +- 5 cm).
     fn seat_lid_floor(&self) -> f32 {
-        let chain = seat_chain(&self.seat_ang, &self.seat_slide, self.seat_gain);
+        let chain = seat_chain(&self.seat_ang, &self.seat_slide, &self.seat_lift, self.seat_gain);
         let mut lid0 = self.lid_pivot;
         lid0.q = self.lid_q(0.0);
         let to_lid = lid0.mat().inverse() * self.seat_pivot.mat();
@@ -809,20 +888,23 @@ impl Rig {
     fn apply_lid(&mut self, dt: f32, open: f32) {
         let n = self.lip.len();
         let m = self.mouth;
+        // the front third folds: up/out on O/U (pucker) and upper_raise, down on open vowels
+        let rnd = (2.0 * m.round).min(1.0);
+        let curl = LID_CURL_UP * rnd + 0.3 * m.upper_raise - LID_CURL_DOWN * m.open.max(m.lips) * (1.0 - rnd) - 0.08 * (m.wide + m.sib).min(1.0);
+        let pucker = self.s.pucker.x.max(0.0);
         for i in 0..n {
             let w = i as f32 / (n as f32 - 1.0);
             let lift = if i == 0 { 0.1 * m.open } else { 0.0 };
-            let sag = -0.32 * w.powi(3) * m.open;
-            let pout = 0.3 * w * w * m.round;
-            let tense = -0.06 * w * (m.wide + m.sib);
-            let flap = (self.time * 14.0 - i as f32 * 0.9).sin() * 0.04 * w * self.talk_amt;
+            // lip chatter while talking (talk_amt includes `lips`)
+            let flap = (self.time * 14.0 - i as f32 * 0.9).sin() * 0.05 * w * self.talk_amt;
             let s = &mut self.lip[i];
-            // rest: the front droops a little (thick upper lip); upper_raise curls it up
-            let shape = LID_REST_CURL * w * w + 0.3 * w * w * m.upper_raise;
-            s.target = lift + sag + pout + tense + flap + shape + if open > 1.2 { -0.12 * w } else { 0.0 };
+            // rest: the front droops a little (thick upper lip)
+            s.target = lift + LID_CURL_W[i] * curl + LID_REST_CURL * w * w + flap + if open > 1.2 { -0.12 * w } else { 0.0 };
             for _ in 0..3 {
                 s.step(dt / 3.0);
             }
+            self.lid_slide[i + 1] = LID_POUT_SLIDE[i] * pucker;
+            self.bones[i + 1].p.z = LID_SEG + self.lid_slide[i + 1];
             self.bones[i + 1].q = Quat::from_rotation_x(-s.x);
         }
         // never below the seat (lower lip): rigid seat lift + its curl
@@ -891,7 +973,7 @@ impl Rig {
             None => mouth_in.clamped(),
         };
         self.mouth = m;
-        self.talk_amt = m.open.max(m.round).max(m.wide).max(m.sib);
+        self.talk_amt = m.open.max(m.round).max(m.wide).max(m.sib).max(m.lips);
         let rest = if o.mouth.is_some() { 0.0 } else { self.rest_open * (1.0 - m.closed) };
         let full = o.mouth.is_some_and(|v| v > 0.9);
 
@@ -911,7 +993,10 @@ impl Rig {
         s.pucker.target = m.round;
         s.arch.target = clamp(m.open * 1.1 + m.round * 0.5 + m.sib * 0.3 + if full { 0.6 } else { 0.0 } - m.wide * 0.35, 0.0, 1.3);
         // lower lip: open vowels drop it (O/U pout it out a little), M/B/P closes it
-        s.drop.target = clamp(1.3 * m.open + 0.3 * m.round - 0.8 * m.closed, 0.0, 1.0);
+        // amplitude from max(open, lips): the lips still fold when the opening is capped
+        s.drop.target = clamp(1.3 * m.open.max(m.lips) + 0.3 * m.round - 0.8 * m.closed, 0.0, 1.0);
+        s.press.target = clamp(m.closed + 0.2 * m.sib, 0.0, 1.0);
+        s.tuck.target = clamp(2.0 * m.closed.min(m.upper_raise), 0.0, 1.0);
         s.corner_l.target = m.corner_l;
         s.corner_r.target = m.corner_r;
         s.jaw_side.target = m.jaw_side;
@@ -1042,8 +1127,8 @@ impl Rig {
         if feeding {
             self.roll_rot += (self.paper.feed_speed / (ROLL_R * self.paper.roll_radius_scale)) * dt;
         }
-        // the roll's axis is X: its front turns down while the paper feeds
-        self.roll.q = Quat::from_rotation_x(self.roll_rot);
+        // the roll turns about its axis (X on the front mount, Z on the side mount) while feeding
+        self.roll.q = if self.dims.roll_front { Quat::from_rotation_x(self.roll_rot) } else { Quat::from_rotation_z(self.roll_rot) };
         self.paper.update(dt);
         if self.torn.fade > 0.0 {
             self.torn.update(dt);
@@ -1235,7 +1320,7 @@ mod tests {
     /// independent dense check (finer than the clamp samples): deepest point of the seat
     /// front ring underside below the rim top, inside the rim's outer radius
     fn seat_rim_penetration(r: &Rig) -> f32 {
-        let chain = seat_chain(&r.seat_ang, &r.seat_slide, r.seat_gain);
+        let chain = seat_chain(&r.seat_ang, &r.seat_slide, &r.seat_lift, r.seat_gain);
         let pm = r.seat_pivot.mat();
         let mut worst = f32::MIN;
         for j in 0..=40 {
@@ -1244,8 +1329,8 @@ mod tests {
             for k in 0..=30 {
                 let s = SEAT_HOLE + (1.0 - SEAT_HOLE) * k as f32 / 30.0;
                 let p = pm.transform_point3(skin(&chain, SEAT_Z0, SEAT_SEG, r.seat_morphed(Vec3::new(ex * s, SEAT_Y0, ez * s + SEAT_ZC))));
-                if bowl_r(p.x, p.z) < RIM_OUTER_R {
-                    worst = worst.max(RIM_TOP - p.y);
+                if in_bowl(p, 0.0) {
+                    worst = worst.max(RIM_TOP + 0.002 - p.y);
                 }
             }
         }
@@ -1258,10 +1343,11 @@ mod tests {
         let a = Mouth { open: 1.0, wide: 0.15, ..Default::default() };
         run(&mut r, 60, (0.0, 0.0), a);
         let (drop, slide) = r.seat_front();
-        assert!(drop > 0.02 && drop <= SEAT_MAX_DROP + 1e-3, "A drops the lower lip: {drop}");
+        let l = r.lip_metrics();
+        assert!(l.seat_travel > 0.07 && l.seat_roll > 35.0 && drop <= SEAT_MAX_DROP + 1e-3, "A rolls the lower lip out/down: {l:?}");
         assert!(slide > 0.04, "A pushes it out over the bowl front: {slide}");
         run(&mut r, 60, (0.0, 0.0), Mouth { open: 0.65, round: 1.0, ..Default::default() });
-        assert!(r.seat_front().0 > 0.02, "O drops it too: {:?}", r.seat_front());
+        assert!(r.lip_metrics().seat_roll > 35.0, "O rolls it too: {:?}", r.lip_metrics());
         run(&mut r, 60, (0.0, 0.0), Mouth { closed: 1.0, ..Default::default() });
         assert!(r.seat_front().0 < -0.02, "M presses it up: {:?}", r.seat_front());
         assert!(r.hinge() < 0.07 && r.hinge() >= r.seat_lid_floor() - 1e-5, "lips closed, lid above the seat: {}", r.hinge());
@@ -1281,6 +1367,7 @@ mod tests {
                     jaw_side: (rng.next() * 2.0 - 1.0) * rng.next(),
                     jaw_fwd: rng.next() * rng.next(),
                     upper_raise: (rng.next() - 0.5).max(0.0) * 2.0,
+                    lips: rng.next(),
                 };
             }
             if f % 400 == 0 {
@@ -1289,7 +1376,7 @@ mod tests {
             let look = ((f as f32 / 37.0).sin(), (f as f32 / 53.0).cos());
             r.update(DT, look, m);
             let pen = seat_rim_penetration(&r);
-            assert!(pen <= 0.0, "frame {f}: seat {pen} m inside the rim");
+            assert!(pen <= 0.0 || pen == f32::MIN, "frame {f}: seat {pen} m inside the bowl");
             assert!(r.seat_front().0 <= SEAT_MAX_DROP + 1e-3, "frame {f}: drop {:?}", r.seat_front());
             assert!(r.hinge() >= r.seat_lid_floor() - 1e-5 || r.hinge() >= LID_MAX_HINGE - 1e-5, "frame {f}: lid below the seat");
             assert!(!r.lid_hits_head(r.hinge()), "frame {f}: lid in the head");
@@ -1302,20 +1389,29 @@ mod tests {
         let a = r.head_m().inverse().transform_point3(r.paper.anchor);
         let [rx, ry, rz] = r.dims.roll;
         let rad = ROLL_R * r.paper.roll_radius_scale;
-        (((a.y - ry).hypot(a.z - rz) - rad).abs(), ((a.x - rx).abs() - ROLL_LEN / 2.0).max(0.0))
+        if r.dims.roll_front {
+            (((a.y - ry).hypot(a.z - rz) - rad).abs(), ((a.x - rx).abs() - ROLL_LEN / 2.0).max(0.0))
+        } else {
+            (((a.x - rx).hypot(a.y - ry) - rad).abs(), ((a.z - rz).abs() - ROLL_LEN / 2.0).max(0.0))
+        }
     }
 
-    #[test]
-    fn paper_roll_faces_the_front_and_the_anchor_stays_on_the_roll() {
+    fn paper_mount_case(front: bool) {
         let mut r = Rig::new(13);
+        r.set_body_dims(BodyDims::default().with_roll_mount(front));
         let check = |r: &Rig, tag: &str| {
             let (d, past) = anchor_on_roll(r);
             assert!(d < 1e-3 && past == 0.0, "{tag}: anchor off the roll ({d}, {past})");
             let a = r.head_m().inverse().transform_point3(r.paper.anchor);
-            assert!(a.z > r.dims.front() + ROLL_R, "{tag}: anchor in front of the tank face");
+            if front {
+                assert!(a.z > r.dims.front() + ROLL_R, "{tag}: anchor in front of the tank face");
+            } else {
+                assert!(a.x < -r.dims.tank_w / 2.0 - ROLL_R, "{tag}: anchor outside the left side face");
+            }
             let (_, hq, _) = r.head_m().to_scale_rotation_translation();
             assert!(r.paper_out_dir.dot(hq * Vec3::Z) > 0.999, "{tag}: paper blows forward");
-            assert!(r.paper.width_dir.dot(hq * Vec3::X) > 0.999, "{tag}: roll axis along X");
+            let axis = if front { Vec3::X } else { Vec3::Z };
+            assert!(r.paper.width_dir.dot(hq * axis) > 0.999, "{tag}: roll axis");
         };
         check(&r, "new");
         r.play("paper");
@@ -1331,7 +1427,7 @@ mod tests {
         let floor: Vec<Vec3> = r.torn.pts.iter().chain(r.paper.pts.iter()).map(|o| o.p).filter(|p| p.y < 0.1).collect();
         assert!(!floor.is_empty(), "paper piled on the floor");
         let mz = floor.iter().map(|p| p.z).sum::<f32>() / floor.len() as f32;
-        assert!(mz > 0.3, "pile in front of the bowl: mean z {mz}");
+        assert!(mz > 0.3, "front={front}: pile in front of the bowl: mean z {mz}");
         for o in r.torn.pts.iter().chain(r.paper.pts.iter()) {
             let b = binv.transform_point3(o.p);
             if let Some(nb) = push_out_of_bowl(b) {
@@ -1339,14 +1435,69 @@ mod tests {
             }
         }
         // resized tank: the roll follows and the anchor is still on its surface
-        r.set_body_dims(BodyDims::new(1.5, 0.7, 1.4, 1.0, 1.0, 0.0));
-        assert!((r.dims.roll[0] + 0.3 * 1.5).abs() < 1e-5);
+        r.set_body_dims(BodyDims::new(1.5, 0.7, 1.4, 1.0, 1.0, 0.0).with_roll_mount(front));
+        let want_x = if front { -0.3 * 1.5 } else { -(TANK_W * 1.5 / 2.0 + ROLL_SIDE_OUT) };
+        assert!((r.dims.roll[0] - want_x).abs() < 1e-5);
         check(&r, "resized");
         r.play("paper");
         for f in 0..120 {
             r.update(DT, (0.4, -0.3), Mouth::default());
             check(&r, &format!("resized frame {f}"));
         }
+    }
+
+    #[test]
+    fn paper_side_mount_streams_forward_and_the_anchor_stays_on_the_roll() {
+        paper_mount_case(false);
+    }
+
+    #[test]
+    fn paper_front_mount_streams_forward_and_the_anchor_stays_on_the_roll() {
+        paper_mount_case(true);
+    }
+
+    /// per standard viseme, as avatar.js sends it (open capped 0.65^1.6, lips at full strength)
+    fn viseme_metrics(name: &str) -> (LipMetrics, f32) {
+        let mut r = Rig::new(2);
+        let m = viseme(name).unwrap().shaped(0.65, 1.6);
+        run(&mut r, 90, (0.0, 0.0), m);
+        // average out the chatter: sample a few frames
+        let mut acc = LipMetrics::default();
+        for _ in 0..12 {
+            r.update(DT, (0.0, 0.0), m);
+            let l = r.lip_metrics();
+            acc.seat_travel += l.seat_travel / 12.0;
+            acc.seat_roll += l.seat_roll / 12.0;
+            acc.lid_curl += l.lid_curl / 12.0;
+            acc.lid_fwd += l.lid_fwd / 12.0;
+        }
+        (acc, r.hinge())
+    }
+
+    #[test]
+    fn lips_fold_big_on_the_standard_visemes() {
+        let mut table = String::new();
+        for (name, _) in STANDARD_VISEMES {
+            let (l, h) = viseme_metrics(name);
+            table += &format!("{name:9} seat travel {:5.1} cm roll {:6.1} deg | lid curl {:6.1} deg fwd {:4.1} cm | hinge {h:.2}\n", l.seat_travel * 100.0, l.seat_roll, l.lid_curl, l.lid_fwd * 100.0);
+        }
+        println!("{table}");
+        let g = |n: &str| viseme_metrics(n).0;
+        for n in ["AA", "AO"] {
+            let l = g(n);
+            assert!(l.seat_travel >= 0.07 && l.seat_roll >= 35.0, "{n}: lower lip rolls out/down {l:?}\n{table}");
+        }
+        assert!(g("EH_AE").seat_roll >= 20.0, "EH roll\n{table}");
+        for n in ["AO", "OY_UH_UW"] {
+            assert!(g(n).lid_curl >= 25.0, "{n}: upper lip curls up/out\n{table}");
+        }
+        assert!(g("AA").lid_curl <= -15.0, "AA: upper lip curls down\n{table}");
+        assert!(g("OY_UH_UW").lid_fwd >= 0.04, "pucker pushes the front forward\n{table}");
+        let mbp = g("M_P_B");
+        assert!(mbp.seat_roll < -5.0, "M_P_B presses the lower lip up\n{table}");
+        let mut r = Rig::new(2);
+        run(&mut r, 90, (0.0, 0.0), viseme("FV").unwrap().shaped(0.65, 1.6));
+        assert!(r.seat_front().1 < -0.02, "FV tucks the lower lip in (under the upper lip): {:?}", r.seat_front());
     }
 
     #[test]

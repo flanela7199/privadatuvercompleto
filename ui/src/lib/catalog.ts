@@ -21,6 +21,12 @@ export const ANIMS: [string, string][] = [
   ['no', '↔ Não'], ['gargle', '🫧 Gargarejo'], ['blink', '😑 Piscar'],
 ];
 export const VISEMES = ['A', 'E', 'I', 'O', 'U', 'M', 'F', 'S'];
+/** the standard visemes (web/src/input/visemes.js STANDARD_VISEMES, minus rest) with a pt-BR hint */
+export const STANDARD_VISEME_LIST: [string, string][] = [
+  ['AA', 'a (pá)'], ['AH', 'â (cama)'], ['AO', 'ó (pó)'], ['AW_OW', 'ou'], ['CH_J_SH', 'ch / j / x'],
+  ['EH_AE', 'é (pé)'], ['EY', 'ê (vê)'], ['FV', 'f / v'], ['IH_AY', 'i / ai'], ['L', 'l'],
+  ['M_P_B', 'm / p / b'], ['N_NG_DH', 'n / d / t'], ['OY_UH_UW', 'u / ô'], ['R_ER', 'r'], ['W', 'u curto (w)'], ['Y_IY', 'i longo'],
+];
 export const SIZES: [number, number, string][] = [[1280, 720, '1280×720 (HD)'], [1920, 1080, '1920×1080 (Full HD)'], [1080, 1920, '1080×1920 (vertical)']];
 
 export const SETTINGS_DEFAULTS = {
@@ -37,7 +43,7 @@ export const sceneDefaults = (s: any = {}) => ({
 });
 
 /** body proportions (theme.body), see docs/app-contract.md "Body proportions + mouth limits" */
-export const BODY_DEFAULTS = { tank: { w: 1, h: 1, d: 1 }, eyes: { size: 1, spacing: 1, y: 0 } };
+export const BODY_DEFAULTS = { tank: { w: 1, h: 1, d: 1 }, eyes: { size: 1, spacing: 1, y: 0 }, neck: { length: 1 }, roll: { mount: 'side' as 'side' | 'front' } };
 /** open' = maxOpen * open^curve (what the avatar applies before the rig) */
 export const shapeOpen = (open: number, m: { maxOpen: number; curve: number }) => m.maxOpen * Math.pow(Math.max(0, Math.min(1, open)), m.curve);
 

@@ -118,7 +118,8 @@ pub fn hair_strands(curve: &CatmullRom, radius: &dyn Fn(f64) -> f64, o: &HairOpt
 /* ------------------------------------------------------- lip_upper fit */
 
 // lip_upper socket (web/src/rig/ToiletTuber.js): on the lid's front edge. Origin = front point of the
-// lid outline (lid-local x = 0, z = DIM.lid.rz) at the lid underside; +z out, +y up, child of a lid bone.
+// lid outline (lid-local x = 0, z = DIM.lid.rz) at the lid underside; +z out, +y up, child of lid_bone_7.
+// The lid's rounded front face spans y 0..DIM.lid.depth (0.036), outermost at depth / 2.
 // With the lid closed it sits at body (0, LIP_Y, LIP_Z). Same values as `LIP` in accessories/index.js.
 /// lid_pivot y = DIM.rimY + 0.006 + DIM.seat.h + 0.004
 pub const LIP_Y: f64 = 0.677;
@@ -128,13 +129,16 @@ pub const LIP_Z: f64 = 0.49;
 pub const LIP_RX: f64 = 0.4;
 pub const LIP_RZ: f64 = 0.49;
 pub const LIP_EGG: f64 = 0.08;
-/// DIM.seat outline, just under the lid, between LIP_SEAT_Y0..LIP_SEAT_Y1 (socket space, lid closed)
+/// DIM.seat outline, just under the lid, between LIP_SEAT_Y0..LIP_SEAT_Y1 (socket space, lid closed /
+/// seat pressed up)
 pub const LIP_SEAT_RX: f64 = 0.405;
 pub const LIP_SEAT_RZ: f64 = 0.495;
 pub const LIP_SEAT_Y0: f64 = -0.034;
 pub const LIP_SEAT_Y1: f64 = -0.004;
-/// mustache centre line, below the socket origin (hangs a little over the lip gap)
-pub const LIP_DROP: f64 = -0.006;
+/// clearance kept from the seat's front rim (it slides / presses a bit)
+pub const LIP_SEAT_GAP: f64 = 0.005;
+/// mustache centre line, above the socket origin (on the lid's front face)
+pub const LIP_CY: f64 = 0.01;
 /// stand-off from the rim
 pub const LIP_GAP: f64 = 0.006;
 
@@ -226,7 +230,8 @@ impl BowlSurface {
 }
 
 /// what the mustache lies on at lip-socket-space (x, y): the lid's front rim, and below the lid the
-/// seat rim / bowl glaze (lid closed) so hanging parts stay in front of them (`lipFront`)
+/// bowl glaze (lid closed) so hanging parts stay in front of it (`lipFront`); the seat is handled in
+/// `MustacheCtx::z_of` (full-radius clearance)
 pub struct LipFront {
     bowl: BowlSurface,
 }
@@ -239,16 +244,13 @@ impl LipFront {
         let ax = x.abs();
         let mut z = egg_z(LIP_RX, LIP_RZ, LIP_EGG, ax) - LIP_Z;
         if y < LIP_SEAT_Y1 {
-            if y >= LIP_SEAT_Y0 {
-                z = z.max(egg_z(LIP_SEAT_RX, LIP_SEAT_RZ, LIP_EGG, ax) - LIP_Z);
-            }
             z = z.max(self.bowl.surf(ax, y));
         }
         z
     }
     /// shape space (mustache centre line y = 0) -> socket space
     pub fn surf(&self, x: f64, y: f64) -> f64 {
-        self.front(x, y + LIP_DROP)
+        self.front(x, y + LIP_CY)
     }
 }
 
@@ -383,7 +385,7 @@ pub struct MustacheCtx<'a> {
 impl MustacheCtx<'_> {
     /// trimY of the style in socket space
     fn trim_y(&self) -> Option<f64> {
-        self.st.trim_y.map(|t| t + LIP_DROP)
+        self.st.trim_y.map(|t| t + LIP_CY)
     }
     fn radius(&self, t: f64) -> f64 {
         (self.st.radius)(t) * self.th
@@ -401,7 +403,14 @@ impl MustacheCtx<'_> {
                 z = z.max(self.surf.surf(x, h));
             }
         }
-        z + LIP_GAP + r * 0.55
+        z = z + LIP_GAP + r * 0.55;
+        // keep the whole bundle cross-section in front of the seat's front rim (lower lip)
+        let ys = y + LIP_CY;
+        let dy = if ys > LIP_SEAT_Y1 { ys - LIP_SEAT_Y1 } else if ys < LIP_SEAT_Y0 { LIP_SEAT_Y0 - ys } else { 0.0 };
+        if dy < r {
+            z = z.max(egg_z(LIP_SEAT_RX, LIP_SEAT_RZ, LIP_EGG, x.abs()) - LIP_Z + LIP_SEAT_GAP + (r * r - dy * dy).sqrt());
+        }
+        z
     }
     fn half_points(&self, side: f64) -> Vec<V3> {
         let n = self.st.pts.len();
@@ -411,7 +420,7 @@ impl MustacheCtx<'_> {
             .enumerate()
             .map(|(i, &[x, y])| {
                 let (xx, yy) = (x * self.l, y * self.l);
-                v3(xx * side, yy + LIP_DROP, self.z_of(xx, yy, self.radius(i as f64 / (n - 1) as f64)))
+                v3(xx * side, yy + LIP_CY, self.z_of(xx, yy, self.radius(i as f64 / (n - 1) as f64)))
             })
             .collect()
     }
@@ -442,7 +451,7 @@ impl MustacheCtx<'_> {
         let kr = self.st.knot * self.th;
         let pts: Vec<V3> = [-0.03f64, 0.0, 0.03]
             .iter()
-            .map(|&x| v3(x, (if x != 0.0 { 0.0 } else { -0.002 }) + LIP_DROP, self.z_of(x.abs(), 0.0, kr)))
+            .map(|&x| v3(x, (if x != 0.0 { 0.0 } else { -0.002 }) + LIP_CY, self.z_of(x.abs(), 0.0, kr)))
             .collect();
         let curve = CatmullRom::new(pts);
         let o = HairOpts {
@@ -451,7 +460,7 @@ impl MustacheCtx<'_> {
         };
         hair_strands(&curve, &|_| kr * 0.95, &o)
     }
-    /// knot sphere z (socket space; its y is LIP_DROP) so JS can place its SphereGeometry
+    /// knot sphere z (socket space; its y is LIP_CY) so JS can place its SphereGeometry
     pub fn knot_z(&self) -> f64 {
         let kr = self.st.knot * self.th;
         self.z_of(0.0, 0.0, kr)

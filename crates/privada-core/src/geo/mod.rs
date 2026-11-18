@@ -27,7 +27,7 @@ pub use json::Json;
 pub use mesh::Mesh;
 
 /// Bump when any builder's output changes (invalidates every cached mesh).
-pub const GEO_VERSION: u32 = 3; // 3: mustaches fit the lid rim (lip_upper socket)
+pub const GEO_VERSION: u32 = 4; // 4: mustaches fit the thick lid rim (lip_upper socket) + clear the seat
 pub const FORMAT: u32 = 1;
 
 pub fn build(kind: &str, params_json: &str) -> Result<Mesh, String> {

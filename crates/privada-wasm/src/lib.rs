@@ -50,9 +50,16 @@ impl Rig {
         self.mouth = Mouth { open, round, wide, closed, sib, ..self.mouth };
     }
     /// optional extra mouth channels (default 0, kept until changed): corners -1 (down)..1 (up)
-    /// (L = the -x side, like eye_L), jaw side -1..1, jaw forward 0..1, upper-lip raise 0..1
-    pub fn set_input_ext(&mut self, corner_l: f32, corner_r: f32, jaw_side: f32, jaw_fwd: f32, upper_raise: f32) {
-        self.mouth = Mouth { corner_l, corner_r, jaw_side, jaw_fwd, upper_raise, ..self.mouth };
+    /// (L = the -x side, like eye_L), jaw side -1..1, jaw forward 0..1, upper-lip raise 0..1,
+    /// lips 0..1 (lip activity from avatar.js shapeMouth: the lips fold even when `open` is capped)
+    pub fn set_input_ext(&mut self, corner_l: f32, corner_r: f32, jaw_side: f32, jaw_fwd: f32, upper_raise: f32, lips: Option<f32>) {
+        self.mouth = Mouth { corner_l, corner_r, jaw_side, jaw_fwd, upper_raise, lips: lips.unwrap_or(0.0), ..self.mouth };
+    }
+    /// headless lip measurements: [seat front travel (m), seat roll (deg, + = out/down),
+    /// lid front-third curl (deg, + = up/out), lid front forward shift (m)]
+    pub fn lip_metrics(&self) -> Vec<f32> {
+        let l = self.inner.lip_metrics();
+        vec![l.seat_travel, l.seat_roll, l.lid_curl, l.lid_fwd]
     }
     /// comma-separated blend-shape names, in MORPHS-buffer order
     pub fn morph_names(&self) -> String {
@@ -75,7 +82,7 @@ impl Rig {
     pub fn set_rest(&mut self, v: f32) {
         self.inner.rest_open = v;
     }
-    /// theme.body JSON `{"tank":{"w","h","d"},"eyes":{"size","spacing","y"}}` (all optional):
+    /// theme.body JSON `{"tank":{"w","h","d"},"eyes":{"size","spacing","y"},"neck":{"length"},"roll":{"mount":"side"|"front"}}` (all optional):
     /// eyes, handle, paper roll and the lid-vs-tank collision box follow the tank
     pub fn set_body_dims(&mut self, json: &str) {
         self.inner.set_body_dims(BodyDims::from_json(json));

@@ -357,26 +357,30 @@ registerAccessory('crown', ({ mats }, p) => {
 // LID's front rim (the upper lip): default socket `lip_upper`, so it moves with the lid.
 // Add a style with registerMustache(id, spec):
 //   pts      right-half control points [x, y] (x >= 0 side); y = 0 is the mustache centre line,
-//            which sits LIP.drop below the socket (hangs a little over the lip gap)
+//            which sits LIP.cy above the socket (on the lid's rounded front face)
 //   radius   (t) => bundle radius along the curve, t in [0, 1]
 //   knot     centre knot radius;  hair: options for hairStrands()
 //   amount   how much the halves rotate when the mouth opens
 //   hugX     beyond this |x| the bundle leaves the rim and sticks out straight
 //   hangFrom below this y the bundle hangs straight down (in front of the seat/bowl)
+// Below the lid every bundle keeps its full radius (+ LIP.seatGap) in front of the seat's front rim
+// (the lower lip), so it does not cut into the seat when it presses up to the lid.
 //   trimY    hairs/core are cut flat at this y (trimmed styles)
 // Params (theme JSON): color, scale, length (stretches the shape), thickness.
 export const MUSTACHE_IDS = [];
 
 // lip_upper socket (rig/ToiletTuber.js): on the lid's front edge. Origin = front point of the lid
-// outline (lid-local x = 0, z = DIM.lid.rz) at the lid underside; +z out, +y up, child of a lid bone.
-// With the lid closed (hinge 0) it sits at body (0, LIP.y, LIP.z). Mirrored in geo/hair.rs (LIP_*).
+// outline (lid-local x = 0, z = DIM.lid.rz) at the lid underside; +z out, +y up, child of lid_bone_7.
+// With the lid closed (hinge 0) it sits at body (0, LIP.y, LIP.z). The lid's rounded front face spans
+// y 0..DIM.lid.depth (0.036), outermost at depth / 2. Mirrored in geo/hair.rs (LIP_*).
 const LIP = {
   y: 0.677,                                  // lid_pivot y = DIM.rimY + 0.006 + DIM.seat.h + 0.004
   z: 0.49,                                   // lid centre is at body z 0 -> front point = DIM.lid.rz
   rx: 0.4, rz: 0.49, egg: 0.08,              // DIM.lid outline (egg = DIM.egg)
   seatRx: 0.405, seatRz: 0.495,              // DIM.seat outline, just under the lid ...
-  seatY0: -0.034, seatY1: -0.004,            // ... between these socket-space y (lid closed)
-  drop: -0.006,                              // mustache centre line, below the socket origin
+  seatY0: -0.034, seatY1: -0.004,            // ... between these socket-space y (lid closed / seat pressed up)
+  seatGap: 0.005,                            // clearance kept from the seat's front rim (it slides/presses a bit)
+  cy: 0.01,                                  // mustache centre line, above the socket origin (on the lid face)
   gap: 0.006,                                // stand-off from the rim
 };
 const DEFAULT_DIM = {
@@ -431,18 +435,15 @@ function bowlSurface(dim, o) {
 
 /**
  * Returns front(x, y) = z of what the mustache lies on at lip-socket-space (x, y), relative to the socket:
- * the lid's front rim (egg outline), and below the lid the seat rim / bowl glaze (lid closed) so hanging
- * parts stay in front of them.
+ * the lid's front rim (egg outline), and below the lid the bowl glaze (lid closed) so hanging parts stay
+ * in front of it. The seat is handled in zOf (full-radius clearance).
  */
 function lipFront(dim) {
   const bowl = bowlSurface(dim, LIP);
   return (x, y) => {
     const ax = Math.abs(x);
     let z = eggZ(LIP.rx, LIP.rz, LIP.egg, ax) - LIP.z;
-    if (y < LIP.seatY1) {
-      if (y >= LIP.seatY0) z = Math.max(z, eggZ(LIP.seatRx, LIP.seatRz, LIP.egg, ax) - LIP.z);
-      z = Math.max(z, bowl(ax, y));
-    }
+    if (y < LIP.seatY1) z = Math.max(z, bowl(ax, y));
     return z;
   };
 }
@@ -451,7 +452,7 @@ function mustacheHalves(ctx, spec, p, id) {
   const rs = (part, side) => (spec.rust === false ? null : rustMustache(id, p, ctx.dim, part, side)); // Rust build / cache
   const { mats } = ctx;
   const front = lipFront(ctx.dim);
-  const surf = (x, y) => front(x, y + LIP.drop); // shape space (centre line y = 0) -> socket space
+  const surf = (x, y) => front(x, y + LIP.cy); // shape space (centre line y = 0) -> socket space
   const L = p.length ?? 1, Th = p.thickness ?? 1;
   const radius = (t) => spec.radius(t) * Th;
   const hugX = spec.hugX ?? 0.26;
@@ -462,9 +463,14 @@ function mustacheHalves(ctx, spec, p, id) {
       z = Math.max(z, z0 + ((z0 - z1) / 0.01) * 0.5 * (x - hugX));
     }
     if (spec.hangFrom != null && y < spec.hangFrom) z = Math.max(z, surf(x, spec.hangFrom));
-    return z + LIP.gap + r * 0.55; // sit on the rim, not inside it
+    z = z + LIP.gap + r * 0.55; // sit on the rim, not inside it
+    // keep the whole bundle cross-section in front of the seat's front rim (lower lip)
+    const ys = y + LIP.cy;
+    const dy = ys > LIP.seatY1 ? ys - LIP.seatY1 : ys < LIP.seatY0 ? LIP.seatY0 - ys : 0;
+    if (dy < r) z = Math.max(z, eggZ(LIP.seatRx, LIP.seatRz, LIP.egg, Math.abs(x)) - LIP.z + LIP.seatGap + Math.sqrt(r * r - dy * dy));
+    return z;
   };
-  const trimY = spec.trimY == null ? null : spec.trimY + LIP.drop;
+  const trimY = spec.trimY == null ? null : spec.trimY + LIP.cy;
   const g = new THREE.Group();
   let mat = mats.get('mustache');
   mat.side = THREE.DoubleSide;
@@ -486,7 +492,7 @@ function mustacheHalves(ctx, spec, p, id) {
   [1, -1].forEach((side, si) => {
     const pts = spec.pts.map(([x, y], i) => {
       const X = x * L, Y = y * L;
-      return [X * side, Y + LIP.drop, zOf(X, Y, radius(i / (n - 1)))];
+      return [X * side, Y + LIP.cy, zOf(X, Y, radius(i / (n - 1)))];
     });
     const half = new THREE.Group();
     half.name = side > 0 ? 'mustache_R' : 'mustache_L';
@@ -501,10 +507,10 @@ function mustacheHalves(ctx, spec, p, id) {
   });
   const kr = spec.knot * Th;
   const knot = new THREE.Mesh(new THREE.SphereGeometry(kr, 20, 14), core);
-  knot.scale.set(1.2, 0.85, 0.7); knot.position.set(0, LIP.drop, zOf(0, 0, kr));
+  knot.scale.set(1.2, 0.85, 0.7); knot.position.set(0, LIP.cy, zOf(0, 0, kr));
   g.add(knot);
   // short hairs over the centre so the join is not a bald blob
-  const mid = new THREE.CatmullRomCurve3([-0.03, 0, 0.03].map((x) => new THREE.Vector3(x, (x ? 0 : -0.002) + LIP.drop, zOf(Math.abs(x), 0, kr))));
+  const mid = new THREE.CatmullRomCurve3([-0.03, 0, 0.03].map((x) => new THREE.Vector3(x, (x ? 0 : -0.002) + LIP.cy, zOf(Math.abs(x), 0, kr))));
   g.add(new THREE.Mesh(rs('mid', 1) ?? hairStrands(mid, () => kr * 0.95, {
     count: spec.mid ?? 220, seg: 6, start: [0, 0.4], len: [0.4, 0.7], twist: 0.3,
     thick: spec.hair?.thick ?? 0.0018, trimY, seed: 5,

@@ -234,6 +234,13 @@ if (!isTauri) addEventListener('pointermove', (e) => {
 });
 
 let rustMouth = zeroMouth(), rustMouthT = 0;
+// panel's mouth-corner test: { cornerL: 0|1, cornerR: 0|1 } heartbeat every 1 s; expires after ~2 s
+let mouthTest = null, mouthTestT = 0;
+listen('mouth-test', (p) => {
+  if (!p) return;
+  mouthTest = { cornerL: +p.cornerL || 0, cornerR: +p.cornerR || 0 };
+  mouthTestT = performance.now();
+});
 listen('mouth', (m) => { rustMouth = m; rustMouthT = performance.now(); });
 const fake = new FakeTalk();
 let browserMic = null;
@@ -552,7 +559,8 @@ function frame(now) {
   if (isTauri) { if (micOn && now - rustMouthT < 500) mic = rustMouth; }
   else if (browserMic) mic = browserMic.update(dt);
   else if (OUTPUT && remoteMouth && now - remoteT < 500) mic = remoteMouth;
-  const rawMouth = maxMouth(mic, fake.update(dt));
+  const test = mouthTest && now - mouthTestT < 2000 && (mouthTest.cornerL || mouthTest.cornerR) ? mouthTest : null;
+  const rawMouth = maxMouth(mic, fake.update(dt), test);   // maxMouth keeps the signed corner channels
   const mouth = shapeMouth(rawMouth);
 
   if (settings().autoBlink === false) tuber.blinkTimer = 1e9;
@@ -605,21 +613,19 @@ const smoothExtra = { x: 0, y: 0 };
 // streamer's mouth limits: settings.mouth = { maxOpen (0.65), curve (1.6) }
 //   open' = maxOpen * open^curve ; round/wide/sib scaled by maxOpen ; closed unchanged
 function shapeMouth(m) {
+  // The limit only caps how far the MOUTH OPENS (lid hinge); the lip shapes (round/wide/corners/jaw)
+  // stay at full strength so the lips still fold visibly while talking.
   const cfg = settings().mouth || {};
   const maxOpen = clamp(Number.isFinite(+cfg.maxOpen) ? +cfg.maxOpen : 0.65, 0, 1.5);
   const curve = clamp(Number.isFinite(+cfg.curve) && +cfg.curve > 0 ? +cfg.curve : 1.6, 0.2, 5);
+  const shape = (v) => clamp(v || 0, -1, 1);
   return {
     open: maxOpen * Math.pow(clamp(m.open || 0, 0, 1), curve),
-    round: (m.round || 0) * maxOpen,
-    wide: (m.wide || 0) * maxOpen,
-    sib: (m.sib || 0) * maxOpen,
-    closed: m.closed || 0,
-    // extended channels from the rig (corners / jaw / upper-lip raise) pass through, scaled like the shape
-    cornerL: (m.cornerL || 0) * maxOpen,
-    cornerR: (m.cornerR || 0) * maxOpen,
-    jawSide: (m.jawSide || 0) * maxOpen,
-    jawFwd: (m.jawFwd || 0) * maxOpen,
-    upperRaise: (m.upperRaise || 0) * maxOpen,
+    round: shape(m.round), wide: shape(m.wide), sib: shape(m.sib), closed: m.closed || 0,
+    // lip activity: how much the lips should fold even when the opening is capped
+    // proportional to the RAW opening so visemes stay distinct (A ~1, E ~0.5, I ~0.3; rounding adds a bit)
+    lips: clamp(Math.pow(clamp(m.open || 0, 0, 1), 0.9) + (m.round || 0) * 0.35, 0, 1),
+    cornerL: shape(m.cornerL), cornerR: shape(m.cornerR), jawSide: shape(m.jawSide), jawFwd: shape(m.jawFwd), upperRaise: shape(m.upperRaise),
   };
 }
 let firstFrame = false;

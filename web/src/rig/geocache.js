@@ -174,7 +174,7 @@ export async function warm(kind, params) {
 export const BODY_DIM = {
   egg: 0.08,
   seat: { rx: 0.405, rz: 0.495, hole: 0.62, h: 0.03 },
-  lid: { rx: 0.4, rz: 0.49, depth: 0.018, dome: 0.018, edge: 0.012 },
+  lid: { rx: 0.4, rz: 0.49, depth: 0.036, dome: 0.02, edge: 0.02 },
 };
 
 export function mustacheParams(style, p = {}, dim) {
