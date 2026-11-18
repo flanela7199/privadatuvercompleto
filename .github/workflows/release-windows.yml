@@ -58,7 +58,11 @@ jobs:
       - name: Build app (NSIS installer)
         working-directory: crates/privada-app
         shell: pwsh
-        run: tauri build --bundles nsis --config "{\`"version\`":\`"${{ inputs.version }}\`"}"
+        run: |
+          # version override via a JSON file (inline JSON gets mangled by PowerShell quoting)
+          @{ version = '${{ inputs.version }}' } | ConvertTo-Json -Compress | Set-Content -Path release.conf.json -Encoding utf8NoBOM
+          Get-Content release.conf.json
+          tauri build --bundles nsis --config release.conf.json
 
       - name: Collect artifacts
         shell: pwsh
