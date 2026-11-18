@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Privada Tuber — gerar miniaturas</title>
+<style>
+  html, body { margin: 0; background: #121318; color: #e9eaf0; font: 13px/1.5 'Segoe UI', system-ui, sans-serif; }
+  body { padding: 16px; }
+  h1 { font-size: 16px; margin: 0 0 8px; }
+  #bar { height: 8px; background: #23262f; border-radius: 4px; overflow: hidden; margin: 8px 0 12px; max-width: 640px; }
+  #bar div { height: 100%; width: 0; background: #5aa9ff; }
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, 96px); gap: 8px; margin-top: 12px; }
+  #grid figure { margin: 0; text-align: center; font-size: 10px; color: #9095a6; }
+  #grid img { width: 96px; height: 96px; background: #0e0f13; border-radius: 6px; display: block; }
+  #log { white-space: pre-wrap; font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #9095a6; max-height: 260px; overflow: auto; }
+  .err { color: #ff9a9a; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "../vendor/three/three.module.js", "three/addons/": "../vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<h1>🚽 Gerando miniaturas estáticas (web/thumbs)</h1>
+<div id="status">carregando…</div>
+<div id="bar"><div></div></div>
+<div id="log"></div>
+<div id="grid"></div>
+<script type="module" src="../src/tools/gen-thumbs.js"></script>
+</body>
+</html>

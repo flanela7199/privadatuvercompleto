@@ -160,7 +160,7 @@ Default hotkeys are in `src/app/defaults.js` (`DEFAULT_CONFIG`), the one source 
 ## Cache files (Rust side)
 
 `<exe dir>/privada-data/cache/`: keys must match `[a-z0-9_-]{1,96}`; all reads/writes run off the main
-thread. `manifest.json` (written by the page) is `{ outfitId: [keys] }`; at startup, while the splash is
+thread. `manifest.json` (written by the page via `cache_put` key `manifest`) is `{ version, outfits: { outfitId: [keys] } }` (a flat `{ outfitId: [keys] }` is accepted too); at startup, while the splash is
 visible, Rust reads the active outfit's `.bin` files into memory and the first `cache_get` of each key is
 served from RAM. The mesh binary layout (`PRVM`) is defined in the "Mesh cache" section (worker geo).
 

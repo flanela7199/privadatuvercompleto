@@ -147,8 +147,11 @@ pub fn preload(pre: &Preloaded) -> usize {
     else {
         return 0;
     };
+    // page format: { version, outfits: { id: [keys] } }; also accept a flat { id: [keys] }
     let keys: Vec<String> = manifest
-        .get(&outfit)
+        .get("outfits")
+        .and_then(|o| o.get(&outfit))
+        .or_else(|| manifest.get(&outfit))
         .and_then(|v| v.as_array())
         .map(|a| a.iter().filter_map(|k| k.as_str().map(str::to_string)).collect())
         .unwrap_or_default();

@@ -2,7 +2,7 @@ import React from 'react';
 import { useStore, resolveOutfit, outfitName, newId, rawOutfit } from '../state/config';
 import { mergeTheme } from '../lib/legacy';
 import { clone, download, pickFile } from '../lib/catalog';
-import { clearThumbs } from '../lib/thumbs';
+import { clearThumbs, captureCustomThumb } from '../lib/thumbs';
 import { Section } from '../components/Section';
 import { Button } from '../components/Button';
 import { EmptyState } from '../components/EmptyState';
@@ -20,7 +20,7 @@ export function Presets() {
     const active = s.cfg.activeOutfit === id;
     return (
       <div key={`${id}.${gen}`} className={`preset ${active ? 'active' : ''}`}>
-        <Thumb outfit={resolveOutfit(s, id)} icon="🚽" title="Clique para usar" onClick={() => applyOutfit(id)} />
+        <Thumb preset={id} custom={isMine} icon="🚽" title="Clique para usar" onClick={() => applyOutfit(id)} />
         <div className="nm">{t.name || id}</div>
         <div className="tag">{isMine ? 'meu preset' : s.themes[id] ? 'tema' : 'preset pronto'}{active ? ' · em uso' : ''}</div>
         <div className="btns">
@@ -48,8 +48,11 @@ export function Presets() {
   const saveCurrent = () => {
     const n = prompt('Nome do preset:', s.cfg.outfits[s.cfg.activeOutfit] ? s.work.name : 'Meu visual');
     if (!n) return;
-    update((d) => { const nid = newId(); d.cfg.outfits[nid] = { ...clone(d.work), id: nid, name: n }; delete d.cfg.outfits[nid].extends; d.cfg.activeOutfit = nid; d.work = d.cfg.outfits[nid]; });
+    const nid = newId();
+    update((d) => { d.cfg.outfits[nid] = { ...clone(d.work), id: nid, name: n }; delete d.cfg.outfits[nid].extends; d.cfg.activeOutfit = nid; d.work = d.cfg.outfits[nid]; });
     toast(<>Preset <b>{n}</b> salvo</>);
+    // the character window already wears it: grab its picture as the preset thumbnail
+    setTimeout(() => captureCustomThumb(nid), 400);
   };
   const importJson = async () => {
     const f = await pickFile('.json');
@@ -79,7 +82,7 @@ export function Presets() {
         {mine.length ? <div className="preset-grid">{mine.map(([id, t]) => card(id, t, true))}</div> : <EmptyState icon="⭐">Nenhum preset ainda.</EmptyState>}
       </Section>
       <Section title="Presets prontos" desc={`${built.length} visuais prontos para usar ou copiar.`}
-        right={<Button tip="Refaz todas as miniaturas" onClick={() => { clearThumbs(); setGen((g) => g + 1); toast('Refazendo miniaturas…'); }}>↻ Miniaturas</Button>}>
+        right={<Button tip="Recarrega as miniaturas" onClick={() => { clearThumbs(); setGen((g) => g + 1); toast('Miniaturas recarregadas'); }}>↻ Miniaturas</Button>}>
         <div className="preset-grid">{built.map(([id, t]) => card(id, t, false))}</div>
       </Section>
     </div>
