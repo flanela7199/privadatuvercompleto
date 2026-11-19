@@ -97,14 +97,51 @@ try { await geocache?.warmOutfit?.(activeId); } catch (e) { console.warn('[avata
 const firstTheme = (config.outfitTheme && migrateOutfit(config.outfitTheme)) || resolveOutfit(activeId) || migrateOutfit(themes.base);
 let outfitId = config.outfitTheme ? activeId : resolveOutfit(activeId) ? activeId : 'base';
 let outfitKey = JSON.stringify(firstTheme);
-const tuber = new ToiletTuber(firstTheme);
-scene.add(tuber.root);
-window.tuber = tuber;
-tuber.on((type, d) => {
-  const st = settings();
-  if (type !== 'sfx' || st.soundsEnabled === false || config.sfx === false) return;
-  typeof d === 'string' ? sfx.play(d) : sfx.play(d.type, d);
-});
+// Characters: config.character = 'privada' (the toilet, default) | 'chratos' (the human bust,
+// web/src/characters/chratos/Chratos.js: needs the Rust/wasm build, else the toilet stays).
+// Both expose the same surface (root, body, head, fx, update, play, setTheme, on, blinkTimer).
+let currentTheme = firstTheme;
+let character = 'privada';
+let tuber = null;
+let characterJob = 0;
+const charKind = (k) => (k === 'chratos' ? 'chratos' : 'privada');
+async function createCharacter(kind, theme) {
+  if (kind === 'chratos') {
+    try {
+      const mod = await import('../characters/chratos/Chratos.js');
+      if (!mod.chratosReady) throw new Error('Rust/wasm build missing');
+      await mod.Chratos.preload(theme, (p) => loading(0.3 + 0.4 * p, 'esculpindo o Chratos…'));
+      return [new mod.Chratos(theme), 'chratos'];
+    } catch (e) { console.warn('[avatar] chratos unavailable, keeping the toilet:', e?.message || e); }
+  }
+  return [new ToiletTuber(theme), 'privada'];
+}
+function mountCharacter(next, kind) {
+  if (tuber) { scene.remove(tuber.root); tuber.dispose?.(); }
+  tuber = next; character = kind;
+  scene.add(tuber.root);
+  window.tuber = tuber;
+  tuber.on((type, d) => {
+    const st = settings();
+    if (type !== 'sfx' || st.soundsEnabled === false || config.sfx === false) return;
+    typeof d === 'string' ? sfx.play(d) : sfx.play(d.type, d);
+  });
+}
+/** Switch character at runtime (state.character or command {action:'character', arg}). Rebuilds only on change. */
+async function setCharacter(kind) {
+  kind = charKind(kind);
+  if (kind === character) return;
+  const job = ++characterJob;
+  const [next, got] = await createCharacter(kind, currentTheme);
+  if (job !== characterJob || got === character) { next.dispose?.(); return; }   // superseded, or fell back to what is already shown
+  mountCharacter(next, got);
+  lastSeatKey = null;
+  applySettings();
+  applyLookLimits();
+  snapSoon();
+  checkSeat();
+}
+mountCharacter(...(await createCharacter(charKind(config.character), firstTheme)));
 
 /** Wear a resolved theme (panel's outfitTheme) or an outfit id. Rebuilds only on change. */
 function wear(theme, id) {
@@ -113,6 +150,7 @@ function wear(theme, id) {
   if (key === outfitKey) return;
   outfitKey = key;
   outfitId = id || theme.id || outfitId;
+  currentTheme = theme;
   tuber.setTheme(theme);
   applyLookLimits();
   snapSoon();
@@ -273,6 +311,7 @@ async function toggleBrowserMic(on) {
 function act(action, arg) {
   switch (action) {
     case 'play': tuber.play(arg); break;
+    case 'character': config.character = charKind(arg); setCharacter(config.character); saveSoon(); break;
     case 'outfit': config.outfitTheme = null; config.activeOutfit = arg; applyOutfit(arg); saveSoon(); break;
     case 'scene': applyScene(+arg, { save: true }); break;
     case 'viseme': fake.hold(arg, 0.6); break;
@@ -306,6 +345,7 @@ listen('state', (cfg) => {
   applyConfigOutfit();
   applyScene(config.activeScene);
   applyLookLimits();
+  setCharacter(config.character);   // no-op unless config.character changed
 });
 
 // right-click opens the panel (window mode: anywhere; overlay: on the character)
@@ -345,7 +385,7 @@ if (!OUTPUT) setInterval(() => {
 }, 100);
 setInterval(() => checkSeat(), 250);   // catches accessory rebuilds that don't go through wear()
 if (!OUTPUT) setInterval(() => {
-  emit('avatar-status', { fps, hitRect, outfitId, sceneId: config.activeScene, mode, follow, mic: micOn, rigHasLimits });
+  emit('avatar-status', { fps, hitRect, outfitId, sceneId: config.activeScene, mode, follow, mic: micOn, rigHasLimits, character });
 }, 250);
 
 /* --------------------------------------------------------------- look */
@@ -686,4 +726,4 @@ applySettings();
 applyConfigOutfit();
 applyScene(config.activeScene);
 applyLookLimits();
-window.avatar = { output: OUTPUT, act, config: () => config, applyScene, applyOutfit, computeLook };
+window.avatar = { output: OUTPUT, act, config: () => config, applyScene, applyOutfit, computeLook, setCharacter, character: () => character };

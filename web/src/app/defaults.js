@@ -16,6 +16,7 @@ export const ACTIONS = [
 
 export const DEFAULT_CONFIG = {
   version: 1,
+  character: 'privada',   // 'privada' (toilet) | 'chratos' (human avatar)
   activeOutfit: 'base',
   outfits: {},
   activeScene: 0,

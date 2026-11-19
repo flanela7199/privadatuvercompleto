@@ -394,6 +394,42 @@ export class ToiletTuber {
   get restOpen() { return this._restOpen; }
   set restOpen(v) { this._restOpen = v; this.rust?.r.set_rest(v); }
 
+  /**
+   * Free everything this character owns (switching characters): the Rust rig (props, wasm memory), GPU geometry
+   * (except userData.keepGeo = cached / shared meshes), materials, textures, skeletons; listeners and actions.
+   * The instance is unusable afterwards; calling it twice is harmless.
+   */
+  dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
+    this.listeners.clear();
+    this.active = [];
+    const r = this.rust?.r;
+    if (r) {
+      try { r.clear_props?.(); } catch { /* already freed */ }
+      try { r.free(); } catch { /* already freed */ }
+    }
+    this.rust = null;
+    this.props = [];
+    this.poseNodes = null;
+    this.root.parent?.remove(this.root);
+    const mats = new Set(), texs = new Set(), geos = new Set();
+    this.root.traverse((o) => {
+      if (o.geometry && !o.userData.keepGeo) geos.add(o.geometry);
+      for (const m of [].concat(o.material || [])) mats.add(m);
+      o.skeleton?.dispose?.();
+      if (o.isInstancedMesh) o.dispose();
+    });
+    for (const g of geos) g.dispose();
+    for (const m of mats) {
+      for (const k in m) if (m[k]?.isTexture) texs.add(m[k]);
+      m.dispose();
+    }
+    for (const t of texs) t.dispose();
+    this.mats?.dispose();
+    this.accessories = [];
+  }
+
   on(fn) { this.listeners.add(fn); return () => this.listeners.delete(fn); }
   emit(type, data) { for (const fn of this.listeners) fn(type, data); }
 
@@ -1381,6 +1417,7 @@ export class ToiletTuber {
   }
   /* ----------------------------------------------------------- update */
   update(dtRaw, input) {
+    if (this._disposed) return;
     if (this.rust) return this.updateRust(dtRaw, input);
     const dt = Math.min(dtRaw, 1 / 20);
     this.time += dt;

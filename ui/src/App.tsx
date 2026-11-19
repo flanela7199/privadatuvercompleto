@@ -3,6 +3,7 @@ import { Tabs } from './components/Tabs';
 import { live, useLiveTick, useStore } from './state/config';
 import { invoke, isTauri, emit } from './lib/bridge';
 import { Button } from './components/Button';
+import { CharacterPicker } from './components/CharacterPicker';
 import { staticIndex } from './lib/thumbs';
 import { Visual } from './tabs/Visual';
 import { Presets } from './tabs/Presets';
@@ -49,6 +50,7 @@ export function App() {
     <>
       <header>
         <div className="logo">🚽 Privada Tuber</div>
+        <CharacterPicker />
         <Tabs tabs={TABS} value={tab} onChange={setTab} />
         <div className="grow" />
         <Button kind="primary" tip="Abre/traz para frente a janela do personagem" onClick={() => invoke('show_avatar').catch(() => {})}>🚽 Mostrar personagem</Button>

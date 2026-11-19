@@ -5,11 +5,21 @@ export const APP_VERSION = '0.1.0';
 export type Opt = [string | number, string];
 
 export const SOCKETS: Record<string, string> = {
-  lip_upper: 'Lábio superior (tampa)', floor_under: 'Chão (embaixo dele)', head_top: 'Topo da cabeça', eyes: 'Olhos', tank_front: 'Frente do tanque', face: 'Rosto (frente da bacia)',
+  lip_upper: 'Lábio superior (tampa)', mouth: 'Boca', floor_under: 'Chão (embaixo dele)', head_top: 'Topo da cabeça', eyes: 'Olhos', tank_front: 'Frente do tanque', face: 'Rosto (frente da bacia)',
   lid_top: 'Tampa (boca)', body_front: 'Corpo (frente)', neck: 'Pescoço (cano)', side_right: 'Lado direito',
   back: 'Costas', floor_left: 'Chão esquerdo', floor_right: 'Chão direito',
 };
 export const SOCKET_OPTS: Opt[] = Object.entries(SOCKETS);
+/** characters the avatar can be: [id, icon, name] (config.character) */
+export const CHARACTERS: [string, string, string][] = [['privada', '🚽', 'Privada'], ['chratos', '🧔', 'Chratos']];
+/** Chratos options (theme.chratos), mirrors web/src/characters/chratos/Chratos.js DEFAULTS */
+export const CHRATOS_DEFAULTS = { chair: true, headphones: true, cable: true, hoodie: null as string | null, hair: null as string | null, restSmile: 0.3, detail: 1 };
+export const CHRATOS_BASE_COLORS = { hoodie: '#1a1a1e', hair: '#322118' };
+export const CHRATOS_SOCKETS = ['head_top', 'eyes', 'mouth'];
+export const CHRATOS_ANIMS: [string, string][] = [
+  ['laugh', '😂 Rir'], ['nod', '🙂 Acenar com a cabeça'], ['no', '↔ Não'], ['surprise', '😮 Surpresa'], ['wink', '😉 Piscadinha'], ['blink', '😑 Piscar'],
+];
+
 export const CATS = ['Todos', 'Chapéus', 'Olhos', 'Rosto', 'Bigodes', 'Corpo', 'Objetos', 'Móveis', 'Outros'];
 export const MAT_KEYS: [string, string][] = [
   ['porcelain', 'Porcelana'], ['seat', 'Assento'], ['lid', 'Tampa'], ['tankLid', 'Tampa do tanque'],
@@ -59,6 +69,7 @@ export function normalizeConfig(c: any) {
   out.look = { ...LOOK_DEFAULTS, ...(DEFAULT_CONFIG.look || {}), ...(c?.look || {}) };
   out.scenes = (out.scenes?.length ? out.scenes : clone(DEFAULT_CONFIG.scenes)).map(sceneDefaults);
   out.hotkeysEnabled = out.hotkeysEnabled ?? true;
+  out.character = out.character === 'chratos' ? 'chratos' : 'privada';
   out.hotkeys ||= {};
   return out;
 }

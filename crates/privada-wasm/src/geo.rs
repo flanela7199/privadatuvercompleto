@@ -3,19 +3,30 @@
 //! JS: `const b = build_mesh_prvm(kind, paramsJson)` -> Uint8Array in the PRVM format
 //! (see privada_core::geo docs) — the same bytes are stored in the persistent mesh cache,
 //! so a cache hit and a fresh build decode the same way.
-use privada_core::geo;
+use privada_core::{geo, human};
 use wasm_bindgen::prelude::*;
+
+/// kinds starting with `human_` are built by privada_core::human (same PRVM bytes / cache)
+fn build_any(kind: &str, params_json: &str) -> Result<geo::Mesh, String> {
+    if kind.starts_with("human_") { human::build(kind, params_json) } else { geo::build(kind, params_json) }
+}
 
 /// Mesh in the PRVM binary layout (positions/normals/uvs f32, indices u32).
 #[wasm_bindgen]
 pub fn build_mesh_prvm(kind: &str, params_json: &str) -> Result<Vec<u8>, JsValue> {
-    geo::build(kind, params_json).map(|m| geo::encode(&m)).map_err(|e| JsValue::from_str(&e))
+    build_any(kind, params_json).map(|m| geo::encode(&m)).map_err(|e| JsValue::from_str(&e))
 }
 
 /// Mesh as separate typed arrays.
 #[wasm_bindgen]
 pub struct MeshBuf {
     m: geo::Mesh,
+}
+
+impl MeshBuf {
+    pub(crate) fn from_mesh(m: geo::Mesh) -> MeshBuf {
+        MeshBuf { m }
+    }
 }
 
 #[wasm_bindgen]
@@ -42,7 +53,7 @@ impl MeshBuf {
 
 #[wasm_bindgen]
 pub fn build_mesh(kind: &str, params_json: &str) -> Result<MeshBuf, JsValue> {
-    geo::build(kind, params_json).map(|m| MeshBuf { m }).map_err(|e| JsValue::from_str(&e))
+    build_any(kind, params_json).map(|m| MeshBuf { m }).map_err(|e| JsValue::from_str(&e))
 }
 
 #[wasm_bindgen]

@@ -51,6 +51,8 @@ rig.r.drain_events()    // '
 '-separated sfx: flush splash paper rip gargle boing whoosh drip clack:<v> prop_hit:<id>:<speed> prop_reset:<id>
 ```
 NODE_ORDER: `body head lid_pivot lid_bone_1..7 seat_pivot eye_L eye_R pupil_L pupil_R flush_handle paper_roll water water_swirl seat_bone_1..7` (see "Mouth rig").
+`tb.dispose()` frees a character (Rust rig + props, geometry except `userData.keepGeo`, materials, textures, skeletons,
+listeners); avatar.js calls it when switching characters (test: `node tests/switch_smoke.mjs`).
 Full buffer table: `crates/privada-wasm/src/lib.rs`. `?nowasm` or a missing `web/pkg/` -> the pure-JS rig runs instead.
 
 ### Toss (overlay drag / throw / bounce, screen px; mirrors JsToss in avatar.js)
@@ -378,3 +380,30 @@ accessories with physics off: ≈ +30 µs mean / +45 µs p95 per frame; JS side 
 
 Measured (unit tests, synthetic speech): −6 dBFS loud speech → mean open 0.59, never pinned (manual mode: 1.0);
 −40 dBFS quiet speech → mean open 0.55 after adaptation; silence → closed.
+
+## Characters: `config.character = 'privada' | 'chratos'` (worker chratos, 2026-11-19)
+
+`privada` (default) = the toilet (`ToiletTuber`). `chratos` = a stylized human bust (head, beard, wavy hair, headphones,
+hoodie, chair headrest), fully procedural: sculpt, blend shapes, visemes and rig are Rust
+(`crates/privada-core/src/human`, bindings `crates/privada-wasm/src/human.rs`); JS is `web/src/characters/chratos/Chratos.js`.
+The avatar rebuilds on a `state` whose `character` changed and on `command` / hotkey `{ action: 'character', arg: 'chratos' | 'privada' }`
+(also `window.avatar.setCharacter(kind)`); `avatar-status` carries `character`. Without the wasm build the toilet stays.
+
+* **Meshes** go through the PRVM mesh cache with kinds `human_<part>` (`build_mesh_prvm` routes them to `human::build`), parts
+  `head beard brows hair eye cornea mouth_upper mouth_lower torso hp_shell hp_pad hp_metal plug chair`, params
+  `{ detail: 1, v: human_version(), attr?: 'color' | 'skin' | 'morph' | 'meta', morph?: name }`. With `attr` the mesh's
+  *positions* carry that attribute (linear rgb / chest-neck-head weights / morph deltas / `[skinned, tris, verts, hasMorph×24]`).
+  Also `human_build(paramsJson with part)` → `MeshBuf`, `human_part_info`, `human_rig_info()` (bind positions, sockets, names),
+  `human_visemes()` (rest + 16 standard visemes → morph weights), `human_cable_indices()`, `human_free()`.
+  Space: metres, y up, +z forward, origin between the ears, **L = −x**. Bump `HUMAN_VERSION` when a mesh changes.
+* **Morphs (24)**: `jaw_open pucker wide_L wide_R smile_L smile_R frown_L frown_R upper_raise lower_down press tuck cheek_puff
+  brow_up_L brow_up_R brow_down_L brow_down_R blink_L blink_R squint_L squint_R jaw_left jaw_right jaw_fwd`.
+* **`HumanRig`** (wasm): `new(seed)`, `set_input(lookX, lookY, open, round, wide, closed, sib)`, `set_input_ext(cornerL, cornerR,
+  jawSide, jawFwd, upperRaise, lips)`, `set_look_limits(yaw, pitch)`, `set_blink_timer(s)` (> 1e8 = no auto blink),
+  `set_rest_smile(v)`, `play('laugh' | 'nod' | 'no' | 'surprise' | 'wink' | 'blink')`, `update(dt)`, `drain_events()` (`laugh`, `gasp`),
+  `head_matrix()`, buffers `buf_ptr(id)/buf_len(id)`: 0 pose = `root chest neck head jaw eye_L eye_R plug` × 10 (local TRS; plug in
+  root space), 1 morph weights, 2 / 3 cable tube positions / normals (20 rings × 6).
+* **`Chratos`** (JS): `await Chratos.preload(theme)` then `new Chratos(theme)`; `root body head fx sockets{head_top, eyes, mouth}
+  update(dt, { look, mouth }) play(name) setTheme(theme) on(fn) blinkTimer setLookLimits dispose()`; `theme.chratos =
+  { chair, headphones, cable, hoodie: '#rrggbb', hair: '#rrggbb', restSmile, detail }` (all optional).
+* Tests: `cargo test -p privada-core human`, `node --import ./.tmp/furn/register.mjs web/tests/chratos_smoke.mjs` (repo root).

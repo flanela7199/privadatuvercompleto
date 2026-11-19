@@ -8,10 +8,12 @@
 //! * [`paper`] — toilet-paper verlet strip with perforations, tearing and wetness
 //! * [`props`] — rigid-body props (accessories knocked over by water / paper / each other)
 //! * [`toss`]  — overlay drag / throw / bounce physics (screen space)
+//! * [`human`] — the human character "Chratos": SDF sculpt -> meshes, blend shapes, visemes, rig
 //! * [`dsp`]   — microphone FFT -> mouth vector (owned by the app worker)
 pub mod dim;
 pub mod dsp;
 pub mod geo;
+pub mod human;
 pub mod paper;
 pub mod props;
 pub mod util;

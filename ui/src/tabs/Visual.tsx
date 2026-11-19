@@ -1,7 +1,8 @@
 import React from 'react';
 import { useStore } from '../state/config';
 import { listAccessories, MUSTACHE_IDS } from '../lib/legacy';
-import { CATS, MAT_KEYS, SOCKETS, SOCKET_OPTS, BODY_DEFAULTS, accInfo, clone, readAsDataURL } from '../lib/catalog';
+import { CATS, MAT_KEYS, SOCKETS, SOCKET_OPTS, BODY_DEFAULTS, CHRATOS_DEFAULTS, CHRATOS_BASE_COLORS, CHRATOS_SOCKETS, accInfo, clone, readAsDataURL } from '../lib/catalog';
+import { Toggle } from '../components/Toggle';
 import { Preview } from '../components/Preview';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
@@ -26,6 +27,14 @@ export function Visual({ active }: { active: boolean }) {
   const [sel, setSel] = React.useState<Sel>(null);
   const work = s.work;
   const base = s.themes.base;
+  const chratos = s.cfg.character === 'chratos';
+  // Chratos (human) only wears things on the head, eyes and mouth; no toilet body/furniture
+  const allowedSock = (sk: string) => !chratos || CHRATOS_SOCKETS.includes(sk);
+  const sockOpts = SOCKET_OPTS.filter(([k]) => allowedSock(String(k)));
+  const cats = chratos ? CATS.filter((c) => c !== 'Móveis' && c !== 'Bigodes') : CATS;
+  const cfgC = { ...CHRATOS_DEFAULTS, ...(work.chratos || {}) };
+  const setC = (k: string, v: any) => update((d) => { d.work.chratos = { ...(d.work.chratos || {}), [k]: v }; }, { fork: true });
+  const clearC = (k: string) => update((d) => { if (d.work.chratos) delete d.work.chratos[k]; }, { fork: true });
 
   const worn = React.useMemo(() => {
     const set = new Set<string>();
@@ -36,9 +45,10 @@ export function Visual({ active }: { active: boolean }) {
     const qq = q.trim().toLowerCase();
     return (listAccessories() as string[]).filter((id) => id !== 'glb').filter((id) => {
       const i = accInfo(id);
+      if (chratos && (!allowedSock(i.socket) || i.category === 'Móveis')) return false;
       return (cat === 'Todos' || i.category === cat) && (!qq || i.name.toLowerCase().includes(qq) || id.includes(qq));
     }).sort((a, b) => accInfo(a).name.localeCompare(accInfo(b).name, 'pt'));
-  }, [cat, q]);
+  }, [cat, q, chratos]);
   const entries = React.useMemo(() => {
     const out: { slot: string; index: number; e: any }[] = [];
     for (const [slot, l] of Object.entries(work.slots || {}) as any) l.forEach((e: any, index: number) => out.push({ slot, index, e }));
@@ -47,7 +57,8 @@ export function Visual({ active }: { active: boolean }) {
   const selEntry = sel && work.slots[sel.slot]?.[sel.index];
 
   const equip = (id: string) => {
-    const slot = sock || accInfo(id).socket || 'head_top';
+    const def = accInfo(id).socket || 'head_top';
+    const slot = (sock && allowedSock(sock) ? sock : '') || (allowedSock(def) ? def : 'head_top');
     let index = 0;
     update((d) => {
       // one mustache at a time: replacing feels better than stacking (face or upper lip)
@@ -90,6 +101,31 @@ export function Visual({ active }: { active: boolean }) {
     <>
       <div>
         <Preview active={active} />
+        {chratos && (
+          <Card className="compact">
+            <div className="sec-h row" style={{ marginBottom: 8 }}>
+              <h3 style={{ margin: 0 }} className="grow">🧔 Chratos</h3>
+              <Button size="sm" tip="Volta tudo do Chratos ao padrão" disabled={!work.chratos} onClick={() => update((d) => { delete d.work.chratos; }, { fork: true })}>Restaurar</Button>
+            </div>
+            <Fields>
+              <Field label="Cadeira gamer"><Toggle checked={cfgC.chair} onChange={(v) => setC('chair', v)} /></Field>
+              <Field label="Fones"><Toggle checked={cfgC.headphones} onChange={(v) => setC('headphones', v)} /></Field>
+              <Field label="Cabo" tip="Cabo dos fones"><Toggle checked={cfgC.cable} onChange={(v) => setC('cable', v)} /></Field>
+              <Field label="Cor do moletom">
+                <ColorField value={cfgC.hoodie || CHRATOS_BASE_COLORS.hoodie} onChange={(v) => setC('hoodie', v)} />
+                <Button size="sm" kind="ghost" disabled={!cfgC.hoodie} tip="Cor original" onClick={() => clearC('hoodie')}>original</Button>
+              </Field>
+              <Field label="Cor do cabelo">
+                <ColorField value={cfgC.hair || CHRATOS_BASE_COLORS.hair} onChange={(v) => setC('hair', v)} />
+                <Button size="sm" kind="ghost" disabled={!cfgC.hair} tip="Cor original" onClick={() => clearC('hair')}>original</Button>
+              </Field>
+              <Field label="Sorriso parado" tip="Sorriso em repouso (0 = sério, 1 = sorrindo)"><Slider value={cfgC.restSmile} min={0} max={1} step={0.01} fmt="pct" onChange={(v) => setC('restSmile', v)} /></Field>
+              <Field label="Detalhe" tip="Qualidade do modelo — maior = mais pesado"><Slider value={cfgC.detail} min={0.5} max={1.5} step={0.05} fmt="x" onChange={(v) => setC('detail', v)} /></Field>
+            </Fields>
+            <p className="mut" style={{ marginTop: 8, fontSize: 12 }}>Detalhe: maior = mais bonito e mais pesado para a placa de vídeo.</p>
+          </Card>
+        )}
+        {!chratos && <>
         <Card>
           <h3 style={{ marginTop: 0 }}>Cores do corpo</h3>
           <div className="mats">
@@ -142,6 +178,7 @@ export function Visual({ active }: { active: boolean }) {
             </Field>
           </Fields>
         </Card>
+        </>}
         <Card>
           <h3 style={{ marginTop: 0 }}>Modelo próprio (.glb)</h3>
           <p className="mut" style={{ marginBottom: 8 }}>Qualquer modelo 3D vira acessório no lugar escolhido acima da grade.</p>
@@ -150,10 +187,10 @@ export function Visual({ active }: { active: boolean }) {
       </div>
 
       <div>
-        <div className="chips">{CATS.map((c) => <button key={c} className={c === cat ? 'sel' : ''} onClick={() => setCat(c)}>{c}</button>)}</div>
+        <div className="chips">{cats.map((c) => <button key={c} className={c === cat ? 'sel' : ''} onClick={() => setCat(c)}>{c}</button>)}</div>
         <div className="bar">
           <input type="search" className="input" placeholder="Buscar acessório…" value={q} onChange={(e) => setQ(e.target.value)} />
-          <Select value={sock} options={[['', 'Lugar padrão'], ...SOCKET_OPTS]} onChange={setSock} tip="Onde colocar o próximo acessório" style={{ flex: 'none', width: 190 }} />
+          <Select value={allowedSock(sock) ? sock : ''} options={[['', 'Lugar padrão'], ...sockOpts]} onChange={setSock} tip="Onde colocar o próximo acessório" style={{ flex: 'none', width: 190 }} />
         </div>
         {ids.length ? (
           <div className="grid">

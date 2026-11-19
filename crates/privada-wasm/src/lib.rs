@@ -31,6 +31,9 @@ use wasm_bindgen::prelude::*;
 mod geo;
 #[allow(unused_imports)]
 pub use geo::*;
+mod human;
+#[allow(unused_imports)]
+pub use human::*;
 
 #[wasm_bindgen]
 pub struct Rig {

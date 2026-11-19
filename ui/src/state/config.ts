@@ -73,6 +73,7 @@ type Ctx = {
   applyOutfit: (id: string) => void;
   activateScene: (i: number) => void;
   runAction: (value: string) => void;
+  setCharacter: (id: string) => void;
   applyHotkeys: (cfg?: any) => Promise<string[]>;
   replaceConfig: (c: any) => void;
   previewPlay: React.MutableRefObject<(a: string) => void>;
@@ -137,6 +138,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         if (h.action === 'outfit' && rawOutfit(cur, h.arg)) update((d) => { d.cfg.activeOutfit = h.arg; d.work = resolveOutfit(d, h.arg); });
         if (h.action === 'scene' && cur.cfg.scenes[+h.arg]) update((d) => { d.cfg.activeScene = +h.arg; });
         if (h.action === 'play') previewPlay.current(h.arg);
+        if (h.action === 'character' && (h.arg === 'privada' || h.arg === 'chratos')) update((d) => { d.cfg.character = h.arg; });
       }),
     ];
     return () => un.forEach((f) => f());
@@ -179,17 +181,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     });
     emit('command', { action: 'scene', arg: String(i) });
   }, [update]);
+  const setCharacter = React.useCallback((id: string) => {
+    update((d) => { d.cfg.character = id; });
+    emit('command', { action: 'character', arg: id });
+  }, [update]);
   const runAction = React.useCallback((value: string) => {
     const i = value.indexOf(':');
     const action = i < 0 ? value : value.slice(0, i), arg = i < 0 ? '' : value.slice(i + 1);
+    if (action === 'character') { if (arg === 'privada' || arg === 'chratos') setCharacter(arg); return; }
     if (action === 'outfit') { if (rawOutfit(sRef.current, arg)) applyOutfit(arg); return; }
     if (action === 'scene') { if (sRef.current.cfg.scenes[+arg]) activateScene(+arg); return; }
     if (action === 'open') return;
     if (action === 'play') previewPlay.current(arg);
     emit('command', { action, arg });
-  }, [applyOutfit, activateScene]);
+  }, [applyOutfit, activateScene, setCharacter]);
 
-  const value: Ctx = { s, update, applyOutfit, activateScene, runAction, applyHotkeys, replaceConfig, previewPlay };
+  const value: Ctx = { s, update, applyOutfit, activateScene, runAction, setCharacter, applyHotkeys, replaceConfig, previewPlay };
   return React.createElement(C.Provider, { value }, children);
 }
 
