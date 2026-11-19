@@ -89,8 +89,8 @@ export function Visual({ active }: { active: boolean }) {
     toast(<>Modelo <b>{f.name}</b> adicionado</>);
   };
 
-  const body = { tank: { ...BODY_DEFAULTS.tank, ...(work.body?.tank || {}) }, eyes: { ...BODY_DEFAULTS.eyes, ...(work.body?.eyes || {}) }, neck: { ...BODY_DEFAULTS.neck, ...(work.body?.neck || {}) }, roll: { ...BODY_DEFAULTS.roll, ...(work.body?.roll || {}) } };
-  const setBody = (part: 'tank' | 'eyes' | 'neck' | 'roll', k: string, v: number | string) => update((d) => {
+  const body = { tank: { ...BODY_DEFAULTS.tank, ...(work.body?.tank || {}) }, eyes: { ...BODY_DEFAULTS.eyes, ...(work.body?.eyes || {}) }, neck: { ...BODY_DEFAULTS.neck, ...(work.body?.neck || {}) }, roll: { ...BODY_DEFAULTS.roll, ...(work.body?.roll || {}) }, mouth: { ...BODY_DEFAULTS.mouth, ...(work.body?.mouth || {}) } };
+  const setBody = (part: 'tank' | 'eyes' | 'neck' | 'roll' | 'mouth', k: string, v: number | string) => update((d) => {
     d.work.body ||= {};
     d.work.body[part] = { ...BODY_DEFAULTS[part], ...(d.work.body[part] || {}), [k]: v };
   }, { fork: true });
@@ -185,6 +185,18 @@ export function Visual({ active }: { active: boolean }) {
             })}
           </Fields>
           </div>
+          <h3>Boca</h3>
+          <Fields>
+            <Field label="Lábio inferior" tip="O que se mexe como lábio de baixo quando ele fala: só o assento, ou o vaso inteiro">
+              <Segmented value={body.mouth.lower} options={[['seat', 'Assento (padrão)'], ['bowl', 'Vaso inteiro']]} onChange={(v) => setBody('mouth', 'lower', v)} />
+            </Field>
+            {body.mouth.lower === 'bowl' && (
+              <Field label="Abertura do vaso" tip="Quanto o vaso inteiro abre como lábio de baixo (graus)">
+                <Slider value={body.mouth.bowlOpen} min={0.05} max={0.35} step={0.005} fmt="rad" onChange={(v) => setBody('mouth', 'bowlOpen', v)} />
+              </Field>
+            )}
+          </Fields>
+          <h3>Outros</h3>
           <Fields>
             <Field label="Rolo de papel" tip="Onde fica o suporte do papel higiênico">
               <Segmented value={body.roll.mount} options={[['side', 'Do lado (padrão)'], ['front', 'Na frente']]} onChange={(v) => setBody('roll', 'mount', v)} />

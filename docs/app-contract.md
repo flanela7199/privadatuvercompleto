@@ -221,6 +221,10 @@ Theme JSON may carry a `body` block (all optional, defaults = 1 / 0):
                                                       // | desenho (oval 1.15, no outline, pupil 0.42) | serio (classico + porcelain upper eyelid, lowers on M/blink) | sticker
             "size": 1.13, "spacing": 0.97, "y": 0.0,  // eye radius factor 0.5..1.8, spacing factor 0.6..1.6, vertical offset from mid height in m (-0.12..0.12)
             "outline": null, "pupil": null, "oval": null }, // optional overrides of the style: 0..0.2 / 0.2..0.5 / 0.9..1.3 (fractions of the radius)
+  "mouth": { "lower": "seat", "bowlOpen": 0.18 },    // lower lip: "seat" (default) | "bowl" = the whole upper bowl is a skinned lower jaw
+                                                      // (pivot at the bowl's back, front down <= bowlOpen rad (0.05..0.35) + 4 cm forward on open
+                                                      // vowels, up on M/B/P; pedestal rigid; seat + lid + hinges (one assembly), water, spout and
+                                                      // the face socket ride on it; node `bowl_jaw`)
   "neck": { "length": 0.9 },                          // neck pipe above the bowl, 0.6..1.6 (moves the head up/down)
   "roll": { "mount": "side" }                         // paper roll: "side" (default, holder on the tank's left side face,
                                                       // roll axis Z) | "front" (tank front-left below the eye, axis X)
@@ -244,7 +248,7 @@ bowl instead of passing through it.
 * Lower lip: on speech the seat front rolls OUT and DOWN over the bowl's front (never into the bowl: clamp against the rim,
   opening and outer wall), presses up/in on M/B/P and tucks under the upper lip on F/V. Upper lip: the lid front third folds
   up/out on O/U, down on open vowels; pucker pushes it forward. The lid hinge never goes below the (curled) seat.
-* `NODE_ORDER` (26): `body head lid_pivot lid_bone_1..7 seat_pivot eye_L eye_R pupil_L pupil_R flush_handle paper_roll water
+* `NODE_ORDER` (27, `bowl_jaw` last: identity unless `mouth.lower = bowl`): `body head lid_pivot lid_bone_1..7 seat_pivot eye_L eye_R pupil_L pupil_R flush_handle paper_roll water
   water_swirl seat_bone_1..7` (seat bones appended; the seat is a SkinnedMesh `seat` with `seat_bone_0..7` hinge -> front;
   bones carry full TRS: they slide and lift, not only rotate).
 * `BUF.MORPHS` (16 weights, `morph_names()`): lid `smile pucker arch corner_L_up corner_L_down corner_R_up corner_R_down

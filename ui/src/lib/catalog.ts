@@ -58,7 +58,7 @@ export const sceneDefaults = (s: any = {}) => ({
 });
 
 /** body proportions (theme.body), see docs/app-contract.md "Body proportions + mouth limits" */
-export const BODY_DEFAULTS = { tank: { w: 1, h: 1.38, d: 1, round: 0.1, bulge: 0.02, taper: 0.93, lidRound: 0.035, lidThick: 0.14, lidOver: 0.045 }, eyes: { size: 1.13, spacing: 0.97, y: 0, style: 'classico' as 'classico' | 'googly' | 'desenho' | 'serio' | 'sticker' }, neck: { length: 0.9 }, roll: { mount: 'side' as 'side' | 'front' } };
+export const BODY_DEFAULTS = { tank: { w: 1, h: 1.38, d: 1, round: 0.1, bulge: 0.02, taper: 0.93, lidRound: 0.035, lidThick: 0.14, lidOver: 0.045 }, eyes: { size: 1.13, spacing: 0.97, y: 0, style: 'classico' as 'classico' | 'googly' | 'desenho' | 'serio' | 'sticker' }, neck: { length: 0.9 }, roll: { mount: 'side' as 'side' | 'front' }, mouth: { lower: 'seat' as 'seat' | 'bowl', bowlOpen: 0.18 } };
 /** open' = maxOpen * open^curve (what the avatar applies before the rig) */
 export const shapeOpen = (open: number, m: { maxOpen: number; curve: number }) => m.maxOpen * Math.pow(Math.max(0, Math.min(1, open)), m.curve);
 

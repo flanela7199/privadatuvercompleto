@@ -29,11 +29,12 @@ pub const BODY_PITCH_SHARE: f32 = 0.3;
 /// Animated nodes, in pose-buffer order. Each entry is 10 floats of LOCAL transform:
 /// `[px, py, pz, qx, qy, qz, qw, sx, sy, sz]`. The seat (lower lip) bones were appended at
 /// the end so the older indices stay valid.
-pub const NODE_ORDER: [&str; 26] = [
+pub const NODE_ORDER: [&str; 27] = [
     "body", "head", "lid_pivot", "lid_bone_1", "lid_bone_2", "lid_bone_3", "lid_bone_4",
     "lid_bone_5", "lid_bone_6", "lid_bone_7", "seat_pivot", "eye_L", "eye_R", "pupil_L",
     "pupil_R", "flush_handle", "paper_roll", "water", "water_swirl", "seat_bone_1",
     "seat_bone_2", "seat_bone_3", "seat_bone_4", "seat_bone_5", "seat_bone_6", "seat_bone_7",
+    "bowl_jaw",
 ];
 pub const POSE_STRIDE: usize = 10;
 
@@ -440,12 +441,19 @@ pub fn in_bowl(p: Vec3, margin: f32) -> bool {
     let lim = if p.y >= 0.622 { RIM_OUTER_R } else { bowl_outer_r(p.y) + 0.002 };
     bowl_r(p.x, p.z) < lim + margin
 }
+/// body-space point -> the bowl's frame: above the pedestal the bowl moves with the jaw
+/// (`jaw` = body-space jaw matrix, identity in seat mode); returns (point, matrix back to body space)
+pub fn bowl_frame(b: Vec3, jaw: Mat4, jaw_inv: Mat4) -> (Vec3, Mat4) {
+    let bj = jaw_inv.transform_point3(b);
+    if bj.y > BOWL_JAW_SKIN[0] { (bj, jaw) } else { (b, Mat4::IDENTITY) }
+}
 /// Paper rests on the lid / drapes over the bowl instead of passing through it.
-fn collide_paper(strip: &mut PaperStrip, bm: Mat4, inv: Mat4) {
+fn collide_paper(strip: &mut PaperStrip, bm: Mat4, inv: Mat4, jaw: Mat4, jaw_inv: Mat4) {
     let start = usize::from(strip.anchored);
     for o in strip.pts.iter_mut().skip(start) {
-        if let Some(nb) = push_out_of_bowl(inv.transform_point3(o.p)) {
-            let np = bm.transform_point3(nb);
+        let (bb, back) = bowl_frame(inv.transform_point3(o.p), jaw, jaw_inv);
+        if let Some(nb) = push_out_of_bowl(bb) {
+            let np = bm.transform_point3(back.transform_point3(nb));
             let d = np - o.p;
             o.p = np;
             o.q = (o.q + d) * 0.45 + np * 0.55; // friction
@@ -497,6 +505,8 @@ pub struct Rig {
     bones: [Trs; LID_BONES],
     seat_pivot: Trs,
     seat_bones: [Trs; SEAT_BONES],
+    /// lower jaw (bowl mode): body-space transform of the upper bowl (identity in seat mode)
+    bowl_jaw: Trs,
     eyes: [Trs; 2],
     pupils: [Trs; 2],
     handle: Trs,
@@ -593,6 +603,7 @@ impl Rig {
             bones,
             seat_pivot: Trs::at(Vec3::new(0.0, RIM_Y, HINGE_Z)),
             seat_bones,
+            bowl_jaw: Trs::ID,
             eyes: [Trs::ID; 2],
             pupils: [Trs { p: Vec3::new(0.0, 0.0, 0.03), q: pupil_q, s: Vec3::ONE }; 2],
             handle: Trs::ID,
@@ -694,7 +705,7 @@ impl Rig {
     /// World (rig root) matrix of the `lip_upper` socket: child of lid_bone_7 at the lid's
     /// front point (lid underside), +z out of the mouth, +y up. Column-major.
     pub fn lip_upper_matrix(&self) -> Mat4 {
-        let mut m = self.body_m() * self.lid_pivot.mat();
+        let mut m = self.body_m() * self.bowl_jaw.mat() * self.lid_pivot.mat();
         for b in &self.bones {
             m *= b.mat();
         }
@@ -741,7 +752,7 @@ impl Rig {
     pub fn seat_front(&self) -> (f32, f32) {
         let chain = seat_chain(&self.seat_ang, &self.seat_slide, &self.seat_lift, self.seat_gain);
         let v = self.seat_morphed(Vec3::new(0.0, SEAT_Y0, SEAT_ZC + SEAT_RZ));
-        let p = self.seat_pivot.mat().transform_point3(skin(&chain, SEAT_Z0, SEAT_SEG, v));
+        let p = (self.bowl_jaw.mat() * self.seat_pivot.mat()).transform_point3(skin(&chain, SEAT_Z0, SEAT_SEG, v));
         (RIM_Y + SEAT_Y0 - p.y, p.z - (HINGE_Z + SEAT_ZC + SEAT_RZ))
     }
 
@@ -756,7 +767,7 @@ impl Rig {
     /// Headless lip measurements (tests / parity script), see [`LipMetrics`].
     pub fn lip_metrics(&self) -> LipMetrics {
         let chain = seat_chain(&self.seat_ang, &self.seat_slide, &self.seat_lift, self.seat_gain);
-        let pm = self.seat_pivot.mat();
+        let pm = self.bowl_jaw.mat() * self.seat_pivot.mat(); // bowl mode: the seat rides on the jaw
         let y = SEAT_Y0 + SEAT_H * 0.5;
         let sp = |k: f32| pm.transform_point3(skin(&chain, SEAT_Z0, SEAT_SEG, self.seat_morphed(Vec3::new(0.0, y, SEAT_ZC + SEAT_RZ * k))));
         let rest = Vec3::new(0.0, RIM_Y + y, HINGE_Z + SEAT_ZC + SEAT_RZ);
@@ -828,7 +839,8 @@ impl Rig {
     fn bone_worlds(&self, hinge: f32) -> [Mat4; LID_BONES] {
         let mut piv = self.lid_pivot;
         piv.q = self.lid_q(hinge);
-        let mut m = self.body_m() * piv.mat(); // lid mesh is identity under the pivot
+        // lid mesh is identity under the pivot; bowl mode: the pivot rides on the jaw with the seat
+        let mut m = self.body_m() * self.bowl_jaw.mat() * piv.mat();
         let mut out = [Mat4::IDENTITY; LID_BONES];
         for (i, b) in self.bones.iter().enumerate() {
             m *= b.mat();
@@ -910,13 +922,15 @@ impl Rig {
             // lip chatter while talking (talk_amt includes `lips`)
             let flap = if i >= 5 { (self.time * 14.0 - i as f32 * 0.9 + 2.0).sin() * 0.06 * self.talk_amt } else { 0.0 };
             let s = &mut self.seat_lip[i];
-            s.target = SEAT_DROP_ANG[i] * drop + SEAT_PRESS_ANG[i] * press + flap;
+            // bowl mode: the jaw does the big motion, the seat only rolls a little on the rim
+            let k = if self.dims.mouth_bowl { BOWL_SEAT_ROLL } else { 1.0 };
+            s.target = k * SEAT_DROP_ANG[i] * drop + SEAT_PRESS_ANG[i] * press + flap;
             for _ in 0..3 {
                 s.step(dt / 3.0);
             }
             self.seat_ang[i + 1] = s.x;
-            self.seat_slide[i + 1] = SEAT_SLIDE[i] * slide + SEAT_PRESS_SLIDE[i] * press + SEAT_TUCK_SLIDE[i] * tuck;
-            self.seat_lift[i + 1] = SEAT_LIFT[i] * drop;
+            self.seat_slide[i + 1] = k * SEAT_SLIDE[i] * slide + SEAT_PRESS_SLIDE[i] * press + SEAT_TUCK_SLIDE[i] * tuck;
+            self.seat_lift[i + 1] = k * SEAT_LIFT[i] * drop;
         }
         let mut gain = 1.0;
         if self.seat_hits_bowl(1.0) {
@@ -945,7 +959,7 @@ impl Rig {
         let chain = seat_chain(&self.seat_ang, &self.seat_slide, &self.seat_lift, self.seat_gain);
         let mut lid0 = self.lid_pivot;
         lid0.q = self.lid_q(0.0);
-        let to_lid = lid0.mat().inverse() * self.seat_pivot.mat();
+        let to_lid = lid0.mat().inverse() * self.seat_pivot.mat(); // both pivots ride on the jaw
         let mut m = Mat4::IDENTITY;
         let mut lc = [Mat4::IDENTITY; LID_BONES];
         for (i, b) in self.bones.iter().enumerate() {
@@ -1165,6 +1179,16 @@ impl Rig {
         self.jaw_fwd = JAW_FWD * clamp(s.jaw_fwd.x, 0.0, 1.0);
         self.seat_pivot.p = Vec3::new(0.0, RIM_Y, HINGE_Z + self.jaw_fwd);
         self.lid_pivot.p = Vec3::new(LID_PIVOT[0], LID_PIVOT[1], LID_PIVOT[2] + self.jaw_fwd);
+        // bowl mode: the upper bowl is the lower jaw (front down + forward on open vowels, up on M/B/P)
+        self.bowl_jaw = if self.dims.mouth_bowl {
+            let (drop, press) = (self.s.drop.x.max(0.0), self.s.press.x.max(0.0));
+            let a = self.dims.bowl_open * drop - BOWL_JAW_PRESS * press + 0.015 * (self.time * 14.0 + 0.5).sin() * self.talk_amt;
+            let q = Quat::from_rotation_x(a);
+            let pv = Vec3::from(BOWL_JAW_PIVOT);
+            Trs { p: pv - q * pv + Vec3::new(0.0, 0.0, BOWL_JAW_SLIDE * drop), q, s: Vec3::ONE }
+        } else {
+            Trs::ID
+        };
         // mouth: lower lip first (the lid stays above it), then the lid
         self.seat_pivot.q = Quat::from_rotation_y(self.jaw_yaw) * Quat::from_rotation_x(-self.s.seat.x.max(0.0));
         self.apply_seat(dt);
@@ -1266,12 +1290,15 @@ impl Rig {
         }
         let bm = self.body_m();
         let binv = bm.inverse();
-        collide_paper(&mut self.paper, bm, binv);
-        collide_paper(&mut self.torn, bm, binv);
+        let (jm, jinv) = (self.bowl_jaw.mat(), self.bowl_jaw.mat().inverse());
+        collide_paper(&mut self.paper, bm, binv, jm, jinv);
+        collide_paper(&mut self.torn, bm, binv, jm, jinv);
         let (_, bq, _) = bm.to_scale_rotation_translation();
-        self.jet.origin = bm.transform_point3(Vec3::new(0.0, WATER_Y, 0.0));
-        self.jet.mouth = bm.transform_point3(Vec3::from(SPOUT));
-        self.jet.dir = bq * Vec3::from(SPOUT_DIR).normalize();
+        // the water and the spout ride on the jaw (bowl mode)
+        let bjm = bm * jm;
+        self.jet.origin = bjm.transform_point3(Vec3::new(0.0, WATER_Y, 0.0));
+        self.jet.mouth = bjm.transform_point3(Vec3::from(SPOUT));
+        self.jet.dir = bq * self.bowl_jaw.q * Vec3::from(SPOUT_DIR).normalize();
         self.jet.side = bq * Vec3::X;
         self.jet.update(dt);
         self.furniture(dt, &o, bm);
@@ -1449,6 +1476,8 @@ impl Rig {
                 body_prev: if self.prev_valid { self.prev_bm } else { bm },
                 head_prev: if self.prev_valid { self.prev_hm } else { hm },
                 inv_dt: 1.0 / dt.max(1e-4),
+                jaw: self.bowl_jaw.mat(),
+                jaw_inv: self.bowl_jaw.mat().inverse(),
                 ..Env::floor_only()
             }
             .with_bounds();
@@ -1466,7 +1495,7 @@ impl Rig {
             self.body, self.head, self.lid_pivot, self.bones[1], self.bones[2], self.bones[3],
             self.bones[4], self.bones[5], self.bones[6], self.bones[7], self.seat_pivot,
             self.eyes[0], self.eyes[1], self.pupils[0], self.pupils[1], self.handle, self.roll,
-            self.water, self.swirl, sb[1], sb[2], sb[3], sb[4], sb[5], sb[6], sb[7],
+            self.water, self.swirl, sb[1], sb[2], sb[3], sb[4], sb[5], sb[6], sb[7], self.bowl_jaw,
         ];
         for (i, t) in nodes.iter().enumerate() {
             let o = &mut self.pose[i * POSE_STRIDE..(i + 1) * POSE_STRIDE];
@@ -2087,6 +2116,55 @@ mod tests {
             let el = t0.elapsed().as_secs_f64() / 3300.0 * 1e6;
             eprintln!("props={with} {el:.1} us/frame active={}", r.props.active());
         }
+    }
+
+    #[test]
+    fn bowl_jaw_mode_opens_wide_and_the_lid_stays_out_of_the_bowl() {
+        let mut r = Rig::new(31);
+        r.set_body_dims(BodyDims::from_json(r#"{"mouth":{"lower":"bowl"}}"#));
+        assert!(r.dims.mouth_bowl && !BodyDims::default().mouth_bowl && (r.dims.bowl_open - BOWL_JAW_OPEN).abs() < 1e-6);
+        assert!((BodyDims::from_json(r#"{"mouth":{"lower":"bowl","bowlOpen":0.9}}"#).bowl_open - 0.35).abs() < 1e-6);
+        let ji = NODE_ORDER.iter().position(|n| *n == "bowl_jaw").unwrap() * POSE_STRIDE;
+        let rim_rest = Vec3::new(0.0, RIM_TOP, 0.5);
+        run(&mut r, 90, (0.0, 0.0), viseme("AA").unwrap().shaped(0.65, 1.6));
+        let q = Quat::from_xyzw(r.pose()[ji + 3], r.pose()[ji + 4], r.pose()[ji + 5], r.pose()[ji + 6]);
+        let (axis, ang) = q.to_axis_angle();
+        assert!(ang > 0.15 && ang < BOWL_JAW_OPEN + 0.03 && axis.x > 0.99, "AA drops the jaw front: {ang} {axis}");
+        // seat + lid + hinges are one assembly on the jaw: the two pivots keep their rest distance
+        let (sp, lp) = (r.bowl_jaw.mat().transform_point3(r.seat_pivot.p), r.bowl_jaw.mat().transform_point3(r.lid_pivot.p));
+        assert!(((sp - lp).length() - (Vec3::new(0.0, RIM_Y, HINGE_Z) - Vec3::from(LID_PIVOT)).length()).abs() < 1e-4);
+        assert!(r.lip_upper_matrix().transform_point3(Vec3::ZERO).y > 0.0);
+        let rim = r.bowl_jaw.mat().transform_point3(rim_rest);
+        assert!((rim - rim_rest).length() >= 0.07 && rim.y < rim_rest.y - 0.1, "bowl front travel {rim}");
+        assert!(r.lip_metrics().seat_travel >= 0.07, "{:?}", r.lip_metrics());
+        // M/B/P presses it up
+        run(&mut r, 90, (0.0, 0.0), viseme("M_P_B").unwrap());
+        assert!(r.bowl_jaw.mat().transform_point3(rim_rest).y > rim_rest.y, "M presses the jaw up");
+        // random talking + actions: lid never inside the (moving) bowl, seat never inside it, all finite
+        let mut rng = Rng::new(9);
+        let mut m = Mouth::default();
+        for f in 0..1800 {
+            if f % 9 == 0 {
+                m = Mouth { open: rng.next(), round: rng.next() * rng.next(), closed: (rng.next() - 0.6).max(0.0) * 2.5, lips: rng.next(), corner_l: rng.next() * 2.0 - 1.0, ..Default::default() };
+            }
+            if f % 450 == 0 {
+                r.play(["flush", "paper", "jump", "gargle"][f / 450]);
+            }
+            r.update(DT, ((f as f32 / 37.0).sin(), (f as f32 / 53.0).cos()), m);
+            let (binv, jm, jinv) = (r.body_m().inverse(), r.bowl_jaw.mat(), r.bowl_jaw.mat().inverse());
+            let bw = r.bone_worlds(r.hinge());
+            for b in &bw[1..] {
+                for z in [-LID_SEG, -LID_SEG * 0.5, 0.0] {
+                    for x in [-0.3f32, 0.0, 0.3] {
+                        let (bb, _) = bowl_frame(binv.transform_point3(b.transform_point3(Vec3::new(x, 0.0, z))), jm, jinv);
+                        assert!(!in_bowl(bb, 0.0), "frame {f}: lid inside the bowl at {bb}");
+                    }
+                }
+            }
+            assert!(seat_rim_penetration(&r) <= 0.0 || seat_rim_penetration(&r) == f32::MIN, "frame {f}: seat in the bowl");
+            assert!(!r.lid_hits_head(r.hinge()), "frame {f}: lid in the head");
+        }
+        assert!(r.pose().iter().all(|x| x.is_finite()) && r.jet.origin.is_finite());
     }
 }
 

@@ -72,6 +72,18 @@ pub const SEAT_ZC: f32 = -HINGE_Z;
 pub const SEAT_BONES: usize = 8;
 pub const SEAT_Z0: f32 = 0.03;
 pub const SEAT_SEG: f32 = (2.0 * SEAT_RZ + 0.02) / (SEAT_BONES as f32 - 1.0);
+/// `theme.body.mouth.lower = "bowl"`: the whole upper bowl is the lower JAW. It turns about a pivot at
+/// the back of the bowl (hinge side, behind the pedestal top), front down by up to `BOWL_JAW_OPEN` rad
+/// on open vowels (+ a forward slide), up by `BOWL_JAW_PRESS` on M/B/P; the pedestal stays rigid
+/// (the bowl mesh blends from rigid to the jaw between `BOWL_JAW_SKIN` heights). The seat rides on the
+/// rim with its own roll scaled by `BOWL_SEAT_ROLL`.
+pub const BOWL_JAW_PIVOT: [f32; 3] = [0.0, 0.5, -0.47];
+/// default max jaw opening (rad), theme `body.mouth.bowlOpen` 0.05..0.35
+pub const BOWL_JAW_OPEN: f32 = 0.18;
+pub const BOWL_JAW_PRESS: f32 = 0.04;
+pub const BOWL_JAW_SLIDE: f32 = 0.04;
+pub const BOWL_JAW_SKIN: [f32; 2] = [0.28, 0.42];
+pub const BOWL_SEAT_ROLL: f32 = 0.35;
 /// sanity limit only: the lower lip may roll out and down OVER the bowl's front (never into it)
 pub const SEAT_MAX_DROP: f32 = 0.15;
 /// Lower lip, per bone (1..7):
@@ -296,6 +308,10 @@ pub struct BodyDims {
     pub roll: [f32; 3],
     pub roll_holder: [f32; 3],
     pub roll_front: bool,
+    /// lower lip = the whole bowl (jaw) instead of only the seat (`theme.body.mouth.lower`)
+    pub mouth_bowl: bool,
+    /// bowl mode: max jaw opening (rad)
+    pub bowl_open: f32,
     /// flush handle on the front face + its surface normal
     pub handle: [f32; 3],
     pub handle_n: [f32; 3],
@@ -356,6 +372,8 @@ impl BodyDims {
             roll: [0.0; 3],
             roll_holder: [0.0; 3],
             roll_front: false,
+            mouth_bowl: false,
+            bowl_open: BOWL_JAW_OPEN,
             handle: [0.0; 3],
             handle_n: [0.0, 0.0, 1.0],
             eye_base: [EYE_X * esp * w, tank_y + ey],
@@ -462,6 +480,14 @@ impl BodyDims {
             .with_lid(g(t, "lidThick", nan), g(t, "lidOver", nan))
             .with_tank_shape(g(t, "round", nan), g(t, "bulge", nan), g(t, "taper", nan), g(t, "lidRound", nan))
             .with_roll_mount(front)
+            .with_mouth_bowl(j.get("mouth").is_some_and(|m| m.s("lower", "seat") == "bowl"), g(j.get("mouth"), "bowlOpen", nan))
+    }
+    /// lower lip = the whole bowl (jaw) instead of only the seat; max jaw opening 0.05..0.35 rad
+    /// (non-finite -> default)
+    pub fn with_mouth_bowl(mut self, bowl: bool, open: f32) -> Self {
+        self.mouth_bowl = bowl;
+        self.bowl_open = if open.is_finite() { open.clamp(0.05, 0.35) } else { BOWL_JAW_OPEN };
+        self
     }
     /// frontmost z of the (bulged) tank front face (head space)
     pub fn front(&self) -> f32 {

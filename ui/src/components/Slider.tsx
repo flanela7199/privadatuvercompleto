@@ -11,6 +11,7 @@ export const FMT = {
   pct: (v: number) => `${Math.round(v * 100)}%`,
   px: (v: number) => `${Math.round(v)} px`,
   deg: (v: number) => `${Math.round(v)}°`,
+  rad: (v: number) => `${Math.round((v * 180) / Math.PI)}°`,
 };
 type Props = { value: number; min: number; max: number; step?: number; fmt?: keyof typeof FMT; onChange: (v: number) => void; disabled?: boolean; display?: string };
 

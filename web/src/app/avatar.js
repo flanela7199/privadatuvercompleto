@@ -78,10 +78,11 @@ function debugCamera() {
   tuber.forceMorphs = DBG.expr === 'blink' ? { blink_L: 1, blink_R: 1 } : DBG.expr === 'wink' ? { blink_L: 1 } : null;
   if (tuber.rig?.set_mouth_override) { tuber.rig.set_mouth_override(DBG.expr === 'blargh' ? 1 : -1); tuber.rig.set_sit(DBG.expr === 'sit' ? 1 : 0); }
   // poses: front | 34 | profile (head close-up), body | body34 (whole figure), or a yaw in degrees
-  const whole = String(DBG.pose).startsWith('body'), hands = DBG.pose === 'hands';
-  const yaw = THREE.MathUtils.degToRad({ front: 0, 34: 38, profile: 90, body: 0, body34: 38, bodyside: 75, bodyback: 180, hands: 55 }[DBG.pose] ?? (+DBG.pose || 0));
+  const whole = String(DBG.pose).startsWith('body'), hands = DBG.pose === 'hands' || DBG.pose === 'palm', feet = DBG.pose === 'feet';
+  const yaw = THREE.MathUtils.degToRad({ front: 0, 34: 38, profile: 90, body: 0, body34: 38, bodyside: 75, bodyback: 180, hands: 55, palm: -70, feet: 40 }[DBG.pose] ?? (+DBG.pose || 0));
   const tgt = hands && tuber.sockets?.hand_R ? tuber.sockets.hand_R.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0, -0.03, 0)) : whole ? new THREE.Vector3(0, 0.92, DBG.pose === 'bodyside' ? 0.6 : 0) : DBG.target;
-  const d = (hands ? 0.95 : whole ? 6.2 : character === 'chratos' ? 1.15 : 3.3) / (DBG.zoom || 1);
+  if (feet) tgt.set(0, 0.07, 0.05);
+  const d = (hands ? 0.95 : feet ? 1.6 : whole ? 6.2 : character === 'chratos' ? 1.15 : 3.3) / (DBG.zoom || 1);
   window.__dbgFrames = (window.__dbgFrames || 0) + 1;   // screenshot tools wait for this
   camera.clearViewOffset();
   camera.aspect = innerWidth / innerHeight;

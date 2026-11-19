@@ -166,8 +166,10 @@ pub fn hoodie_sdf(p: Vec3) -> f32 {
     let q = v(p.x.abs(), p.y, p.z);
     let mut d = smin(trunk(q), arm(q), 0.032);
     // folds: elbow, armpit, waist (bunched above the hem band), cloth in general
-    let we = gauss(q, v(0.238, -0.560, -0.035), v(0.075, 0.075, 0.08));
-    d += 0.0032 * we * ((q.y + 0.35 * q.z) * 150.0).sin();
+    let we = gauss(q, v(0.238, -0.560, -0.035), v(0.060, 0.045, 0.07));
+    d += 0.0024 * we * ((q.y + 0.45 * q.z - 0.3 * q.x) * 140.0 + 1.5 * (q.z * 60.0).sin()).sin();
+    // loose sleeve: a few long soft drapes along the forearm instead of rings
+    d += 0.0016 * sstep(0.19, 0.22, q.x) * ((q.z * 0.9 + q.y * 0.25) * 95.0).sin() * sstep(-0.76, -0.70, q.y) * sstep(-0.40, -0.48, q.y);
     let wa = gauss(q, v(0.168, -0.338, -0.030), v(0.050, 0.065, 0.075));
     d += 0.0030 * wa * ((q.y + 0.9 * q.x) * 120.0).sin();
     let ww = sstep(-0.600, -0.690, p.y) * sstep(-0.748, -0.722, p.y);
@@ -276,12 +278,12 @@ pub fn pants_sdf(p: Vec3, jeans: bool) -> f32 {
     let q = v(p.x.abs(), p.y, p.z);
     let mut d = leg(q, jeans);
     // folds: knees, crotch, ankles (joggers bunch up), general
-    let wk = gauss(q, v(0.100, -1.170, -0.020), v(0.090, 0.090, 0.090));
-    d += 0.0030 * wk * (p.y * 135.0 + 22.0 * p.z).sin();
+    let wk = gauss(q, v(0.100, -1.170, -0.020), v(0.090, 0.060, 0.090));
+    d += 0.0020 * wk * (p.y * 135.0 + 22.0 * p.z + 1.2 * (q.x * 50.0).sin()).sin();
     let wc = gauss(q, v(0.050, -0.845, 0.030), v(0.075, 0.060, 0.080));
     d += 0.0030 * wc * ((p.y - 0.8 * q.x) * 120.0).sin();
     let wa = sstep(-1.380, -1.480, p.y) * sstep(if jeans { -1.585 } else { -1.512 }, -1.500, p.y);
-    d += if jeans { 0.0030 } else { 0.0038 } * wa * (p.y * 165.0 + 2.0 * (q.z * 40.0).sin()).sin();
+    d += if jeans { 0.0024 } else { 0.0028 } * wa * (p.y * 165.0 + 2.0 * (q.z * 40.0).sin()).sin();
     d += 0.0014 * (48.0 * p.y + 20.0 * q.x).sin() * (36.0 * p.z - 22.0 * p.y).sin();
     // side seams (outer + inner), slanted side pocket openings
     let leg_x = q.x - mix(0.092, 0.100, sstep(-0.80, -1.17, q.y));
@@ -496,6 +498,7 @@ pub fn hands_sdf(p: Vec3) -> f32 {
     let wq = v((q.x - 0.2590) * 1.45 + 0.2590, q.y, q.z);
     d = smin(d, capsule(wq, v(0.2585, -0.776, -0.012), v(0.2600, -0.835, -0.008), 0.0285), 0.012);
     // fingers: 3 phalanges each, knuckles a touch thicker
+    let mut fingers = f32::MAX;
     for k in 0..5 {
         let mut fd = f32::MAX;
         for j in 0..3 {
@@ -504,8 +507,13 @@ pub fn hands_sdf(p: Vec3) -> f32 {
             fd = smin(fd, capsule2(q, a, b, ra, rb), 0.0030);
             fd = smin(fd, sphere(q, a, ra + if j == 0 && k > 0 { 0.0012 } else { 0.0007 }), 0.0030);
         }
-        d = smin(d, fd, if k == 0 { 0.010 } else { 0.0055 });
+        if k == 0 {
+            d = smin(d, fd, 0.010);
+        } else {
+            fingers = fingers.min(fd);
+        }
     }
+    d = smin(d, fingers, 0.0045);
     // palm creases (subtle) + nails
     d = smax(d, -capsule(q, v(0.2462, -0.884, 0.034), v(0.2468, -0.872, -0.030), 0.0016), 0.003);
     d = smax(d, -capsule(q, v(0.2462, -0.866, 0.036), v(0.2470, -0.840, -0.006), 0.0016), 0.003);
@@ -513,9 +521,9 @@ pub fn hands_sdf(p: Vec3) -> f32 {
     d.max(p.y + 0.780)
 }
 pub fn hands(detail: f32) -> Part {
-    let c = 0.0024 / detail.clamp(0.25, 2.0);
+    let c = 0.0022 / detail.clamp(0.25, 2.0);
     let f: &dyn Fn(Vec3) -> f32 = &hands_sdf;
-    let m = iso::surface_nets(f, &iso::uniform(-0.300, 0.300, c), &iso::uniform(-1.005, -0.772, c), &iso::uniform(-0.060, 0.092, c), 1.7);
+    let m = iso::surface_nets(f, &iso::uniform(-0.300, 0.300, c), &iso::uniform(-1.010, -0.772, c), &iso::uniform(-0.064, 0.112, c), 1.7);
     let mut part = Part::from_iso(m, |q0, n| {
         let q = v(q0.x.abs(), q0.y, q0.z);
         let k = 1.0 - ao(f, q0, n, 0.004);

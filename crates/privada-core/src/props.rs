@@ -179,6 +179,9 @@ pub struct Env {
     pub ncaps: usize,
     /// world box around all capsules (set by [`Env::with_capsules`])
     pub caps_box: (Vec3, Vec3),
+    /// body-space transform of the upper bowl (lower jaw in `mouth.lower = bowl` mode; identity otherwise)
+    pub jaw: Mat4,
+    pub jaw_inv: Mat4,
 }
 
 pub const MAX_CAPS: usize = 16;
@@ -234,6 +237,8 @@ impl Env {
             caps: [EnvCapsule { a: Vec3::ZERO, b: Vec3::ZERO, r: 0.0, va: Vec3::ZERO, vb: Vec3::ZERO }; MAX_CAPS],
             ncaps: 0,
             caps_box: (Vec3::ZERO, Vec3::ZERO),
+            jaw: Mat4::IDENTITY,
+            jaw_inv: Mat4::IDENTITY,
         }
     }
     /// floor + a capsule body (the human): `caps` in rig-root space with their end velocities
@@ -326,8 +331,9 @@ impl Env {
             });
         }
         if mask & BOWL != 0 {
-            if let Some(nb) = crate::rig::push_out_of_bowl(b) {
-                let d = self.body.transform_point3(nb) - p;
+            let (bb, back) = crate::rig::bowl_frame(b, self.jaw, self.jaw_inv);
+            if let Some(nb) = crate::rig::push_out_of_bowl(bb) {
+                let d = self.body.transform_point3(back.transform_point3(nb)) - p;
                 let l = d.length();
                 if l > 1e-6 {
                     take((d / l, l), false);
