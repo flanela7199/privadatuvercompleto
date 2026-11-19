@@ -26,6 +26,23 @@ let st = (tb.play('sit'), run(80));
 ok(tb.isSitting && Math.abs(tb.body.position.y - 0.45) < 0.02 && st < 0.05, `sit: base ${tb.body.position.y.toFixed(3)}, max step ${st.toFixed(3)}`);
 tb.play('backflip'); run(120);
 ok(Math.abs(tb.body.position.y - 0.45) < 0.03, `backflip lands back on the seat (${tb.body.position.y.toFixed(3)})`);
+// seated, look +-1 on both axes + mouth open: no pedestal point below the seat - 5 mm
+{
+  const THREE = await import('three');
+  const v = new THREE.Vector3(); let worst = 9;
+  for (const [x, y] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    for (let i = 0; i < 120; i++) {
+      tb.update(1 / 60, { look: { x, y }, mouth: { open: 1, round: 0.5 } });
+      tb.root.updateMatrixWorld();
+      for (const [yy, rr] of [[0, 0.3], [0.012, 0.312], [0.035, 0.3], [0.06, 0.28], [0.1, 0.25]])
+        for (let k = 0; k < 32; k++) {
+          const a = (k / 32) * Math.PI * 2;
+          worst = Math.min(worst, tb.body.localToWorld(v.set(rr * Math.cos(a), yy, rr * Math.sin(a) * 1.22)).y);
+        }
+    }
+  }
+  ok(worst >= 0.45 - 0.005, `seated extreme looks: lowest pedestal point ${worst.toFixed(4)} (seat 0.45)`);
+}
 st = (tb.play('stand'), run(80));
 ok(!tb.isSitting && tb.body.position.y < 0.02 && st < 0.05, 'stand: floor');
 tb.sitHeight = 0.3; run(60);

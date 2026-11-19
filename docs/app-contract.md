@@ -340,7 +340,9 @@ wrapper / part (world pose → its parent space); back at rest the original loca
   `seatHeight` too) → `tb.seatHeight()` = seatHeight × params.scale / seatScale (seatHeight is given at the default
   seatScale) × the slot's transform scale (+ its y offset), synced every frame to Rust `set_seat_height(h)`.
 * Persistent sit height: Rust `set_sit_height(h)` / `sit_height()` / `is_sitting()`, JS `tb.sitHeight` (get/set),
-  `tb.isSitting`: raises the whole body base by h (spring k 110, d 21 ≈ 0.3 s). FX floor stays y = 0 (water and paper fall
+  `tb.isSitting`: raises the whole body base by h (spring k 110, d 21 ≈ 0.3 s). Seated, body pitch / lean are scaled by
+  0.35 (`SEAT_TILT`; the head takes the rest of the pitch) and the body is lifted by the tilted sole's drop, so it pivots
+  on its lowest edge and the pedestal never dips into the seat (test: look ±1 both axes + mouth open, ≥ seat − 5 mm). FX floor stays y = 0 (water and paper fall
   to the floor), lid / lip / look / flip unchanged.
 * Actions `sit` (0.9 s: crouch, hop, land with squash + `clack:4`; base → seat height) and `stand` (base → 0).
   The avatar calls `play('sit')` when a chair is equipped.

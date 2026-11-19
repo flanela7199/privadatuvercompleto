@@ -13,6 +13,12 @@ use crate::util::{clamp, Rng, Spring};
 use crate::water::{DropHash, StreamSample, WaterJet};
 use glam::{Mat4, Quat, Vec3};
 
+/// seated: body pitch / lean scale (the head takes the rest of the pitch) and the pedestal sole's half extents
+/// (body space, without the egg narrowing: conservative) used to keep its lowest edge on the seat
+pub const SEAT_TILT: f32 = 0.35;
+pub const SOLE_RX: f32 = 0.312;
+pub const SOLE_RZ: f32 = 0.312 * BOWL_SCALE_Z;
+
 /// Default look range: 80° yaw, 35° pitch (body + head together).
 pub const DEFAULT_MAX_YAW: f32 = 80.0 * std::f32::consts::PI / 180.0;
 pub const DEFAULT_MAX_PITCH: f32 = 35.0 * std::f32::consts::PI / 180.0;
@@ -1064,15 +1070,18 @@ impl Rig {
         let full = o.mouth.is_some_and(|v| v > 0.9);
 
         let (my, mp) = (self.max_yaw, self.max_pitch);
+        // seated: the body tilts much less (SEAT_TILT) so the pedestal sole stays on the seat; the head takes the rest
+        let seat_k = crate::util::smooth(0.0, 0.08, self.sit.x);
+        let tilt = 1.0 - (1.0 - SEAT_TILT) * seat_k;
         let s = &mut self.s;
         // body turns first part of the way, the head does the rest (lags via springs)
         s.yaw.target = lx * my * BODY_YAW_SHARE;
-        s.pitch.target = -ly * mp * BODY_PITCH_SHARE;
+        s.pitch.target = -ly * mp * BODY_PITCH_SHARE * tilt;
         s.h_yaw.target = lx * my * (1.0 - BODY_YAW_SHARE) + o.head_yaw;
-        s.h_pitch.target = -ly * mp * (1.0 - BODY_PITCH_SHARE) + o.head_pitch;
+        s.h_pitch.target = -ly * mp * (1.0 - BODY_PITCH_SHARE * tilt) + o.head_pitch;
         // near the extremes he leans / tilts toward the side he looks at
         let side = crate::util::smooth(0.55, 1.0, lx.abs()) * lx.signum();
-        s.lean.target = -side * 0.07;
+        s.lean.target = -side * 0.07 * tilt;
         s.h_roll.target = -lx * 0.06 - side * 0.05;
         s.lid.target = if full { 1.45 } else { (rest + m.open * 0.9 + m.round * 0.12 + m.sib * 0.04 + m.upper_raise * 0.06).max(0.0) };
         s.smile.target = m.wide * 0.9 - m.round * 0.3;
@@ -1119,9 +1128,17 @@ impl Rig {
         let cm = 0.75;
         let (fy, fz) = (cm - cm * o.flip.cos(), -cm * o.flip.sin());
         let flipping = o.flip != 0.0;
+        // seated: tilt about the sole's lowest edge (lift by its drop) instead of sinking into the seat
+        let sole_lift = if flipping || seat_k <= 0.0 {
+            0.0
+        } else {
+            let r = glam::Mat3::from_quat(self.body.q);
+            let (xa, za) = (r.x_axis * self.body.s.x, r.z_axis * self.body.s.z);
+            (xa.y * SOLE_RX).hypot(za.y * SOLE_RZ) * seat_k
+        };
         self.body.p = Vec3::new(
             (self.time * 63.0).sin() * 0.008 * o.shake,
-            s.lift.x + self.sit.x + if flipping { fy + o.flip_lift } else { 0.0 },
+            s.lift.x + self.sit.x + sole_lift + if flipping { fy + o.flip_lift } else { 0.0 },
             (self.time * 51.0).cos() * 0.005 * o.shake + if flipping { fz } else { 0.0 },
         );
 
@@ -2002,6 +2019,33 @@ mod tests {
         }
         assert!(mean > 0.4, "mean strip wetness {mean}");
         assert!(r.wet_tears > 0, "wet perforations gave way under the weight");
+    }
+
+    #[test]
+    fn seated_the_pedestal_sole_stays_on_the_seat_at_extreme_looks() {
+        let mut r = Rig::new(4);
+        r.set_seat_height(0.658);
+        r.play("sit");
+        run(&mut r, 90, (0.0, 0.0), Mouth::default());
+        assert!(r.is_sitting());
+        let open = Mouth { open: 1.0, round: 0.5, ..Default::default() };
+        let mut worst = f32::MAX;
+        for (lx, ly) in [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0), (1.0, 1.0), (-1.0, 1.0), (1.0, -1.0), (-1.0, -1.0)] {
+            for _ in 0..120 {
+                r.update(DT, (lx, ly), open);
+                let bm = r.body_m();
+                for y in [0.0f32, 0.012, 0.035, 0.06, 0.1] {
+                    let rr = bowl_outer_r(y);
+                    for k in 0..32 {
+                        let a = k as f32 / 32.0 * std::f32::consts::TAU;
+                        let p = bm.transform_point3(Vec3::new(rr * a.cos(), y, rr * a.sin() * BOWL_SCALE_Z));
+                        worst = worst.min(p.y);
+                    }
+                }
+                assert!(!r.lid_hits_head(r.hinge()));
+            }
+        }
+        assert!(worst >= 0.658 - 0.005, "pedestal point below the seat: {worst}");
     }
 
     /// profiling aid: cargo test -p privada-core --release profile_props -- --ignored --nocapture

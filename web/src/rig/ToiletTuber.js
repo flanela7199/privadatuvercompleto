@@ -35,6 +35,9 @@ const WASM = await loadWasm();
 // JS fallback (no wasm): props stay attached and the paper never gets wet.
 const ACC_INFO = WASM ? await import('../accessories/extra.js').then((m) => m.ACCESSORY_INFO || {}, () => ({})) : {};
 const PROP_STRIDE = 12;
+// seated: body pitch / lean scale and the pedestal sole half extents (mirror of rig.rs SEAT_TILT / SOLE_RX / SOLE_RZ)
+const SEAT_TILT = 0.35, SOLE_RX = 0.312, SOLE_RZ = 0.312 * 1.22;
+const _soleM = new THREE.Matrix4();
 // furniture he can sit on (socket floor_under): FURNITURE_INFO[id] = { seatHeight (m), mass?, physics? }.
 // web/src/accessories/furniture.js provides it (loaded lazily, optional); registerFurnitureInfo() adds more.
 const FURN = {};
@@ -1407,12 +1410,14 @@ export class ToiletTuber {
     const rest = o.mouth != null ? 0 : this.restOpen * (1 - m.closed);
 
     const LL = this.lookLimits;
+    // seated: the body tilts much less (SEAT_TILT) so the pedestal sole stays on the seat; the head takes the rest
+    const seatK = smoothstep(0, 0.08, this.sitS.x), tilt = 1 - (1 - SEAT_TILT) * seatK;
     S.yaw.target = lx * LL.yaw * 0.55;
-    S.pitch.target = -ly * LL.pitch * 0.3;
+    S.pitch.target = -ly * LL.pitch * 0.3 * tilt;
     S.hYaw.target = lx * LL.yaw * 0.45 + o.headYaw;
-    S.hPitch.target = -ly * LL.pitch * 0.7 + o.headPitch;
+    S.hPitch.target = -ly * LL.pitch * (1 - 0.3 * tilt) + o.headPitch;
     const side = smoothstep(0.55, 1, Math.abs(lx)) * Math.sign(lx);   // lean toward the side near the extremes
-    S.lean.target = -side * 0.07;
+    S.lean.target = -side * 0.07 * tilt;
     S.hRoll.target = -lx * 0.06 - side * 0.05;
     S.lid.target = o.mouth != null && o.mouth > 0.9 ? 1.45
       : Math.max(0, rest + m.open * 0.9 + m.round * 0.12 + m.sib * 0.04 + m.upperRaise * 0.06);
@@ -1453,7 +1458,13 @@ export class ToiletTuber {
     this.body.rotation.set(S.pitch.x + o.flip, S.yaw.x + o.spin, S.lean.x);
     // flips rotate around the center of mass (~0.75 up), not around the floor
     const cm = 0.75, fy = cm - cm * Math.cos(o.flip), fz = -cm * Math.sin(o.flip);
-    this.body.position.set(Math.sin(this.time * 63) * 0.008 * o.shake, S.lift.x + this.sitS.x + (o.flip ? fy + o.flipLift : 0),
+    // seated: tilt about the sole's lowest edge (lift by its drop) instead of sinking into the seat (as in Rust)
+    let soleLift = 0;
+    if (!o.flip && seatK > 0) {
+      const e = _soleM.makeRotationFromEuler(this.body.rotation).elements, sc = this.body.scale;
+      soleLift = Math.hypot(e[1] * sc.x * SOLE_RX, e[9] * sc.z * SOLE_RZ) * seatK;
+    }
+    this.body.position.set(Math.sin(this.time * 63) * 0.008 * o.shake, S.lift.x + this.sitS.x + soleLift + (o.flip ? fy + o.flipLift : 0),
       Math.cos(this.time * 51) * 0.005 * o.shake + (o.flip ? fz : 0));
 
     // head
