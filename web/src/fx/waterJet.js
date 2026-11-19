@@ -7,6 +7,7 @@
 // gurgle (0..1 bubbling in the bowl), drips (seconds of rim dripping left).
 // Outputs for the rig: bowlRise (-0.2..1 water level), bowlSlosh (-1..1 small wobble).
 import * as THREE from 'three';
+import { tuneWater } from './waterLook.js';
 
 const G = -9.8;
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3();
@@ -72,17 +73,16 @@ export class WaterJet {
     this.drainT = 0;
     this.wasEmitting = false;
 
-    // ---- materials (clones so the bowl water is untouched)
-    const dropMat = material.clone();
-    dropMat.transparent = true;
-    dropMat.opacity = Math.min(material.opacity ?? 1, 0.9);
-    const streamMat = material.clone();
-    streamMat.transparent = true;
-    streamMat.opacity = Math.min(material.opacity ?? 1, 0.82);
+    // ---- materials (clones of the theme water, tuned per use: see waterLook.js; the bowl water is untouched)
+    // spray / splashes / drips: bright white semi-opaque (no transmission) so the jet pops on any background
+    const dropMat = tuneWater(material.clone(), 'spray');
+    // the column: tinted semi-opaque water body with highlights (not glass)
+    const streamMat = tuneWater(material.clone(), 'stream');
     streamMat.side = THREE.DoubleSide;
     streamMat.depthWrite = false;
     this.streamMat = streamMat;
-    const foamMat = new THREE.MeshStandardMaterial({ color: '#f3f9fc', roughness: 0.4, transparent: true, opacity: 0.82, depthWrite: false });
+    const foamMat = tuneWater(material.clone(), 'foam');
+    foamMat.depthWrite = false;
 
     // ---- droplets (kind 0 = spray, 1 = secondary splash, 2 = rim drip)
     this.drops = new Pool(new THREE.SphereGeometry(0.03, 10, 8), dropMat, max, 'fx_water_drops');
@@ -115,10 +115,8 @@ export class WaterJet {
     this.landed = false;
 
     // ---- puddle with an irregular edge
-    const pm = material.clone();
-    pm.transparent = true; pm.opacity = 0; pm.depthWrite = false;
-    pm.transmission = 0; pm.thickness = 0;
-    pm.roughness = 0.03; pm.metalness = 0;
+    const pm = tuneWater(material.clone(), 'puddle');
+    pm.opacity = 0; pm.depthWrite = false;
     pm.polygonOffset = true; pm.polygonOffsetFactor = -2; pm.polygonOffsetUnits = -2;
     const pg = new THREE.CircleGeometry(1, 120);
     pg.rotateX(-Math.PI / 2);
@@ -458,7 +456,7 @@ export class WaterJet {
       this.puddle.position.x += (this.wx / this.wsum - this.puddle.position.x) * Math.min(1, dt * 4);
       this.puddle.position.z += (this.wz / this.wsum - this.puddle.position.z) * Math.min(1, dt * 4);
     }
-    if (this.dry < 3) pm.opacity = Math.min(0.7, pm.opacity + dt * 3);
+    if (this.dry < 3) pm.opacity = Math.min(Math.min(1, 0.7 * (pm.userData.opacityScale ?? 1)), pm.opacity + dt * 3);
     else {
       pm.opacity -= dt * 0.3;
       this.vol *= 1 - dt * 0.08;          // shrinks a little while drying

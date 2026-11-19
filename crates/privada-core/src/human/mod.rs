@@ -21,6 +21,7 @@ pub mod morph;
 pub mod parts;
 pub mod rig;
 pub mod sdf;
+pub mod skeleton;
 
 use crate::geo::{Json, Mesh};
 use glam::Vec3;
@@ -30,9 +31,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 /// bump when any mesh changes (part of the cache key through the `v` param)
-pub const HUMAN_VERSION: u32 = 9; // 2: realistic refit, hair cards, textured eyes, lashes, winding fixed
-pub const PARTS: [&str; 18] = [
-    "head", "beard", "brows", "hair", "hair_cap", "eye", "cornea", "mouth_upper", "mouth_lower", "torso", "pants", "shoes", "hands", "hp_shell", "hp_pad", "hp_metal", "plug",
+pub const HUMAN_VERSION: u32 = 10; // 10: detailed body (anatomy, hoodie, joggers / jeans, sneakers, hands with finger bones) // 2: realistic refit, hair cards, textured eyes, lashes, winding fixed
+pub const PARTS: [&str; 19] = [
+    "head", "beard", "brows", "hair", "hair_cap", "eye", "cornea", "mouth_upper", "mouth_lower", "torso", "pants", "pants_jeans", "shoes", "hands", "hp_shell", "hp_pad", "hp_metal", "plug",
     "chair",
 ];
 
@@ -107,8 +108,9 @@ pub fn part(name: &str, detail: f32) -> Result<Rc<Part>, String> {
             "cornea" => parts::cornea(),
             "mouth_upper" => parts::mouth_upper(),
             "mouth_lower" => parts::mouth_lower(),
-            "torso" => parts::torso(detail),
+            "torso" => body::hoodie(detail),
             "pants" => body::pants(detail),
+            "pants_jeans" => body::pants_jeans(detail),
             "shoes" => body::shoes(detail),
             "hands" => body::hands(detail),
             "hp_shell" => parts::hp_shell(detail),

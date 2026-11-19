@@ -16,11 +16,11 @@
 //! [px,py,pz, qx,qy,qz,qw, sx,sy,sz] (local TRS; `plug` is in root space), `morphs()`,
 //! `scalars()` (toilet `rig::sc` indices + [`sc_h`]), cable tube, and the jet / paper / props
 //! buffers of the embedded simulations.
-use super::body::{bind, bind_local, node, COLLIDERS, FLOOR, SKELETON};
+use super::body::{bind, bind_local, node, torso_proxy_sdf as torso_sdf, COLLIDERS, FINGERS_L, FINGERS_R, FLOOR, SKELETON};
 use super::head::{HEAD_POS, MOUTH_Y};
 use super::iso;
 use super::morph::{self, m, JAW_MAX, N};
-use super::parts::{torso_sdf, CABLE_END, CABLE_TOP};
+use super::parts::{CABLE_END, CABLE_TOP};
 use crate::paper::PaperStrip;
 use crate::props::{Env, EnvCapsule, Props};
 use crate::rig::{sc, Mouth};
@@ -469,6 +469,10 @@ pub struct HumanRig {
     paper_out_dir: Vec3,
     roll_amt: f32,
     roll_rot: f32,
+    /// finger curl 0..1 of the left / right hand (smoothed)
+    grip: [f32; 2],
+    /// external grip targets (holding props): negative = automatic
+    pub grip_ext: [f32; 2],
     caps_prev: [(Vec3, Vec3); COLLIDERS.len()],
     caps_valid: bool,
     scalars: [f32; sc_h::LEN],
@@ -538,6 +542,8 @@ impl HumanRig {
             paper_out_dir: Vec3::Z,
             roll_amt: 0.0,
             roll_rot: 0.0,
+            grip: [0.12, 0.12],
+            grip_ext: [-1.0, -1.0],
             caps_prev: [(Vec3::ZERO, Vec3::ZERO); COLLIDERS.len()],
             caps_valid: false,
             scalars: [0.0; sc_h::LEN],
@@ -590,6 +596,10 @@ impl HumanRig {
     /// 0 = standing .. 1 = seated (persistent; the `sit` / `stand` actions set it)
     pub fn set_sit(&mut self, v: f32) {
         self.sit_target = v.clamp(0.0, 1.0);
+    }
+    /// finger curl of the left / right hand right now (0 = open .. 1 = fist)
+    pub fn grip(&self) -> [f32; 2] {
+        self.grip
     }
     pub fn is_sitting(&self) -> bool {
         self.sit_target > 0.5
@@ -825,6 +835,25 @@ impl HumanRig {
             self.rotate(fa, Quat::from_rotation_x(fa_x) * Quat::from_rotation_y(-side * (0.25 * sit + 0.6 * wipe)));
             self.rotate(th, Quat::from_rotation_x(-hip - 0.55 * sq - 1.75 * tk) * Quat::from_rotation_z(side * 0.06 * sit));
             self.rotate(sh, Quat::from_rotation_x(knee + 1.1 * sq + 2.2 * tk));
+        }
+        // hands: relaxed curl, a fist around the paper roll, loose on the thighs when seated, open in the air
+        let auto = [0.14 + 0.10 * sit + 0.5 * tk - 0.10 * air, (0.14 + 0.10 * sit + 0.5 * tk - 0.10 * air).max(0.80 * self.roll_amt).max(0.55 * o.wipe)];
+        for (h, first, side) in [(0usize, FINGERS_L, -1.0f32), (1, FINGERS_R, 1.0)] {
+            let tg = if self.grip_ext[h] >= 0.0 { self.grip_ext[h].min(1.0) } else { auto[h].clamp(0.0, 1.0) };
+            self.grip[h] += (tg - self.grip[h]) * (1.0 - (-dt * 14.0).exp());
+            let g = self.grip[h];
+            // thumb: swings across the palm and bends
+            self.rotate(first, Quat::from_rotation_y(side * 0.55 * g) * Quat::from_rotation_z(-side * 0.35 * g));
+            self.rotate(first + 1, Quat::from_rotation_z(-side * 0.55 * g) * Quat::from_rotation_x(0.25 * g));
+            self.rotate(first + 2, Quat::from_rotation_z(-side * 0.70 * g));
+            // fingers curl toward the palm (the bind pose already has a relaxed curl); the little ones close first
+            for f in 0..4 {
+                let lead = 1.0 + 0.10 * f as f32;
+                let n = first + 3 + f * 3;
+                self.rotate(n, Quat::from_rotation_z(-side * 1.25 * g * lead));
+                self.rotate(n + 1, Quat::from_rotation_z(-side * 1.45 * g * lead));
+                self.rotate(n + 2, Quat::from_rotation_z(-side * 0.95 * g * lead));
+            }
         }
         self.rotate(node::FOOT_L, Quat::from_rotation_x(-0.55 * sq));
         self.rotate(node::FOOT_R, Quat::from_rotation_x(-0.55 * sq));

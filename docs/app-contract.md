@@ -299,6 +299,14 @@ Paper alone or flush alone look as before. Test `paper_then_flush_soaks_the_stri
 JS: `BUF.PAPER_COL` / `BUF.TORN_COL` (MAX_PTS·2 × RGBA) → the strip geometry's `color` attribute (itemSize 4,
 `material.vertexColors = true`), uploaded only while `SC.PAPER_WET` / `SC.TORN_WET` (max wetness) > 0.
 
+### Water look (any background)
+All water surfaces come from the theme's `materials.water` through `web/src/fx/waterLook.js` (`tuneWater(mat, kind)`): a tinted
+SEMI-OPAQUE body (`materials.water.opacity`, default 0.65; panel "Opacidade da água"), transmission capped (column 0.45,
+bowl 0.6, puddle 0) so the colour is the water's tint instead of a glass filter, clearcoat + specular highlights, a little
+self-glow and depth attenuation; spray / splashes / drips and foam are a separate bright white semi-opaque material
+(no transmission). Old themes with `transmission: 1` are capped the same way. White water stays visible and dark
+backgrounds no longer turn it black (checked headless on #111 and #00ff00 with default / white / red water).
+
 ### Rigid-body props
 Accessories with `ACCESSORY_INFO[id].physics` (extra.js: `toilet_paper_stack` = 6 roll bodies in one group,
 `air_freshener`, `rubber_duck` (buoyant), `plunger`, `toilet_brush_holder`), a slot entry `physics: {...}` /

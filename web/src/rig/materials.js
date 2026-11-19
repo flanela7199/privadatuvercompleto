@@ -29,6 +29,8 @@ function make(spec) {
   }
   const m = new THREE.MeshPhysicalMaterial(props);
   if (side) m.side = SIDES[side] ?? THREE.FrontSide;
+  if (props.opacity != null && props.opacity < 1) m.transparent = true;
+  m.userData.spec = spec;   // e.g. fx/waterLook.js reads the theme's water opacity (default when absent)
   return m;
 }
 

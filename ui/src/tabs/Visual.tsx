@@ -121,6 +121,13 @@ export function Visual({ active }: { active: boolean }) {
               </Field>
               <Field label="Sorriso parado" tip="Sorriso em repouso (0 = sério, 1 = sorrindo)"><Slider value={cfgC.restSmile} min={0} max={1} step={0.01} fmt="pct" onChange={(v) => setC('restSmile', v)} /></Field>
               <Field label="Detalhe" tip="Qualidade do modelo — maior = mais pesado"><Slider value={cfgC.detail} min={0.5} max={1.5} step={0.05} fmt="x" onChange={(v) => setC('detail', v)} /></Field>
+              <Field label="Água" tip="A cor tinge a água que ele cospe; branco = água clara">
+                <ColorField value={work.materials?.water?.color} onChange={(v) => update((d) => { d.work.materials.water = { ...(d.work.materials.water || {}), color: v }; }, { fork: true })} />
+              </Field>
+              <Field label="Opacidade da água" tip="A cor tinge a água; branco = água clara">
+                <Slider value={work.materials?.water?.opacity ?? 0.65} min={0.2} max={1} step={0.01} fmt="pct"
+                  onChange={(v) => update((d) => { d.work.materials.water = { ...(d.work.materials.water || {}), opacity: v, transparent: true }; }, { fork: true })} />
+              </Field>
             </Fields>
             <p className="mut" style={{ marginTop: 8, fontSize: 12 }}>Detalhe: maior = mais bonito e mais pesado para a placa de vídeo.</p>
           </Card>
@@ -132,6 +139,12 @@ export function Visual({ active }: { active: boolean }) {
             {MAT_KEYS.map(([k, n]) => (
               <label key={k}>{n}<ColorField value={work.materials?.[k]?.color} onChange={(v) => update((d) => { d.work.materials[k] = { ...(d.work.materials[k] || d.work.materials.porcelain), color: v }; }, { fork: true })} /></label>
             ))}
+          </div>
+          <div className="compact" style={{ marginTop: 8 }}>
+            <Field label="Opacidade da água" tip="A cor tinge a água; branco = água clara">
+              <Slider value={work.materials?.water?.opacity ?? 0.65} min={0.2} max={1} step={0.01} fmt="pct"
+                onChange={(v) => update((d) => { d.work.materials.water = { ...(d.work.materials.water || {}), opacity: v, transparent: true }; }, { fork: true })} />
+            </Field>
           </div>
         </Card>
         <Card className="compact">

@@ -305,7 +305,7 @@ fn skeleton_and_body_are_consistent() {
     assert_eq!(SKELETON[node::FOOT_R].0, "foot_R");
     assert_eq!(SKELETON[SKIN_BONES[body::SKIN_CHEST_NECK_HEAD[2] as usize]].0, "head");
     // every clothed part is skinned with normalized weights on existing bones
-    for name in ["torso", "pants", "shoes", "hands"] {
+    for name in ["torso", "pants", "pants_jeans", "shoes", "hands"] {
         let p = part(name, D).unwrap();
         assert!(p.tri_count() > 300, "{name}");
         assert_eq!(p.skin.len(), p.pos.len(), "{name}");
@@ -317,9 +317,18 @@ fn skeleton_and_body_are_consistent() {
         assert!(build(&format!("human_{name}"), "{\"detail\":0.5,\"attr\":\"skin_index\"}").is_ok());
     }
     // a hand vertex belongs to the hand bone of that side, a sole to the foot
-    let (idx, w) = body::auto_skin(Vec3::new(-0.262, -0.90, 0.0));
+    let (idx, w) = body::auto_skin(Vec3::new(-0.262, -0.86, 0.0));
     assert_eq!(SKELETON[SKIN_BONES[idx[0] as usize]].0, "hand_L");
-    assert!(w[0] > 0.6);
+    assert!(w[0] > 0.5);
+    // a finger tip belongs to its own last phalanx, on its own side
+    let tip = Vec3::from_array(body::HAND_SEGS[8].1); // middle finger tip (right hand)
+    let (idx, w) = body::auto_skin(tip);
+    assert_eq!(SKELETON[SKIN_BONES[idx[0] as usize]].0, "middle3_R");
+    assert!(w[0] > 0.6, "{w:?}");
+    let (idx, _) = body::auto_skin(Vec3::new(-tip.x, tip.y, tip.z));
+    assert_eq!(SKELETON[SKIN_BONES[idx[0] as usize]].0, "middle3_L");
+    assert_eq!(SKELETON.len(), 55);
+    assert_eq!(SKIN_BONES.len(), 50);
     let (idx, _) = body::auto_skin(Vec3::new(0.10, -1.61, 0.08));
     assert_eq!(SKELETON[SKIN_BONES[idx[0] as usize]].0, "foot_R");
     // the feet stand on the floor
@@ -550,4 +559,53 @@ fn actions_with_fx_are_deterministic() {
     assert_eq!(a.3, b.3);
     assert_eq!(a.4, b.4);
     assert!(a.4.iter().any(|e| e == "whoosh") && a.4.iter().any(|e| e == "paper"));
+}
+
+#[test]
+fn hands_have_five_fingers_that_curl() {
+    use body::{node, FINGERS_R};
+    assert_eq!(body::SKELETON[FINGERS_R].0, "thumb1_R");
+    assert_eq!(body::SKELETON[FINGERS_R + 14].0, "pinky3_R");
+    // the sculpt: every finger segment is inside the hand mesh, the gaps between fingers are outside
+    for s in body::HAND_SEGS.iter() {
+        let mid = (Vec3::from_array(s.0) + Vec3::from_array(s.1)) * 0.5;
+        assert!(body::hands_sdf(mid) < -0.004, "finger flesh at {mid:?}");
+        assert!(body::hands_sdf(Vec3::new(-mid.x, mid.y, mid.z)) < -0.004, "left hand mirrors the right");
+    }
+    let between = (Vec3::from_array(body::HAND_SEGS[4].1) + Vec3::from_array(body::HAND_SEGS[7].1)) * 0.5; // index / middle
+    assert!(body::hands_sdf(between) > 0.0005, "fingers are separate: {}", body::hands_sdf(between));
+    // the rig: relaxed at rest, a fist around the paper roll
+    let mut r = rig::HumanRig::new(3);
+    run(&mut r, 1.0);
+    let tip = |r: &rig::HumanRig| r.world(FINGERS_R + 8).transform_point3(Vec3::from_array(body::HAND_SEGS[8].1) - body::bind(FINGERS_R + 8));
+    let palm = |r: &rig::HumanRig| r.world(node::HAND_R).transform_point3(rig::PALM_R - body::bind(node::HAND_R));
+    let open = (tip(&r) - palm(&r)).length();
+    assert!(r.grip()[1] < 0.2 && open > 0.10, "relaxed: tip {open} m from the palm");
+    r.play("paper");
+    run(&mut r, 1.5);
+    let closed = (tip(&r) - palm(&r)).length();
+    assert!(r.grip()[1] > 0.6 && closed < open - 0.04, "fist: {closed} vs {open}");
+    assert!(r.grip()[0] < 0.25, "the left hand stays relaxed");
+    run(&mut r, 4.0);
+    r.grip_ext = [1.0, -1.0];
+    run(&mut r, 0.5);
+    assert!(r.grip()[0] > 0.9 && r.grip()[1] < 0.25);
+}
+
+#[test]
+fn fabric_textures_are_normal_maps() {
+    for kind in [0, 1] {
+        let t = body::fabric_texture(64, kind);
+        assert_eq!(t.len(), 64 * 64 * 4);
+        let (mut zmin, mut var) = (255u8, 0u32);
+        for px in t.chunks_exact(4) {
+            zmin = zmin.min(px[2]);
+            var += (px[0] as i32 - 128).unsigned_abs() + (px[1] as i32 - 128).unsigned_abs();
+        }
+        assert!(zmin > 110, "normals point out of the surface (kind {kind}): {zmin}");
+        assert!(var / (64 * 64) > 4, "there is relief (kind {kind}): {}", var / (64 * 64));
+    }
+    // cloth parts carry their own UVs for it
+    let h = part("torso", D).unwrap();
+    assert_eq!(h.uv.len(), h.pos.len());
 }

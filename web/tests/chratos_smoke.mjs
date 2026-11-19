@@ -29,7 +29,8 @@ const st = tb.stats();
 console.log(`preload (Rust build of every mesh) ${tPreload.toFixed(0)} ms, construct ${tBuild.toFixed(0)} ms, cache builds ${geocache.stats.builds}`);
 console.log('triangles', JSON.stringify(st));
 assert.ok(st.head > 60000 && st.head < 100000, `head tris ${st.head}`);
-assert.ok(st.total > 200000 && st.total <= 400000, `total tris ${st.total}`);
+assert.ok(st.total > 300000 && st.total <= 550000, `total tris ${st.total}`);
+assert.ok(tb.nodes.index2_R && tb.nodes.pinky3_L && tb.skeleton.bones.length === 50, 'finger bones in the skeleton');
 for (const k of ['root', 'body', 'head', 'fx', 'sockets']) assert.ok(tb[k], k);
 for (const k of ['head_top', 'eyes', 'mouth']) assert.ok(tb.sockets[k], 'socket ' + k);
 assert.equal(tb.play('handstand'), false);
@@ -74,7 +75,7 @@ assert.ok(head.y > 1.45 && head.y < 1.66, `head bone height ${head.y} (scale ${C
 tb.setTheme({ chratos: { chair: true, headphones: false, hoodie: '#7a1f2b' } });
 assert.equal(tb.meshes.chair?.visible, true);
 assert.equal(tb.headphones.visible, false);
-assert.ok(tb.materials.cloth.color.r > 1, 'hoodie tint is a ratio to the black base');
+assert.ok(tb.meshes.torso.userData.tint === '#7a1f2b', 'hoodie tint applied per vertex');
 // ---- accessories on his sockets (toilet registry + per-character fit), furniture, props
 await import('../src/accessories/extra.js');
 tb.setTheme({ slots: {
@@ -105,7 +106,14 @@ assert.ok(drops > 0 && tb.jet.stream.geometry.attributes.position.array.some((v)
 tb.play('paper');
 for (let i = 0; i < 120; i++) tb.update(1 / 60, {});
 assert.ok(tb.roll.visible && tb.paper.geo.drawRange.count > 60, `paper strip drawn: ${tb.paper.geo.drawRange.count}`);
+// clothes options: jeans + colours (only the cloth is recoloured)
+tb.setTheme({ chratos: { pants: 'jeans', hoodieColor: '#7a1f2b', pantsColor: '#20242c', shoeColor: '#b03020' } });
+assert.equal(tb.meshes.pants.name, 'pants_jeans');
+{ const a = tb.meshes.torso.geometry.attributes.color.array, s0 = tb.meshes.torso.geometry.userData.col0; let red = 0, kept = 0;
+  for (let i = 0; i < a.length; i += 3) { if (a[i] > a[i + 2] * 2) red++; if (a[i] === s0[i] && s0[i] > 0.2) kept++; }
+  assert.ok(red > a.length / 6 && kept > 5, `hoodie recoloured (${red}), metal eyelets / aglets kept (${kept})`); }
 tb.setTheme({});
+assert.equal(tb.meshes.pants.name, 'pants');
 assert.equal(tb.accessories.length, 0);
 assert.equal(tb.seatHeight(), 0);
 for (let i = 0; i < 200; i++) tb.update(1 / 60, {});

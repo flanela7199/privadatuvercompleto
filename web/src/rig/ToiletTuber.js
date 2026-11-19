@@ -25,6 +25,7 @@ import { Spring } from '../anim/spring.js';
 import { ACTIONS } from '../anim/actions.js';
 import { WaterJet } from '../fx/waterJet.js';
 import { PaperStrip } from '../fx/paperStrip.js';
+import { tuneWater } from '../fx/waterLook.js';
 import { loadWasm, WasmRig, BUF, SC } from './wasmrig.js';
 import { tankShape, pillowGeometry } from './tank.js';
 
@@ -486,7 +487,7 @@ export class ToiletTuber {
     this.nodes.bowl = mesh('bowl', bowlGeo, bowlMat, body);
 
     // Water inside the bowl
-    const waterMat = M.get('water').clone();
+    const waterMat = tuneWater(M.get('water').clone(), 'bowl');   // tinted semi-opaque, reads on any background
     this.waterTex = waterMat.normalMap || null;
     const waterGeo = new THREE.CircleGeometry(0.262, 64);
     waterGeo.rotateX(-Math.PI / 2); waterGeo.scale(1, 1, D.bowlScaleZ); eggify(waterGeo, D.egg);
@@ -1363,7 +1364,7 @@ export class ToiletTuber {
     const PU = R.view(BUF.PUDDLE);
     J.puddle.position.x = PU[0]; J.puddle.position.z = PU[1];
     J.puddle.scale.set(PU[2], 1, PU[3]);
-    J.puddle.material.opacity = PU[4];
+    J.puddle.material.opacity = Math.min(1, PU[4] * (J.puddle.material.userData.opacityScale ?? 1));
     if (S[SC.PUDDLE_VERSION] !== this.puddleVersion) {
       this.puddleVersion = S[SC.PUDDLE_VERSION];
       const rad = R.view(BUF.PUDDLE_RADIAL), pos = J.puddle.geometry.attributes.position, base = J.puddleBase;

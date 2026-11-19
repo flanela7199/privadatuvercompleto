@@ -325,65 +325,7 @@ pub fn mouth_lower() -> Part {
     Part::from_iso(m, |p, _| tooth_color(p, false))
 }
 
-/* ------------------------------------------------------------------ hoodie torso */
-const TORSO_UP: f32 = 0.062;
-const TORSO_SX: f32 = 0.98;
-fn collar_sdf(p: Vec3) -> f32 {
-    torus(p, v(0.0, -0.224, -0.030), v(0.0, 1.0, 0.30).normalize(), 0.0690, 0.0135)
-}
-/// the hoodie in its own proportions (before it is raised / narrowed to fit the stylized head)
-fn hoodie(p: Vec3) -> f32 {
-    let q = v(p.x.abs(), p.y, p.z);
-    let mut d = ellipsoid(q, v(0.0, -0.430, -0.030), v(0.168, 0.200, 0.108));
-    d = smin(d, capsule(q, v(0.0, -0.292, -0.038), v(0.150, -0.300, -0.040), 0.060), 0.050);
-    d = smin(d, sphere(q, v(0.186, -0.325, -0.040), 0.068), 0.040);
-    d = smin(d, capsule2(q, v(0.030, -0.222, -0.048), v(0.135, -0.276, -0.045), 0.046, 0.036), 0.040);
-    // hood bunched behind the neck + its sides coming forward
-    d = smin(d, ellipsoid(q, v(0.0, -0.232, -0.108), v(0.088, 0.046, 0.046)), 0.030);
-    d = smin(d, ellipsoid(q, v(0.060, -0.243, -0.070), v(0.046, 0.034, 0.052)), 0.026);
-    d = smin(d, capsule(q, v(0.000, -0.215, -0.118), v(0.075, -0.228, -0.085), 0.020), 0.014);
-    // ribbed collar ring, tilted forward
-    d = smin(d, collar_sdf(p), 0.012);
-    // cloth folds
-    d += 0.0016 * (52.0 * p.x + 17.0 * p.y).sin() * (38.0 * p.y - 23.0 * p.z + 3.0 * p.x).sin() * sstep(-0.26, -0.33, p.y);
-    d += 0.0020 * (60.0 * q.x + 30.0 * p.z).sin() * sstep(0.02, 0.0, (p.y + 0.235).abs() - 0.02) * sstep(-0.05, -0.08, p.z);
-    d
-}
-/// the whole hoodie: body down to the hips, kangaroo pocket, sleeves with cuffs (model space)
-pub fn torso_sdf(p: Vec3) -> f32 {
-    let q = v(p.x.abs(), p.y, p.z);
-    let mut d = hoodie(v(p.x / TORSO_SX, p.y - TORSO_UP, p.z)) * TORSO_SX;
-    d = smin(d, ellipsoid(q, v(0.0, -0.590, -0.030), v(0.154, 0.175, 0.108)), 0.050);
-    d = smin(d, ellipsoid(q, v(0.0, -0.640, 0.064), v(0.088, 0.050, 0.022)), 0.020);
-    d = smin(d, super::body::sleeves_sdf(q), 0.030);
-    // neck hole, hem
-    let d = smax(d, -capsule(p, v(0.0, -0.090, -0.026), v(0.0, NECK_CUT - 0.004, -0.040), 0.0665), 0.006);
-    smax(d, -(p.y + 0.752), 0.010)
-}
-pub fn torso(detail: f32) -> Part {
-    let c = 0.0078 / detail.clamp(0.25, 2.0);
-    let m = iso::surface_nets(&torso_sdf, &iso::uniform(-0.320, 0.320, c), &iso::uniform(-0.775, -0.110, c), &iso::uniform(-0.175, 0.125, c), 1.7);
-    let cloth = srgb(26, 26, 30);
-    let mut part = Part::from_iso(m, |p, _| {
-        let rib = sstep(0.004, 0.0, collar_sdf(v(p.x / TORSO_SX, p.y - TORSO_UP, p.z)));
-        cloth * (1.0 + 0.25 * rib)
-    });
-    // drawstrings
-    for s in [-1.0f32, 1.0] {
-        let pts: Vec<Vec3> = (0..9)
-            .map(|i| {
-                let t = i as f32 / 8.0;
-                v(s * (0.027 + 0.006 * t), -0.210 - 0.105 * t, 0.046 + 0.030 * t - 0.022 * t * t + 0.004)
-            })
-            .collect();
-        let pts: Vec<Vec3> = pts.iter().map(|&p| project_out(&torso_sdf, p, 0.0035)).collect();
-        let frame = vec![Vec3::Z; pts.len()];
-        part.tube(&pts, &frame, 6, |t| if t > 0.93 { (0.0030, 0.0030) } else { (0.0022, 0.0022) }, |t| if t > 0.9 { srgb(150, 150, 155) } else { srgb(64, 64, 70) });
-    }
-    super::body::skin_part(&mut part);
-    part
-}
-
+/* ------------------------------------------------------------------ helpers */
 /// push `p` out along the SDF gradient until it floats `gap` above the surface
 pub fn project_out(f: &dyn Fn(Vec3) -> f32, mut p: Vec3, gap: f32) -> Vec3 {
     for _ in 0..6 {

@@ -67,8 +67,11 @@ const STRIDE = 10;
 // the rig's root space already has the floor at y = 0 (like the toilet), metres: no extra scale, so the FX /
 // props simulations and the furniture share his space
 export const CHRATOS_SCALE = 1;
-const DEFAULTS = { detail: 1, chair: false, headphones: true, cable: true, hoodie: null, hair: null, restSmile: 0.40 };
+const DEFAULTS = { detail: 1, chair: false, headphones: true, cable: true, hoodie: null, hoodieColor: null, pantsColor: null, shoeColor: null, pants: 'joggers', hair: null, restSmile: 0.40 };
 // default (linear) base colours the Rust vertex colours were authored with: tints are ratios to these
+// clothes are recoloured per vertex (tintPart): only the cloth itself, not stitches / soles / laces / metal.
+// [base sRGB of the cloth as authored in Rust, max linear channel still considered cloth]
+const CLOTH = { torso: [[27, 27, 31], 0.034], pants: [[50, 52, 60], 0.062], pants_jeans: [[40, 54, 88], 0.34], shoes: [[42, 44, 52], 0.036] };
 const BASE = { hoodie: new THREE.Color().setRGB(26 / 255, 26 / 255, 30 / 255, THREE.SRGBColorSpace), hair: new THREE.Color().setRGB(31 / 255, 21 / 255, 16 / 255, THREE.SRGBColorSpace) };
 
 const params = (detail, extra) => ({ detail, v: INFO.version, ...extra });
@@ -142,7 +145,9 @@ function textures() {
   }
   const pores = data(d, n, n, false);
   pores.wrapS = pores.wrapT = THREE.RepeatWrapping; pores.repeat.set(26, 22);
-  return (TEX = { eye, hair, pores });
+  // fabric normal maps (tiling 4 cm, cloth UVs from Rust): knitted fleece, denim twill
+  const fabric = (kind) => { const t = data(pkg.human_fabric_texture(256, kind), 256, 256, false); t.wrapS = t.wrapT = THREE.RepeatWrapping; return t; };
+  return (TEX = { eye, hair, pores, fleece: fabric(0), denim: fabric(1) });
 }
 
 function makeMaterials() {
@@ -160,9 +165,9 @@ function makeMaterials() {
     // cornea: clear glossy bulge over the iris (blended, drawn after everything opaque, never writes depth)
     cornea: new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: 0.10, roughness: 0.0, clearcoat: 1, clearcoatRoughness: 0.0, envMapIntensity: 1.6, depthWrite: false }),
     teeth: P({ roughness: 0.3, clearcoat: 0.4 }),
-    pants: P({ roughness: 0.9 }),
-    shoes: P({ roughness: 0.7 }),
-    cloth: P({ roughness: 0.95, sheen: 0.35, sheenRoughness: 0.9, sheenColor: new THREE.Color(0.25, 0.25, 0.28) }),
+    pants: P({ roughness: 0.9, normalMap: T.fleece, normalScale: new THREE.Vector2(0.55, 0.55), sheen: 0.25, sheenRoughness: 0.9, sheenColor: new THREE.Color(0.2, 0.2, 0.24) }),
+    shoes: P({ roughness: 0.72 }),
+    cloth: P({ normalMap: T.fleece, normalScale: new THREE.Vector2(0.7, 0.7), roughness: 0.95, sheen: 0.35, sheenRoughness: 0.9, sheenColor: new THREE.Color(0.25, 0.25, 0.28) }),
     plastic: P({ roughness: 0.62 }),
     pad: P({ roughness: 0.86, sheen: 0.2, sheenRoughness: 0.8 }),
     metal: P({ roughness: 0.32, metalness: 0.9 }),
@@ -172,7 +177,7 @@ function makeMaterials() {
 }
 const PART_MATERIAL = {
   head: 'skin', beard: 'beard', brows: 'beard', hair: 'hair', hair_cap: 'beard', eye: 'eye', cornea: 'cornea', mouth_upper: 'teeth', mouth_lower: 'teeth',
-  torso: 'cloth', pants: 'pants', shoes: 'shoes', hands: 'skin', hp_shell: 'plastic', hp_pad: 'pad', hp_metal: 'metal', plug: 'metal', chair: 'chair',
+  torso: 'cloth', pants: 'pants', pants_jeans: 'pants', shoes: 'shoes', hands: 'skin', hp_shell: 'plastic', hp_pad: 'pad', hp_metal: 'metal', plug: 'metal', chair: 'chair',
 };
 
 export class Chratos {
@@ -180,7 +185,9 @@ export class Chratos {
   static async preload(theme, onProgress) {
     if (!pkg) return false;
     const detail = theme?.chratos?.detail ?? DEFAULTS.detail;
-    const parts = INFO.parts;
+    // only what this theme shows (the other pants variant / the optional chair backrest are built on demand)
+    const cfg = { ...DEFAULTS, ...(theme?.chratos || {}) };
+    const parts = INFO.parts.filter((p) => (p !== 'chair' || cfg.chair) && p !== (cfg.pants === 'jeans' ? 'pants' : 'pants_jeans'));
     for (let i = 0; i < parts.length; i++) {
       await warm(kindOf(parts[i]), params(detail, { attr: 'meta' }));
       for (const [k, p] of partRequests(parts[i], detail)) await warm(k, p);
@@ -276,7 +283,7 @@ export class Chratos {
     add('head'); add('beard'); add('brows');
     add('hair_cap', headSpace); add('hair', headSpace); add('mouth_upper', headSpace);
     add('mouth_lower', jawSpace);
-    add('torso'); add('pants'); add('shoes'); add('hands');
+    add('torso'); this.meshes.pants = add(cfg.pants === 'jeans' ? 'pants_jeans' : 'pants'); add('shoes'); add('hands');
     this.headphones = new THREE.Group(); this.headphones.name = 'headphones'; headSpace.add(this.headphones);
     add('hp_shell', this.headphones); add('hp_pad', this.headphones); add('hp_metal', this.headphones);
     if (cfg.chair) add('chair', body);   // optional gaming-chair backrest (off by default: furniture comes from the app)
@@ -336,18 +343,42 @@ export class Chratos {
       const c = new THREE.Color(col);
       mat.color.setRGB(c.r / base.r, c.g / base.g, c.b / base.b);
     };
-    tint(this.materials.cloth, cfg.hoodie, BASE.hoodie);
+    this.tintPart('torso', cfg.hoodieColor || cfg.hoodie);
+    this.tintPart(cfg.pants === 'jeans' ? 'pants_jeans' : 'pants', cfg.pantsColor);
+    this.tintPart('shoes', cfg.shoeColor);
+    const jeans = cfg.pants === 'jeans';
+    this.materials.pants.normalMap = jeans ? TEX.denim : TEX.fleece;
+    this.materials.pants.normalScale.setScalar(jeans ? 0.9 : 0.55);
+    this.materials.pants.needsUpdate = true;
     tint(this.materials.hair, cfg.hair, BASE.hair);
     this.materials.hair.color.multiplyScalar(HAIR_GAIN);   // the card texture stores brightness / 1.6
     tint(this.materials.beard, cfg.hair, BASE.hair);
     this.rig.set_rest_smile(cfg.restSmile ?? DEFAULTS.restSmile);
   }
 
-  /** theme.chratos = { chair, headphones, cable, hoodie: '#rrggbb', hair: '#rrggbb', restSmile, detail } (all optional) */
+  /** recolour the cloth vertices of a part (stitches, soles, laces and metal keep their colour); null = authored colour */
+  tintPart(part, col) {
+    const mesh = this.meshes[part === 'pants_jeans' ? 'pants' : part], spec = CLOTH[part];
+    if (!mesh || !spec) return;
+    const attr = mesh.geometry.attributes.color, key = col || '';
+    if (mesh.userData.tint === key) return;
+    const src = mesh.geometry.userData.col0 ||= attr.array.slice();
+    mesh.userData.tint = key;
+    if (!col) { attr.array.set(src); attr.needsUpdate = true; return; }
+    const base = new THREE.Color().setRGB(spec[0][0] / 255, spec[0][1] / 255, spec[0][2] / 255, THREE.SRGBColorSpace), c = new THREE.Color(col);
+    const k = [c.r / base.r, c.g / base.g, c.b / base.b], a = attr.array, max = spec[1];
+    for (let i = 0; i < a.length; i += 3) {
+      const cloth = Math.max(src[i], src[i + 1], src[i + 2]) < max;
+      for (let j = 0; j < 3; j++) a[i + j] = cloth ? src[i + j] * k[j] : src[i + j];
+    }
+    attr.needsUpdate = true;
+  }
+
+  /** theme.chratos = { pants: 'joggers' | 'jeans', hoodieColor, pantsColor, shoeColor, hair: '#rrggbb', chair, headphones, cable, restSmile, detail } (all optional) */
   setTheme(theme) {
     const cfg = { ...DEFAULTS, ...(theme?.chratos || {}) };
     this.theme = theme || {};
-    if (cfg.detail !== this.cfg.detail) { this.build(theme); this.buildAccessories(); return; }
+    if (cfg.detail !== this.cfg.detail || cfg.pants !== this.cfg.pants) { this.build(theme); this.buildAccessories(); return; }
     this.cfg = cfg;
     this.applyTheme(cfg);
     if (JSON.stringify(this.theme.slots || {}) !== this.slotsKey) this.buildAccessories();
@@ -459,7 +490,7 @@ export class Chratos {
     const PU = view(BUF.PUDDLE);
     J.puddle.position.x = PU[0]; J.puddle.position.z = PU[1];
     J.puddle.scale.set(PU[2], 1, PU[3]);
-    J.puddle.material.opacity = PU[4];
+    J.puddle.material.opacity = Math.min(1, PU[4] * (J.puddle.material.userData.opacityScale ?? 1));
     if (S[SC.PUDDLE_VERSION] !== this.puddleVersion) {
       this.puddleVersion = S[SC.PUDDLE_VERSION];
       const rad = view(BUF.PUDDLE_RADIAL), pos = J.puddle.geometry.attributes.position, base = J.puddleBase;

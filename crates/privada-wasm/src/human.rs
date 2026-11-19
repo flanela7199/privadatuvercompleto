@@ -60,6 +60,13 @@ pub fn human_hair_texture(w: u32, h: u32) -> Vec<u8> {
     human::parts::hair_texture(w.clamp(8, 2048) as usize, h.clamp(8, 4096) as usize)
 }
 
+/// procedural RGBA fabric texture, tiling: rgb = tangent-space normal map, a = roughness variation.
+/// kind 0 = knitted cotton fleece (hoodie, joggers), 1 = denim twill (jeans)
+#[wasm_bindgen]
+pub fn human_fabric_texture(size: u32, kind: u32) -> Vec<u8> {
+    human::body::fabric_texture(size.clamp(8, 1024) as usize, kind)
+}
+
 #[wasm_bindgen]
 pub fn human_version() -> u32 {
     human::HUMAN_VERSION
@@ -189,6 +196,10 @@ impl HumanRig {
     }
     pub fn scalars(&self) -> Vec<f32> {
         self.inner.scalars().to_vec()
+    }
+    /// finger curl targets of the left / right hand, 0 = open .. 1 = fist; negative = automatic (default)
+    pub fn set_grip(&mut self, left: f32, right: f32) {
+        self.inner.grip_ext = [left, right];
     }
     /// the 13 body capsules in root space: 13 x [ax,ay,az, bx,by,bz, r]
     pub fn capsules(&self) -> Vec<f32> {
