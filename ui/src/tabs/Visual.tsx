@@ -12,6 +12,7 @@ import { Field, Fields } from '../components/Section';
 import { EmptyState } from '../components/EmptyState';
 import { Thumb, CATEGORY_ICON } from '../components/Thumb';
 import { Segmented } from '../components/Segmented';
+import { EyeStylePicker } from '../components/EyeStylePicker';
 import { useToast } from '../components/Toast';
 
 type Sel = { slot: string; index: number } | null;
@@ -110,10 +111,32 @@ export function Visual({ active }: { active: boolean }) {
             <Field label="Estufado" tip="Quanto as faces do tanque incham para fora (metros)"><Slider value={body.tank.bulge} min={0} max={0.06} step={0.001} fmt="m3" onChange={(v) => setBody('tank', 'bulge', v)} /></Field>
             <Field label="Afunilado embaixo" tip="Largura da base do tanque em relação ao topo (1 = reto)"><Slider value={body.tank.taper} min={0.7} max={1.15} step={0.01} fmt="x" onChange={(v) => setBody('tank', 'taper', v)} /></Field>
             <Field label="Tampa arredondada" tip="Raio das bordas da tampa do tanque (metros)"><Slider value={body.tank.lidRound} min={0.01} max={0.05} step={0.001} fmt="m3" onChange={(v) => setBody('tank', 'lidRound', v)} /></Field>
+            <Field label="Espessura da tampa" tip="Espessura da tampa do tanque (metros)"><Slider value={body.tank.lidThick} min={0.04} max={0.2} step={0.005} fmt="m3" onChange={(v) => setBody('tank', 'lidThick', v)} /></Field>
+            <Field label="Aba da tampa" tip="Quanto a tampa do tanque passa da borda (metros)"><Slider value={body.tank.lidOver} min={0} max={0.08} step={0.001} fmt="m3" onChange={(v) => setBody('tank', 'lidOver', v)} /></Field>
             <Field label="Pescoço (cano)" tip="Comprimento do cano: sobe/desce a cabeça"><Slider value={body.neck.length} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('neck', 'length', v)} /></Field>
             <Field label="Olhos tamanho"><Slider value={body.eyes.size} min={0.5} max={1.8} step={0.01} fmt="x" onChange={(v) => setBody('eyes', 'size', v)} /></Field>
             <Field label="Olhos distância" tip="Separação entre os olhos"><Slider value={body.eyes.spacing} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('eyes', 'spacing', v)} /></Field>
             <Field label="Olhos altura" tip="Sobe/desce os olhos (metros)"><Slider value={body.eyes.y} min={-0.12} max={0.12} step={0.005} onChange={(v) => setBody('eyes', 'y', v)} /></Field>
+          </Fields>
+          <h3>Estilo dos olhos</h3>
+          <EyeStylePicker value={body.eyes.style} onChange={(v) => setBody('eyes', 'style', v)} />
+          <div style={{ marginTop: 8 }}>
+          <Fields>
+            {/* optional overrides: unset = "auto" (the style decides); written only when moved */}
+            {([['outline', 'Contorno', 'Espessura da borda preta do olho', 0.03, 0.2, 0.005, 0.11, 'n2'],
+               ['pupil', 'Pupila', 'Tamanho da pupila em relação ao olho', 0.2, 0.5, 0.01, 0.3, 'n2'],
+               ['oval', 'Oval', '1 = redondo; maior = olho mais alto que largo', 0.9, 1.3, 0.01, 1.1, 'x']] as const).map(([k, label, tip, min, max, step, mid, fmt]) => {
+              const v = (work.body?.eyes as any)?.[k];
+              return (
+                <Field key={k} label={label} tip={`${tip}. "auto" = o estilo escolhe.`}>
+                  <Slider value={v ?? mid} min={min} max={max} step={step} fmt={fmt} display={v == null ? 'auto' : undefined} onChange={(x) => setBody('eyes', k, x)} />
+                  <Button size="sm" kind="ghost" tip="Voltar para automático" disabled={v == null} onClick={() => update((d) => { if (d.work.body?.eyes) delete d.work.body.eyes[k]; }, { fork: true })}>auto</Button>
+                </Field>
+              );
+            })}
+          </Fields>
+          </div>
+          <Fields>
             <Field label="Rolo de papel" tip="Onde fica o suporte do papel higiênico">
               <Segmented value={body.roll.mount} options={[['side', 'Do lado (padrão)'], ['front', 'Na frente']]} onChange={(v) => setBody('roll', 'mount', v)} />
             </Field>

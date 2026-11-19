@@ -22,7 +22,7 @@ pub const MAX_PERF: usize = MAX_PTS / SHEET as usize + 3;
 /// a perforation tears when the paper hanging below it (m of dry-equivalent paper, wet counts 3x)
 /// exceeds TEAR_WET_LOAD + TEAR_DRY_LOAD * (1 - wet)^2 (dry paper never tears by itself)
 pub const TEAR_WET_LOAD: f32 = 0.3;
-pub const TEAR_DRY_LOAD: f32 = 6.0;
+pub const TEAR_DRY_LOAD: f32 = 4.0;
 /// seconds for fully wet paper to dry
 pub const DRY_TIME: f32 = 20.0;
 /// mass of one strip point (kg, dry) for pushing props
@@ -76,6 +76,10 @@ pub struct PaperStrip {
     pub max_wet: f32,
     /// set by `update`: a wet perforation gave way at this point index (the rig tears there)
     pub tear_request: Option<usize>,
+    /// air dragged along by the water column: airborne points within 1.2 m accelerate toward the nearest
+    /// of these column samples (attract_k m/s^2 per m of distance, capped at 18); empty = off
+    pub attract: Vec<Vec3>,
+    pub attract_k: f32,
 }
 
 impl PaperStrip {
@@ -108,6 +112,8 @@ impl PaperStrip {
             col: vec![1.0; MAX_PTS * 8],
             max_wet: 0.0,
             tear_request: None,
+            attract: Vec::with_capacity(12),
+            attract_k: 0.0,
         }
     }
 
@@ -198,6 +204,15 @@ impl PaperStrip {
         let drops = hash.overlaps(plo - Vec3::splat(r), phi + Vec3::splat(r));
         let (sx, sz) = (puddle[2].max(1e-3), puddle[3].max(1e-3));
         let pud = puddle[4] > 0.05 && plo.y < 0.03;
+        // the column only matters if its box touches the strip's
+        let stream = if stream.iter().any(|s| {
+            let e = Vec3::splat(s.r + r);
+            (s.p + e).cmpge(plo).all() && (s.p - e).cmple(phi).all()
+        }) {
+            stream
+        } else {
+            &[]
+        };
         if !drops && !pud && stream.is_empty() {
             return;
         }
@@ -291,9 +306,23 @@ impl PaperStrip {
             let fx = self.wind.x * w + turb * (t * 7.1 + fi * 0.53 + 1.3).sin();
             let fy = self.wind.y * w + turb * (t * 5.3 + fi * 0.71).sin() * 0.8;
             let fz = self.wind.z * w + turb * (t * 6.7 + fi * 0.41 + 2.1).sin() * 0.6;
-            o.p.x += v.x + fx * dt * dt;
-            o.p.y += v.y + g * (1.0 + 2.0 * o.wet) + fy * dt * dt;
-            o.p.z += v.z + fz * dt * dt;
+            let mut pull = Vec3::ZERO;
+            if !self.attract.is_empty() && o.p.y > 0.03 {
+                let mut best = (f32::MAX, Vec3::ZERO);
+                for a in &self.attract {
+                    let d2 = a.distance_squared(o.p);
+                    if d2 < best.0 {
+                        best = (d2, *a);
+                    }
+                }
+                let d = best.0.sqrt();
+                if d < 1.2 && d > 1e-4 {
+                    pull = (best.1 - o.p) / d * (d * self.attract_k).min(18.0);
+                }
+            }
+            o.p.x += v.x + (fx + pull.x) * dt * dt;
+            o.p.y += v.y + g * (1.0 + 2.0 * o.wet) + (fy + pull.y) * dt * dt;
+            o.p.z += v.z + (fz + pull.z) * dt * dt;
         }
 
         // constraints: length, bending stiffness, floor pile

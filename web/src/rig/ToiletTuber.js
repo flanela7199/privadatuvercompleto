@@ -35,6 +35,20 @@ const WASM = await loadWasm();
 // JS fallback (no wasm): props stay attached and the paper never gets wet.
 const ACC_INFO = WASM ? await import('../accessories/extra.js').then((m) => m.ACCESSORY_INFO || {}, () => ({})) : {};
 const PROP_STRIDE = 12;
+// furniture he can sit on (socket floor_under): FURNITURE_INFO[id] = { seatHeight (m), mass?, physics? }.
+// web/src/accessories/furniture.js provides it (loaded lazily, optional); registerFurnitureInfo() adds more.
+const FURN = {};
+let furnVersion = 0;   // bumps when info arrives: rigs re-register their props (furniture physics entries)
+export const registerFurnitureInfo = (info) => { Object.assign(FURN, info || {}); furnVersion++; };
+/** seat height (m) of a floor_under entry: FURNITURE_INFO seatHeight (given at the default seatScale) x params.scale / seatScale */
+const entrySeatHeight = (e) => {
+  if (e.seatHeight != null) return +e.seatHeight || 0;
+  const f = FURN[e.id];
+  if (!f?.seatHeight) return 0;
+  const k = Array.isArray(e.params?.scale) ? e.params.scale[1] : e.params?.scale;
+  return k == null || !f.seatScale ? +f.seatHeight : (f.seatHeight * k) / f.seatScale;
+};
+import('../accessories/furniture.js').then((m) => registerFurnitureInfo(m.FURNITURE_INFO), () => {});
 const _pm = new THREE.Matrix4(), _pm2 = new THREE.Matrix4(), _pv = new THREE.Vector3(), _pq = new THREE.Quaternion(), _ps = new THREE.Vector3();
 
 /** All proportions in one place (meters-ish, origin on the floor). */
@@ -51,8 +65,25 @@ export const DIM = {
   pipeZ: -0.56,
   headY: 1.0,
   // tank (head) = soft pillow: corner radius, face bulge, bottom width factor, tank-lid edge radius (theme.body.tank)
-  tank: { w: 0.95, h: 0.52, d: 0.36, y: 0.3, z: 0.14, round: 0.11, bulge: 0.025, taper: 0.9, lidRound: 0.035 },
+  // defaults measured on the reference image of the original: height/width 0.76 (hF = default body.tank.h,
+  // grows upward from the fixed bottom), slight taper, corner radius ~11% of the width (bottom slightly rounder),
+  // thick rounded tank lid (lidThick, slightly domed top) overhanging lidOver all around
+  tank: { w: 0.95, h: 0.52, d: 0.36, y: 0.3, z: 0.14, hF: 1.38, round: 0.10, bulge: 0.02, taper: 0.93, lidRound: 0.035, lidThick: 0.14, lidOver: 0.045, lidDome: 0.012 },
+  // default googly eyes on the taller face: radius ~0.167 / centre spacing ~0.35 of the tank width, at mid height
+  eyeDefaults: { size: 1.13, spacing: 0.97 },
+  neckDefault: 0.9,                            // a bit shorter so the taller head stays in frame
   eye: { x: 0.172, y: 0.33, r: 0.14 },
+  // eye styles (theme.body.eyes.style; mirror of privada_core::dim::EYE_STYLES): classico (default, the
+  // reference image), googly (3D dome), desenho (cartoon oval, no outline), serio (classico + upper eyelid),
+  // sticker (flat printed, drifting pupils). outline / pupil = fractions of the radius, hl = highlight / pupil,
+  // dome = slight convexity of the flat white (m), damp = pupil spring damping
+  eyeStyles: {
+    classico: { flat: true, outline: 0.12, pupil: 0.38, oval: 1, pupilZ: 0.002, damp: 16, hl: 0.28, dome: 0.003 },
+    googly: { flat: false, outline: 0, pupil: 0.44, oval: 1, pupilZ: 0.03, damp: 9 },
+    desenho: { flat: true, outline: 0, pupil: 0.42, oval: 1.15, pupilZ: 0.0005, damp: 14, hl: 0.45, dome: 0 },
+    serio: { flat: true, outline: 0.12, pupil: 0.38, oval: 1, pupilZ: 0.002, damp: 16, hl: 0.28, dome: 0.003, lid: 0.3 },
+    sticker: { flat: true, outline: 0.11, pupil: 0.3, oval: 1.1, pupilZ: 0.0005, damp: 9, hl: 0.28, dome: 0, drift: true, size: 1.15, spacing: 0.97 },
+  },
   egg: 0.08,                                   // front of bowl/seat/lid narrower (elongated bowl)
   rimTop: 0.638, rimOuterR: 0.414,             // bowl rim glaze top / outer radius (lathe units)
   // seat = LOWER LIP: bone chain hinge -> front (bone 0 at z0, then (2rz+0.02)/7 apart); per bone 1..7:
@@ -78,41 +109,50 @@ export const DIM = {
   // paper roll, two mounts (theme.body.roll.mount): 'side' (default) = holder on the tank's left side face,
   // axis Z (side* = beyond the face / above the tank centre / ahead of its centre); 'front' = tank front-left
   // below the eye, axis X (xf, above, gap). x/y/z = the default side position (see bodyDims).
-  roll: { x: -0.6, y: 0.38, z: 0.16, r: 0.085, len: 0.19, sideOut: 0.125, sideUp: 0.08, sideFwd: 0.02, xf: -0.3 / 0.95, above: 0.06, gap: 0.025 },
+  roll: { x: -0.6, y: 0.38, z: 0.16, r: 0.085, len: 0.19, sideOut: 0.125, sideUp: 0.34, sideFwd: 0.02, xf: -0.3 / 0.95, above: 0.06, gap: 0.025 },
   paperTop: 0.735,                             // closed-lid top for the paper collision
 };
 
 /**
  * theme.body -> tank / eyes / handle / roll in head space (mirror of privada_core::dim::BodyDims).
  * tank {w,h,d} factors 0.6..1.6 (bottom and back stay put), eyes {size 0.5..1.8, spacing 0.6..1.6, y -0.12..0.12 m},
+ * eyes.style 'classico' (default) | 'googly' | 'desenho' | 'serio' | 'sticker' (overrides: outline 0..0.2, pupil 0.2..0.5, oval 0.9..1.3),
  * neck {length 0.6..1.6} (the pipe above the bowl: moves the head up/down), roll {mount 'side' | 'front'}.
  */
 export function bodyDims(body = {}) {
   const f = (v, a, b, d = 1) => (Number.isFinite(v) ? clamp(v, a, b) : d);
   const t = body?.tank || {}, e = body?.eyes || {}, nk = body?.neck || {};
-  const w = f(t.w, 0.6, 1.6), h = f(t.h, 0.6, 1.6), d = f(t.d, 0.6, 1.6);
+  const w = f(t.w, 0.6, 1.6), h = f(t.h, 0.6, 1.6, DIM.tank.hF), d = f(t.d, 0.6, 1.6);
   const T0 = DIM.tank, E0 = DIM.eye, R = DIM.roll;
   const bottom = T0.y - T0.h / 2, back = T0.z - T0.d / 2;
   const tank = {
     w: T0.w * w, h: T0.h * h, d: T0.d * d, y: 0, z: 0,
     round: f(t.round, 0.02, 0.16, T0.round), bulge: f(t.bulge, 0, 0.06, T0.bulge),
     taper: f(t.taper, 0.7, 1.15, T0.taper), lidRound: f(t.lidRound, 0.01, 0.05, T0.lidRound),
+    lidThick: f(t.lidThick, 0.04, 0.2, T0.lidThick), lidOver: f(t.lidOver, 0, 0.08, T0.lidOver),
   };
   tank.y = bottom + tank.h / 2; tank.z = back + tank.d / 2;
   const S = tankShape(tank, tank);
   tank.shape = S; tank.bottom = tank.y - S.topMax; tank.top = tank.y + S.topMax;
+  tank.lidTop = tank.top - 0.006 + tank.lidThick + T0.lidDome;   // mirror of BodyDims::lid_top
   const front = tank.z + S.frontMax;                       // frontmost point of the bulged face
   const onFront = (x, y) => { const q = S.front(x, y - tank.y); return { p: [q.p[0], q.p[1] + tank.y, q.p[2] + tank.z], n: q.n }; };
-  const ef = onFront(E0.x * f(e.spacing, 0.6, 1.6) * w, tank.y + (E0.y - T0.y) * h + f(e.y, -0.12, 0.12, 0));
-  const eye = { x: ef.p[0], y: ef.p[1], z: ef.p[2] + 0.004, n: ef.n, r: E0.r * f(e.size, 0.5, 1.8) };
+  const style = DIM.eyeStyles[e.style] ? e.style : 'classico', ST = DIM.eyeStyles[style];
+  const ED = ST.size ? ST : DIM.eyeDefaults;
+  const ef = onFront(E0.x * f(e.spacing, 0.6, 1.6, ED.spacing) * w, tank.y + f(e.y, -0.12, 0.12, 0));   // mid height
+  const eye = { x: ef.p[0], y: ef.p[1], z: ef.p[2] + 0.004, n: ef.n, r: E0.r * f(e.size, 0.5, 1.8, ED.size), style, st: ST };
+  if (ST.flat) {
+    Object.assign(eye, { outline: f(e.outline, 0, 0.2, ST.outline), pupil: f(e.pupil, 0.2, 0.5, ST.pupil), oval: f(e.oval, 0.9, 1.3, ST.oval), pupilZ: ST.pupilZ });
+    eye.travel = eye.r * (1 - eye.pupil - eye.outline);
+  } else Object.assign(eye, { outline: 0, pupil: ST.pupil, oval: 1, pupilZ: ST.pupilZ, travel: eye.r * 0.5 });
   const hf = onFront(0.34 * w, tank.y + 0.17 * h);
-  const neck = f(nk.length, 0.6, 1.6);
+  const neck = f(nk.length, 0.6, 1.6, DIM.neckDefault);
   let roll;
   if (body?.roll?.mount === 'front') {
     const hp = onFront(R.xf * tank.w, bottom + R.above).p;
     roll = { ...R, mount: 'front', holder: hp, x: hp[0], y: hp[1], z: hp[2] + R.r + R.gap };
   } else {
-    const q = S.side(-1, R.sideUp * h, R.sideFwd), hp = [q.p[0], q.p[1] + tank.y, q.p[2] + tank.z];
+    const q = S.side(-1, Math.min(bottom + R.sideUp - tank.y, S.hy - S.rTop), R.sideFwd), hp = [q.p[0], q.p[1] + tank.y, q.p[2] + tank.z];   // fixed height above the bottom
     roll = { ...R, mount: 'side', holder: hp, x: hp[0] - R.sideOut, y: hp[1], z: hp[2] };
   }
   return {
@@ -304,6 +344,8 @@ export class ToiletTuber {
     this.lookLimits = { yaw: (80 * Math.PI) / 180, pitch: (35 * Math.PI) / 180 };
     this.mouthVec = { open: 0, round: 0, wide: 0, closed: 0, sib: 0 };
     this.rust = WASM ? new WasmRig(WASM, (Math.random() * 4294967295) >>> 0) : null;
+    this.sitS = new Spring(110, 21);   // JS path: base height (Rust keeps its own)
+    this._seatSent = -1;
     this.restOpen = DIM.mouth.rest;
     this.blinkTimer = 2 + Math.random() * 3;
     this.blinkT = -1;
@@ -313,6 +355,34 @@ export class ToiletTuber {
 
   /** true when the Rust/wasm rig drives the character */
   get usesRust() { return !!this.rust; }
+
+  /* ------------------------------------------------------- sitting on furniture */
+  /** persistent sit height (m): raises the whole body base, smoothly (~0.3 s); 0 = on the floor */
+  get sitHeight() { return this.rust ? this.rust.r.sit_height() : this.sitS.x; }
+  set sitHeight(h) {
+    h = Number.isFinite(+h) ? clamp(+h, 0, 2) : 0;
+    if (this.rust) this.rust.r.set_sit_height(h); else this.sitS.target = h;
+  }
+  get isSitting() { return this.rust ? this.rust.r.is_sitting() : this.sitS.target > 0.01; }
+  /** seat height of the furniture equipped on floor_under (FURNITURE_INFO[id].seatHeight x its scale), 0 = none */
+  seatHeight() {
+    let h = 0;
+    for (const w of this.accessories || []) {
+      if (w.userData.slot !== 'floor_under') continue;
+      const sh = entrySeatHeight(w.userData.entry || {});   // honours params.scale
+      if (sh > 0) h = Math.max(h, sh * w.scale.y + w.position.y);   // + the slot's transform (scale / lift)
+    }
+    return h;
+  }
+  /** keep the rig's seat height in sync with the equipped furniture (cheap; every frame) */
+  syncSeat() {
+    if (this._furnV !== furnVersion) { this._furnV = furnVersion; if (this.rust && this.accessories) this.registerProps(); }
+    const h = this.seatHeight();
+    if (h === this._seatSent) return;
+    this._seatSent = h;
+    this.rust?.r.set_seat_height?.(h);
+    if (!this.rust && h <= 0) this.sitS.target = 0;
+  }
   /** total look range in radians (default 80° yaw, 35° pitch) */
   setLookLimits(maxYaw, maxPitch) {
     this.lookLimits = { yaw: clamp(maxYaw, 0, 1.6), pitch: clamp(maxPitch, 0, 0.9) };
@@ -515,11 +585,21 @@ export class ToiletTuber {
     // soft pillow tank (tank.js: rounded + bulged + tapered, same surface math as Rust TankShape)
     const tank = mesh('tank', pillowGeometry(T.shape), porcelain, head);
     tank.position.set(0, T.y, T.z);
-    // rounded tank lid; the overhang grows with its edge radius
-    const lidT = Math.max(0.065, 2 * T.lidRound + 0.012), lidOv = 0.012 + 0.4 * T.lidRound;
-    const lidTop = T.top - 0.006 + lidT;
-    const tankLid = mesh('tank_lid', new RoundedBoxGeometry(2 * (T.shape.hx + lidOv), lidT, 2 * (T.shape.hz + lidOv) + 0.005, 4, T.lidRound), M.get('tankLid', 'porcelain'), head);
-    tankLid.position.set(0, lidTop - lidT / 2, T.z);
+    // thick rounded tank lid: a slab overhanging lidOver all around, slightly domed on top
+    const lidT = T.lidThick, lidOv = T.lidOver, lidTop = T.lidTop;
+    const lidW = 2 * (T.shape.hx + lidOv), lidD = 2 * (T.shape.hz + lidOv);
+    const tankLidGeo = new RoundedBoxGeometry(lidW, lidT, lidD, 4, Math.min(T.lidRound, lidT / 2 - 0.002));
+    {
+      const lp = tankLidGeo.attributes.position;
+      for (let i = 0; i < lp.count; i++) {
+        const y = lp.getY(i);
+        if (y <= 0) continue;
+        const ux = clamp(lp.getX(i) / (lidW / 2), -1, 1), uz = clamp(lp.getZ(i) / (lidD / 2), -1, 1);
+        lp.setY(i, y + DIM.tank.lidDome * (y / (lidT / 2)) * (1 - ux * ux) * (1 - uz * uz));
+      }
+    }
+    const tankLid = mesh('tank_lid', tankLidGeo, M.get('tankLid', 'porcelain'), head);
+    tankLid.position.set(0, lidTop - DIM.tank.lidDome - lidT / 2, T.z);
     const front = D.front;                                   // frontmost point of the bulged face
     const _Z = new THREE.Vector3(0, 0, 1), faceQ = (n) => new THREE.Quaternion().setFromUnitVectors(_Z, new THREE.Vector3(...n));
     for (const sx of [1, -1]) {
@@ -532,22 +612,49 @@ export class ToiletTuber {
     const inlet = mesh('tank_inlet', new THREE.CylinderGeometry(0.03, 0.03, 0.04, 6), M.get('valve', 'chrome'), head);
     inlet.position.set(-0.36 * (T.w / DIM.tank.w), T.bottom - 0.02, T.z - 0.06);
 
-    // Googly eyes
-    this.eyes = [];
+    // Eyes: flat printed STICKER eyes (default: white vertical oval, thick black outline, small pupil
+    // dot with a highlight, conformed to the curved tank face) or the 3D GOOGLY ones (eyes.style)
+    this.eyes = []; this.eyelids = null;
+    const E = D.eye;   // follows theme.body (style, size, spacing, height)
     for (const s of [-1, 1]) {
-      const E = D.eye;   // follows theme.body (size, spacing, height)
       const eye = group(s < 0 ? 'eye_L' : 'eye_R', head, E.x * s, E.y, E.z);
       eye.quaternion.copy(faceQ([E.n[0] * s, E.n[1], E.n[2]]));   // flush with the curved front face
-      const white = mesh('eye_white', new THREE.CylinderGeometry(E.r, E.r, 0.025, 48), M.get('eyeWhite'), eye);
-      white.rotation.x = Math.PI / 2; white.position.z = 0.0125;
-      const rim = mesh('eye_rim', new THREE.TorusGeometry(E.r, 0.009, 10, 64), M.get('outline'), eye);
-      rim.position.z = 0.025;
-      const pupil = mesh(s < 0 ? 'pupil_L' : 'pupil_R', new THREE.CylinderGeometry(E.r * 0.44, E.r * 0.44, 0.012, 40), M.get('pupil'), eye);
-      pupil.rotation.x = Math.PI / 2; pupil.position.z = 0.03;
-      const dome = mesh('eye_dome', new THREE.SphereGeometry(E.r, 40, 16, 0, Math.PI * 2, 0, Math.PI / 2), M.get('eyeDome', { color: '#ffffff', transparent: true, opacity: 0.12, roughness: 0.02, clearcoat: 1 }), eye);
-      dome.rotation.x = Math.PI / 2; dome.scale.y = 0.35; dome.position.z = 0.025; dome.castShadow = false;
+      let pupil;
+      if (E.st.flat) {
+        // flat white disc on the curved face (slight convexity, no glass dome), thick outline, pupil + highlight
+        const conform = this.stickerConform(eye, T, E.oval, E.r, E.st.dome);
+        const white = mesh('eye_white', conform(new THREE.CircleGeometry(E.r, 72), 0.0015), M.get('eyeWhite'), eye);
+        white.castShadow = false;
+        if (E.outline > 0) {
+          const rim = mesh('eye_rim', conform(new THREE.RingGeometry(E.r * (1 - E.outline), E.r, 72, 2), 0.0025), M.get('outline'), eye);
+          rim.castShadow = false;
+        }
+        pupil = mesh(s < 0 ? 'pupil_L' : 'pupil_R', new THREE.CylinderGeometry(E.r * E.pupil, E.r * E.pupil, 0.002, 40), M.get('pupil'), eye);
+        pupil.rotation.x = Math.PI / 2; pupil.position.z = E.pupilZ; pupil.castShadow = false;
+        // white highlight up-right on the pupil (pupil-local: +x right, -z up, +y out)
+        const hr = E.r * E.pupil * E.st.hl;
+        const hl = mesh('pupil_highlight', new THREE.CylinderGeometry(hr, hr, 0.001, 20), M.get('eyeWhite'), pupil);
+        hl.position.set(E.r * E.pupil * 0.4, 0.0012, -E.r * E.pupil * 0.4); hl.castShadow = false;
+        if (E.st.lid) {
+          // serio: porcelain upper eyelid over the top part of the eye (segment rebuilt as it lowers)
+          const lid = mesh('eyelid', new THREE.BufferGeometry(), porcelain, eye);
+          lid.castShadow = false;
+          this.eyelids = this.eyelids || [];
+          this.eyelids.push({ lid, e: null });
+        }
+      } else {
+        const white = mesh('eye_white', new THREE.CylinderGeometry(E.r, E.r, 0.025, 48), M.get('eyeWhite'), eye);
+        white.rotation.x = Math.PI / 2; white.position.z = 0.0125;
+        const rim = mesh('eye_rim', new THREE.TorusGeometry(E.r, 0.009, 10, 64), M.get('outline'), eye);
+        rim.position.z = 0.025;
+        pupil = mesh(s < 0 ? 'pupil_L' : 'pupil_R', new THREE.CylinderGeometry(E.r * 0.44, E.r * 0.44, 0.012, 40), M.get('pupil'), eye);
+        pupil.rotation.x = Math.PI / 2; pupil.position.z = 0.03;
+        const dome = mesh('eye_dome', new THREE.SphereGeometry(E.r, 40, 16, 0, Math.PI * 2, 0, Math.PI / 2), M.get('eyeDome', { color: '#ffffff', transparent: true, opacity: 0.12, roughness: 0.02, clearcoat: 1 }), eye);
+        dome.rotation.x = Math.PI / 2; dome.scale.y = 0.35; dome.position.z = 0.025; dome.castShadow = false;
+      }
       this.eyes.push({ eye, pupil, s });
     }
+    this.s.px.d = this.s.py.d = E.st.damp;   // calmer pupils for the flat eye styles (as in Rust)
 
     // Flush handle (front, upper right)
     const handle = this.nodes.handle = group('flush_handle', head, ...D.handle);
@@ -629,6 +736,8 @@ export class ToiletTuber {
       lip_upper: group('socket_lip_upper', this.lidBones[nB - 1], 0, 0, LID_FRONT_Z - (LID_Z0 + (nB - 1) * segL)),
       floor_left: group('socket_floor_left', this.root, -0.62, 0, 0.15),
       floor_right: group('socket_floor_right', this.root, 0.62, 0, 0.15),
+      // root space, on the floor right under the pedestal (+z = his forward): chairs / thrones he sits on
+      floor_under: group('socket_floor_under', this.root, 0, 0, 0),
     };
     this.sockets.back.rotation.y = Math.PI;
     this.sockets.mouth_corner.rotation.y = (25 * Math.PI) / 180;
@@ -707,16 +816,20 @@ export class ToiletTuber {
     for (const wrap of this.accessories) {
       const e = wrap.userData.entry || {};
       if (e.physics === false || e.physical === false) continue;
-      const meta = (e.physics && typeof e.physics === 'object' ? e.physics : null) ||
-        ACC_INFO[e.id]?.physics || (e.physical ? { shape: 'box', fit: true, mass: 0.3 } : null);
+      let meta = (e.physics && typeof e.physics === 'object' ? e.physics : null) ||
+        ACC_INFO[e.id]?.physics || FURN[e.id]?.physics || (e.physical ? { shape: 'box', fit: true, mass: 0.3 } : null);
+      // furniture he sits on: a box up to the seat (the backrest does not collide)
+      const seatH = wrap.userData.slot === 'floor_under' ? entrySeatHeight(e) : 0;
+      if (seatH > 0) meta = { shape: 'box', fit: true, mass: FURN[e.id]?.mass ?? 3, ...(meta || {}), seat: true, seatHeight: seatH };
       if (!meta) continue;
+      const onBody = wrap.parent?.parent !== this.root;
       const obj = wrap.children[0];
       if (!obj) continue;
       if (meta.parts) {
         let n = obj;
         while (n.children.length === 1) n = n.children[0];
-        n.children.forEach((part, i) => this.addProp(`${wrap.name}#${i}`, part, null, { group: wrap.name, ...meta.parts }, rootInv));
-      } else this.addProp(wrap.name, wrap, obj, meta, rootInv);
+        n.children.forEach((part, i) => this.addProp(`${wrap.name}#${i}`, part, null, { group: wrap.name, onBody, ...meta.parts }, rootInv));
+      } else this.addProp(wrap.name, wrap, obj, { onBody, ...meta }, rootInv);
     }
   }
 
@@ -745,13 +858,16 @@ export class ToiletTuber {
       size = Array.isArray(sz) ? new THREE.Vector3().fromArray(sz) : new THREE.Vector3(2 * sz.r, sz.h, 2 * sz.r);
       size.multiply(sc);
     }
+    if (meta.seatHeight > 0) {   // seat: collider from the floor up to the seat (wrapper space, like seatHeight)
+      center.y = meta.seatHeight / 2; size.y = meta.seatHeight;
+    }
     if (!(size.x > 0.002 && size.y > 0.002 && size.z > 0.002)) return;
     const com = center.clone(); com.y += ((meta.comY ?? 0.5) - 0.5) * size.y;
     const shape = {
       kind: cyl ? 'cylinder' : 'box',
       size: cyl ? { r: Math.max(size.x, size.z) / 2, h: size.y } : size.toArray(),
       mass: meta.mass ?? 0.3, center: center.toArray(), com: com.toArray(),
-      group: meta.group || '', buoyant: !!meta.buoyant,
+      group: meta.group || '', buoyant: !!meta.buoyant, seat: !!meta.seat, onBody: !!meta.onBody,
     };
     target.updateMatrix();
     const restLocal = target.matrix.clone();
@@ -1051,6 +1167,53 @@ export class ToiletTuber {
     };
   }
 
+  /**
+   * Sticker eyes lie ON the curved tank face: returns conform(geo, lift) which stretches a flat
+   * (xy) geometry by the oval factor and sets each vertex's local z to the tank surface (+ lift).
+   */
+  stickerConform(eye, T, oval, r = 1, dome = 0) {
+    eye.updateMatrix();
+    const m = eye.matrix, inv = m.clone().invert(), S = T.shape, v = new THREE.Vector3();
+    return (geo, lift) => {
+      geo.scale(1, oval, 1);
+      const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const rr = Math.hypot(pos.getX(i), pos.getY(i) / oval) / r, bump = dome * Math.max(0, 1 - rr * rr);
+        v.set(pos.getX(i), pos.getY(i), 0).applyMatrix4(m);          // head space, on the eye plane
+        let bx = v.x, by = v.y - T.y, q = null;
+        for (let it = 0; it < 4; it++) {                              // box coords whose surface point has this x/y
+          q = S.front(bx, by);
+          bx += v.x - q.p[0]; by += v.y - T.y - q.p[1];
+        }
+        v.set(q.p[0], q.p[1] + T.y, q.p[2] + T.z).applyMatrix4(inv);
+        pos.setZ(i, v.z + lift + bump);
+      }
+      geo.computeVertexNormals();
+      return geo;
+    };
+  }
+
+  /** serio eyes: the upper eyelid edge (rest: covers the top `lid` of the eye) lowers on M/closed and on blink */
+  updateEyelids(dt, closed) {
+    if (!this.eyelids) return;
+    const E = this.dim.eye, R = E.r * 1.03, ov = E.oval;
+    this._lidClosed = (this._lidClosed ?? 0) + (clamp(closed || 0, 0, 1) - (this._lidClosed ?? 0)) * Math.min(1, dt * 12);
+    this.eyelids.forEach((L, i) => {
+      const es = this.eyes[i].eye.scale, blink = clamp((1 - es.y / Math.max(1e-4, es.x)) / 0.92, 0, 1);
+      let edge = R * (1 - 2 * E.st.lid) - 0.5 * R * this._lidClosed;
+      edge = Math.max(-R * 0.98, edge + (-R - edge) * blink);
+      if (L.e != null && Math.abs(L.e - edge) < 1e-4) return;
+      L.e = edge;
+      // circle segment above y = edge (oval), as a fan from the chord centre
+      const a0 = Math.asin(clamp(edge / R, -1, 1)), n = 32, pos = [0, edge * ov, 0.006];
+      for (let k = 0; k <= n; k++) { const a = a0 + ((Math.PI - 2 * a0) * k) / n; pos.push(R * Math.cos(a), R * Math.sin(a) * ov, 0.006 + E.st.dome); }
+      const idx = []; for (let k = 1; k <= n; k++) idx.push(0, k, k + 1);
+      const g = L.lid.geometry;
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+      g.computeBoundingSphere();
+    });
+  }
+
   /** blend-shape weights (lid first, then seat) onto the meshes */
   applyMorphs(w) {
     const li = this.nodes.lid.morphTargetInfluences, si = this.nodes.seat.morphTargetInfluences, nl = LID_MORPHS.length;
@@ -1076,7 +1239,7 @@ export class ToiletTuber {
         p.set(0, DIM.lid.depth + DIM.lid.dome + 0.01, i === bones.length ? 0 : -seg * (1 - f));
         b.localToWorld(p);
         this.head.worldToLocal(p);
-        if (p.y > T.bottom - m && p.y < T.top + 0.1 &&
+        if (p.y > T.bottom - m && p.y < T.lidTop + 0.02 &&
             p.z > T.z - T.shape.hz - T.bulge - m && p.z < front && Math.abs(p.x) < T.shape.halfW + m) return true;
         if (R.mount === 'front' && Math.abs(p.x - R.x) < rlx && Math.abs(p.y - R.y) < rly && p.z > rz0 && p.z < rz1) return true;
       }
@@ -1095,6 +1258,7 @@ export class ToiletTuber {
     const mi = typeof input.mouth === 'number' ? { open: input.mouth } : (input.mouth || {});
     r.set_input(look.x || 0, look.y || 0, mi.open || 0, mi.round || 0, mi.wide || 0, mi.closed || 0, mi.sib || 0);
     r.set_input_ext?.(mi.cornerL || 0, mi.cornerR || 0, mi.jawSide || 0, mi.jawFwd || 0, mi.upperRaise || 0, mi.lips || 0);
+    this.syncSeat();
     this.writePropRest();
     r.update(dtRaw);
 
@@ -1120,6 +1284,7 @@ export class ToiletTuber {
     });
     const S = R.view(BUF.SCALARS);
     this.applyMorphs(R.view(BUF.MORPHS));
+    this.updateEyelids(S[SC.DT], mi.closed);
     this.hinge = S[SC.HINGE];
     this.time = S[SC.TIME];
     if (this.waterTex) this.waterTex.offset.x = S[SC.WATER_TEX_OFFSET];
@@ -1216,10 +1381,15 @@ export class ToiletTuber {
     if (this.rust) return this.updateRust(dtRaw, input);
     const dt = Math.min(dtRaw, 1 / 20);
     this.time += dt;
-    const o = { mouth: null, headPitch: 0, headYaw: 0, lift: 0, shake: 0, squash: 0, eyeScale: 1, swirl: 0, handle: 0, blink: null, look: null, flip: 0, spin: 0 };
+    const o = { mouth: null, headPitch: 0, headYaw: 0, lift: 0, shake: 0, squash: 0, eyeScale: 1, swirl: 0, handle: 0, blink: null, look: null, flip: 0, spin: 0, sitTo: null, impact: 0 };
     for (const a of this.active) { a.t += dt; a.update(Math.min(a.t, a.def.duration), dt, this, o); }
     for (const a of this.active) if (a.t >= a.def.duration) a.end?.(this);
     this.active = this.active.filter((a) => a.t < a.def.duration);
+    // sitting (JS path; no chair physics here: the chair stays put, a backflip lands back on the seat)
+    this.syncSeat();
+    if (o.sitTo != null) this.sitS.target = o.sitTo > 0.5 ? this.seatHeight() : 0;
+    this.sitS.step(dt);
+    if (this.sitS.x < 0) { this.sitS.x = 0; this.sitS.v = Math.max(0, this.sitS.v); }
 
     const S = this.s;
     const look = o.look ?? input.look ?? { x: 0, y: 0 };
@@ -1283,7 +1453,7 @@ export class ToiletTuber {
     this.body.rotation.set(S.pitch.x + o.flip, S.yaw.x + o.spin, S.lean.x);
     // flips rotate around the center of mass (~0.75 up), not around the floor
     const cm = 0.75, fy = cm - cm * Math.cos(o.flip), fz = -cm * Math.sin(o.flip);
-    this.body.position.set(Math.sin(this.time * 63) * 0.008 * o.shake, S.lift.x + (o.flip ? fy + o.flipLift : 0),
+    this.body.position.set(Math.sin(this.time * 63) * 0.008 * o.shake, S.lift.x + this.sitS.x + (o.flip ? fy + o.flipLift : 0),
       Math.cos(this.time * 51) * 0.005 * o.shake + (o.flip ? fz : 0));
 
     // head
@@ -1323,16 +1493,20 @@ export class ToiletTuber {
       if (this.blinkT >= 0) { this.blinkT += dt; blink = Math.sin(Math.min(1, this.blinkT / 0.15) * Math.PI); if (this.blinkT > 0.15) this.blinkT = -1; }
       else blink = 0;
     }
-    const maxOff = this.dim.eye.r * 0.5;
-    let px = S.px.x, py = S.py.x;
-    const len = Math.hypot(px, py);
-    if (len > 1) { px /= len; py /= len; }
+    // pupil travel = eye radius - pupil - outline (sticker; y scaled by the oval); sticker pupils also
+    // drift a little, independently per eye (the slightly "derp" stare) - mirror of rig.rs
+    const EY = this.dim.eye, tx = EY.travel, ty = EY.travel * EY.oval, drift = EY.st.drift ? 0.1 : 0;
     for (const e of this.eyes) {
-      e.pupil.position.x = px * maxOff;
-      e.pupil.position.y = py * maxOff;
+      const ph = e.s < 0 ? 0 : 1.7;
+      let px = S.px.x + drift * Math.sin(this.time * 0.71 + ph + 0.4), py = S.py.x + drift * Math.sin(this.time * 0.53 + 2.3 * ph + 1.1);
+      const len = Math.hypot(px, py);
+      if (len > 1) { px /= len; py /= len; }
+      e.pupil.position.x = px * tx;
+      e.pupil.position.y = py * ty;
       const es = S.eyeScale.x;
       e.eye.scale.set(es, es * (1 - 0.92 * blink), es);
     }
+    this.updateEyelids(dt, m.closed);
 
     // water & handle
     this.swirlSpeed += (o.swirl - this.swirlSpeed) * Math.min(1, dt * 3);

@@ -510,7 +510,7 @@ function lipEdgeZ(dim, x) {
 registerAccessory('cigar', ({ mats }, p) => {
   const { root, inner } = rig(p);
   // butt ~4 cm inside the mouth, resting on the lower lip; angled down and out, ember outward
-  const cig = new THREE.Group(); cig.position.set(0, 0.018, -0.045); cig.rotation.set(0.22, 0.1, 0); inner.add(cig);
+  const cig = new THREE.Group(); cig.position.set(0, 0.022, -0.045); cig.rotation.set(0.22, 0.1, 0); inner.add(cig);
   const L = 0.21, R = 0.0155;
   const body = mesh(new THREE.CylinderGeometry(R, R * 0.92, L, 24), M(mats, 'tobacco', p.color), cig, 0, 0, L / 2);
   body.rotation.x = Math.PI / 2;

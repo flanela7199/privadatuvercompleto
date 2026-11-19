@@ -55,6 +55,8 @@ registerAction('paper', {
   start(tb) { tb.emit('sfx', 'paper'); },
   update(t, dt, tb, o) {
     const p = tb.paper;
+    // flush + paper together: keep streaming (windy phase) while a flush gurgles / spews, max 3 s (mirror of Rust)
+    if ((tb.jet?.emitting || tb.jet?.gurgle > 0.05) && t >= 1.6 && t < 2.0 && (this.hold ?? 0) < 3) { this.hold = (this.hold ?? 0) + dt; this.t -= dt; }
     if (t < 2.5) {
       p.targetLen = 3.4;
       p.feedSpeed = 1.7 * smooth(0, 0.35, t) * (1 - 0.3 * smooth(1.8, 2.5, t));
@@ -72,7 +74,7 @@ registerAction('paper', {
       }
     }
     o.headYaw = -0.05 * smooth(0, 0.3, t) * (1 - smooth(2.6, 3.2, t));
-    o.look = t < 2.6 ? { x: -0.12, y: -0.55 } : t < 3.4 ? { x: -0.12, y: -0.85 } : null;
+    if (!tb.jet?.emitting) o.look = t < 2.6 ? { x: -0.12, y: -0.55 } : t < 3.4 ? { x: -0.12, y: -0.85 } : o.look;   // spewing: the flush aims
     o.mouth = t < 2.4 ? 0.3 + 0.15 * Math.sin(t * 20) : null;
   },
   end(tb) { const p = tb.paper; p.wind.set(0, 0, 0); p.feedSpeed = 0.6; p.targetLen = 0.24; },
@@ -140,3 +142,24 @@ registerAction('no', {
   duration: 1.1,
   update(t, dt, tb, o) { o.headYaw = Math.sin(t * 16) * 0.35 * (1 - smooth(0.6, 1.1, t)); },
 });
+
+/* Hop up onto the chair on floor_under (sit height -> tb.seatHeight()) / back down to the floor.
+   o.sitTo = 1 (up) / 0 (down) during the hop; the rig's sit spring carries the base. Mirror of Rust Kind::Sit. */
+for (const [name, up] of [['sit', 1], ['stand', 0]]) {
+  registerAction(name, {
+    duration: 0.9,
+    start(tb) { tb.emit('sfx', 'boing'); },
+    update(t, dt, tb, o) {
+      if (t < 0.2) { o.squash = -0.1 * smooth(0, 0.2, t); o.look = { x: 0, y: -0.3 }; }
+      else if (t < 0.62) {
+        const u = (t - 0.2) / 0.42;
+        o.lift = 0.18 * 4 * u * (1 - u);
+        o.squash = 0.06 * (1 - u);
+        o.sitTo = up;
+      } else {
+        if (!this.landed) { this.landed = true; tb.emit('sfx', { type: 'clack', v: 4 }); o.impact = 0.35; }
+        o.squash = -0.1 * (1 - smooth(0.62, 0.9, t));
+      }
+    },
+  });
+}

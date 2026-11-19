@@ -1,0 +1,25 @@
+{
+  "id": "rei_do_bar",
+  "extends": "base",
+  "name": "Rei do Bar",
+  "slots": {
+    "head_top": [
+      {
+        "id": "crown"
+      }
+    ],
+    "lip_upper": [
+      {
+        "id": "mustache_handlebar"
+      }
+    ],
+    "floor_under": [
+      {
+        "id": "trono_skol"
+      }
+    ]
+  },
+  "background": {
+    "css": "radial-gradient(ellipse at 50% 40%, #f2c94c 0%, #9a6a12 60%, #2e1d04 100%)"
+  }
+}

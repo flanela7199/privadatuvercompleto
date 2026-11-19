@@ -48,7 +48,7 @@ rig.view(BUF.SCALARS)   // SC.* : hinge, accessory state (mouth/talk/headYawVel/
 rig.view(BUF.DROPS)     // 900 x 16 instance matrices; FOAM 360 x 16; STREAM_POS/UV; RIPPLES 18 x 5; PUDDLE 5; PUDDLE_RADIAL 121
 rig.view(BUF.PAPER_POS) // + PAPER_UV / PAPER_PERF and TORN_* (counts in SC.PAPER_COUNT ...)
 rig.r.drain_events()    // '
-'-separated sfx: flush splash paper rip gargle boing whoosh drip clack:<v>
+'-separated sfx: flush splash paper rip gargle boing whoosh drip clack:<v> prop_hit:<id>:<speed> prop_reset:<id>
 ```
 NODE_ORDER: `body head lid_pivot lid_bone_1..7 seat_pivot eye_L eye_R pupil_L pupil_R flush_handle paper_roll water water_swirl seat_bone_1..7` (see "Mouth rig").
 Full buffer table: `crates/privada-wasm/src/lib.rs`. `?nowasm` or a missing `web/pkg/` -> the pure-JS rig runs instead.
@@ -131,7 +131,7 @@ when the character page reports ready (the panel may finish later).
 
 ## Actions (hotkeys, commands, tray)
 
-`play:<flush|paper|jump|backflip|no|blink|gargle>` · `outfit:<id>` · `scene:<index>` ·
+`play:<flush|paper|jump|backflip|no|blink|gargle|sit|stand>` · `outfit:<id>` · `scene:<index>` ·
 `viseme:<A|E|I|O|U|M|F|S>` · `toggle:clickthrough` · `toggle:follow` · `toggle:mic` · `reset:position` · `open:control`
 
 Startup: the character window opens, and the control panel too unless `config.settings.openPanelOnStart === false`.
@@ -211,16 +211,24 @@ Theme JSON may carry a `body` block (all optional, defaults = 1 / 0):
 
 ```jsonc
 "body": {
-  "tank": { "w": 1.0, "h": 1.0, "d": 1.0 },          // head (tank) scale factors, 0.6..1.6 (tank bottom + back stay put)
-  "eyes": { "size": 1.0, "spacing": 1.0, "y": 0.0 },  // eye radius factor 0.5..1.8, spacing factor 0.6..1.6, vertical offset in m (-0.12..0.12)
-  "neck": { "length": 1.0 },                          // neck pipe above the bowl, 0.6..1.6 (moves the head up/down)
+  "tank": { "w": 1.0, "h": 1.38, "d": 1.0,          // head (tank) scale factors, 0.6..1.6 (bottom + back stay put; h 1.38 = height/width 0.76 like the original)
+            "round": 0.10, "bulge": 0.02,           // soft "pillow" tank: corner radius 0.02..0.16 m (bottom corners x1.15, top x0.9), face bulge 0..0.06 m,
+            "taper": 0.93, "lidRound": 0.035,       // bottom width factor 0.7..1.15, tank-lid edge radius 0.01..0.05 m,
+            "lidThick": 0.14, "lidOver": 0.045 },   // tank-lid slab thickness 0.04..0.2 m (slightly domed top) and overhang per side 0..0.08 m
+  "eyes": { "style": "classico",                      // classico (flat disc, thick outline, pupil 0.38 + highlight, calm pupils) | googly (3D dome)
+                                                      // | desenho (oval 1.15, no outline, pupil 0.42) | serio (classico + porcelain upper eyelid, lowers on M/blink) | sticker
+            "size": 1.13, "spacing": 0.97, "y": 0.0,  // eye radius factor 0.5..1.8, spacing factor 0.6..1.6, vertical offset from mid height in m (-0.12..0.12)
+            "outline": null, "pupil": null, "oval": null }, // optional overrides of the style: 0..0.2 / 0.2..0.5 / 0.9..1.3 (fractions of the radius)
+  "neck": { "length": 0.9 },                          // neck pipe above the bowl, 0.6..1.6 (moves the head up/down)
   "roll": { "mount": "side" }                         // paper roll: "side" (default, holder on the tank's left side face,
                                                       // roll axis Z) | "front" (tank front-left below the eye, axis X)
 }
 ```
 The panel edits it on the active outfit (forking built-ins into custom like other edits). JS `ToiletTuber` (`bodyDims()`) and
 the Rust rig (`set_body_dims(json)`, called by `setTheme`) both apply it: eyes, handle, sockets, the lid-vs-tank collision box
-and the paper roll position follow the tank size. On both roll mounts the `paper` action streams the strip FORWARD (his +z,
+and the paper roll position follow the tank size and its curved surface (pillow mesh: web/src/rig/tank.js, same surface math as
+`privada_core::dim::TankShape`; eyes and the flush handle sit flush on the bulged front face, turned to its normal; the paper
+holder sits on the curved front / left side face). On both roll mounts the `paper` action streams the strip FORWARD (his +z,
 toward the camera; small head turn) and it piles on the floor in front of the bowl; paper rests on the lid / drapes off the
 bowl instead of passing through it.
 
@@ -250,6 +258,9 @@ bowl instead of passing through it.
 New default socket `lip_upper` on the lid's front edge (child of `lid_bone_7`, origin = the lid's front point on its underside,
 body (0, 0.677, 0.49) with the lid closed, +z out, +y up; moves with the upper lip in JS and Rust mode): mustaches attach there by
 default; old themes/configs with mustaches on `face` are migrated to `lip_upper` when loaded.
+Lower-lip sockets (children of `seat_bone_6`, so they move with the lower lip in JS and Rust mode): `mouth` = centre of the lip gap
+at the seat's top front edge, body (0, 0.673, 0.495) at rest, +z out, +y up; `mouth_corner` = the character's right (+x) mouth
+corner on the seat's outer outline, body (0.17, 0.673, 0.442) at rest, turned 25° outward (yaw +25°).
 
 **The character window never minimizes** (a minimized window stops rendering and OBS shows nothing).
 It is created with `minimizable(false)`, and a Win32 subclass turns every minimize into "send to back":
@@ -261,6 +272,94 @@ placed at the bottom). It stays in the taskbar (OBS window capture lists it).
 (before WebView2/Tauri/windows). A second launch finds it, sets the auto-reset event
 `Local\PrivadaTuber-activate` and exits with code 0 (no window). The running instance waits on that event
 and shows the character + panel. (tauri-plugin-single-instance was removed.)
+
+## Props physics, wet paper, sitting on furniture (worker physics, 2026-11-18)
+
+Everything below runs in Rust (`crates/privada-core/src/props.rs`, hooks in `water.rs` / `paper.rs` / `rig.rs`),
+deterministic (seeded RNG, fixed 2 sub-steps). **JS fallback (`?nowasm`, no `web/pkg`): props stay attached and the
+paper never gets wet** (sitting / `sit` / `stand` work in both paths; there the chair never moves).
+
+### Wet paper
+Water (live drops via a spatial hash, the coherent column, the puddle under paper lying on the floor) soaks the paper
+strip / hanging flap / torn piece / floor pile **per point** (`wet` 0..1; drops that hit the paper are absorbed).
+Wet paper: darker + translucent (per-vertex RGBA), heavier (gravity × (1 + 2·wet), heavier points move less in the
+length constraints), barely moved by wind / turbulence, sticks to the floor (friction 0.55 → 1), and a wet perforation
+gives way under the weight hanging below it (`load > 0.3 + 4·(1−wet)²` m of dry-equivalent paper, only where wet > 0.35;
+dry paper never tears by itself) → the wet part drops off (`rip` sfx). Dries linearly in 20 s.
+So that "spit while the paper is out" reliably wets it (also with the default side roll): while he spews, ~20 % extra
+water dribbles over the lower lip and lands 0.2–0.9 m in front of the bowl, 30 % of the landing splash is thrown back
+toward the bowl, the puddle creeps toward the bowl while it is fed, the column drags the air so airborne paper within
+1.2 m is drawn toward the nearest point of the arc (up to 18 m/s²), and the `paper` action keeps streaming (its windy
+phase pauses, max 3 s) while a flush is gurgling / spewing, with the flush deciding where he looks (the jet keeps its aim).
+Paper alone or flush alone look as before. Test `paper_then_flush_soaks_the_strip_with_the_default_side_roll`
+(paper, flush 1 s later): mean strip wetness 0.59, 2 weight tears. Paper strip points also push props
+(and are pushed out of them).
+JS: `BUF.PAPER_COL` / `BUF.TORN_COL` (MAX_PTS·2 × RGBA) → the strip geometry's `color` attribute (itemSize 4,
+`material.vertexColors = true`), uploaded only while `SC.PAPER_WET` / `SC.TORN_WET` (max wetness) > 0.
+
+### Rigid-body props
+Accessories with `ACCESSORY_INFO[id].physics` (extra.js: `toilet_paper_stack` = 6 roll bodies in one group,
+`air_freshener`, `rubber_duck` (buoyant), `plunger`, `toilet_brush_holder`), a slot entry `physics: {...}` /
+`physical: true` (`physics: false` opts out), and furniture on `floor_under` (seat) become rigid bodies when HIT:
+
+* attached (`state 0`) until the gathered impulse would give it 0.15 m/s or 2.5 rad/s: water drops (bounce off,
+  impulse ∝ drop momentum, 2 g per unit drop size), the column (0.8 kg/s × its flow while it is in the way), paper strip
+  points (8 g stylized push mass × (1 + 2·wet)), other bodies, and **the character itself** (kinematic collider: bowl +
+  closed lid, pedestal sole, neck pipe capsule, tank + tank-lid box; surface velocity from last frame's matrices, so
+  flips / jumps / shakes push things; props on body/head sockets (`onBody`) are not bumped while attached);
+* dynamic (`1`): gravity 9.8, floor y = 0, box / cylinder colliders with inertia tensors, sequential impulses with
+  accumulated clamped normal + friction impulses (restitution 0.25 above 0.6 m/s, friction 0.6), angular / rolling
+  damping, body–body contacts (AABB broadphase), rubber duck spins / bobs when hit by water and floats in the puddle;
+* sleeps on the floor (`2`); after `config.settings.props.resetAfter` s at rest (default **8**, 0 = never) the whole
+  group flies back to its sockets with an eased hop + pop (`3`, 0.7 s, `prop_reset:<id>` → sfx `pop`), then `0` again;
+* `4` = attached but nudged off the socket (furniture pushed by the flush recoil / turning; eases back after resetAfter).
+
+Events: `prop_hit:<id>:<speed>` (impacts > 0.5 m/s, ≤ 1 per 0.15 s per body) → ToiletTuber emits
+`sfx {type:'thud', v: speed, id}` (new `thud` sound in `web/src/audio/sfx.js`).
+
+wasm (`Rig`): `register_prop(id, shape_json, rest16) -> slot|-1` with
+`shape_json = {"kind":"box"|"cylinder", "size":[x,y,z] | {"r","h"}, "mass", "center":[x,y,z], "com":[x,y,z], "group", "buoyant", "seat", "onBody"}`
+(object-local, size = full extents, ≤ 32 props), `unregister_prop(id)`, `clear_props()`, `prop_index(id)`, `prop_count()`,
+`set_prop_rest(id, m16)` / `set_prop_rest_slot(slot, m16)` (or write `BUF.PROP_REST` = 32 × 16 directly; ToiletTuber
+does, every frame, since sockets move), `prop_poses()` (copy) / `BUF.PROP_POSES` (32 × 12:
+`[state, px,py,pz, qx,qy,qz,qw, sx,sy,sz, speed]` = rig-root TRS of the accessory origin; −1 = empty slot),
+`set_props_config('{"resetAfter":8,"enabled":true}')`, `prop_kick(id, jx, jy, jz)` (debug), `paper_wetness()`.
+Scalars: `SC.PAPER_WET` 20, `SC.TORN_WET` 21, `SC.PROP_COUNT` 22, `SC.PROPS_ACTIVE` 23.
+
+JS (`ToiletTuber`): `registerProps()` runs after every `buildAccessories()`: collider = Box3 of the built accessory in
+the wrapper's space (`fit: true`, follows params like `x` / `scale`) or the metadata size; parts (`parts: {...}`) = one
+body per child (the stack's rolls). Each frame: rest matrices → Rust, `r.update`, then non-rest poses drive the
+wrapper / part (world pose → its parent space); back at rest the original local transform is restored.
+`tb.setPropSettings({ resetAfter, enabled })` (avatar.js applies `config.settings.props`), `tb.kickProp(id, x, y, z)`.
+
+### Sitting on furniture
+* Socket **`floor_under`**: root space, on the floor right under the pedestal (+z = his forward); not moved by yaw,
+  wobble, squash or flips.
+* `FURNITURE_INFO[id].seatHeight` (m; `web/src/accessories/furniture.js`, loaded lazily, optional;
+  `registerFurnitureInfo(info)` from ToiletTuber.js adds entries and re-registers the rigs' props; a slot entry may set
+  `seatHeight` too) → `tb.seatHeight()` = seatHeight × params.scale / seatScale (seatHeight is given at the default
+  seatScale) × the slot's transform scale (+ its y offset), synced every frame to Rust `set_seat_height(h)`.
+* Persistent sit height: Rust `set_sit_height(h)` / `sit_height()` / `is_sitting()`, JS `tb.sitHeight` (get/set),
+  `tb.isSitting`: raises the whole body base by h (spring k 110, d 21 ≈ 0.3 s). FX floor stays y = 0 (water and paper fall
+  to the floor), lid / lip / look / flip unchanged.
+* Actions `sit` (0.9 s: crouch, hop, land with squash + `clack:4`; base → seat height) and `stand` (base → 0).
+  The avatar calls `play('sit')` when a chair is equipped.
+* The chair is a `seat` prop (box from the floor up to the seat; the backrest does not collide). While he sits on it,
+  water / paper / bumps leave it alone, and it reacts to his animations (Rust, `Rig::furniture`):
+  **backflip** kicks it backward (2.6 m/s back + 2.2 up + tumble; it ignores his colliders for 0.3 s), he lands on the
+  FLOOR, and when the chair is back on `floor_under` (after resetAfter) he hops onto it again (`sit`) by himself;
+  **jump** landing wobbles / slides it a little (a gentle landing like the sit hop only nudges it);
+  **flush** recoil pushes it back ~3 cm/s while spewing; body turns / the `no` shake twist a light chair (state 4).
+  If the chair ends up away from under him (> 0.25 m or tipped) he drops to the floor and sits again when it is back.
+  JS fallback: no chair physics (a backflip lands back on the seat).
+
+Tests: `cargo test -p privada-core` (props: drop stream knocks over a standing cylinder, paper strip sweeping a box
+pushes it, settled bodies reset, group wake + determinism; paper: wetness rises under spray and decays, wet perforations
+tear / dry hold / wet paper sticks; rig: flush knocks over a prop in its path, flush + paper wets the paper, sit raises
+the base smoothly and keeps the lid clamp, backflip from the chair sends it ≥ 0.5 m and he sits again, jump wobbles /
+flush pushes the chair), `node tests/props_smoke.mjs` (wasm, through ToiletTuber), `node tests/sit_smoke_js.mjs`
+(JS fallback), bench `node --expose-gc tests/bench/props_bench.mjs` (20 bodies + flush + paper vs the same
+accessories with physics off: ≈ +30 µs mean / +45 µs p95 per frame; JS side ≈ 2.5 µs rest upload + 5–8 µs pose apply).
 
 ## Microphone loudness (AudioCfg)
 

@@ -98,6 +98,7 @@ struct Acc {
     bubble: f32,
     drip: f32,
     ripple: f32,
+    dribble: f32,
 }
 
 #[derive(Clone)]
@@ -149,6 +150,9 @@ pub struct WaterJet {
     pud_z: f32,
     pud_sx: f32,
     pud_opacity: f32,
+    /// the puddle creeps toward the bowl while he spews (0..0.5)
+    spread: f32,
+    bowl_front: Vec3,
     ripples: [Ripple; RIPPLES],
     next_ripple: usize,
     rng: Rng,
@@ -206,6 +210,8 @@ impl WaterJet {
             pud_z: 0.0,
             pud_sx: 0.001,
             pud_opacity: 0.0,
+            spread: 0.0,
+            bowl_front: Vec3::ZERO,
             ripples: [Ripple::default(); RIPPLES],
             next_ripple: 0,
             rng: Rng::new(seed),
@@ -298,6 +304,7 @@ impl WaterJet {
 
     fn wet(&mut self, x: f32, z: f32, amount: f32) {
         if self.vol <= 0.0001 {
+            self.spread = 0.0;
             self.reshape_puddle();
             self.wx = 0.0;
             self.wz = 0.0;
@@ -337,6 +344,7 @@ impl WaterJet {
             fwd = Vec3::Z;
         }
         let fwd = fwd.normalize();
+        self.bowl_front = self.origin + fwd * 0.5;
 
         // bowl level: rises with the gurgle, full while spewing, drains after
         if self.was_emitting && !self.emitting {
@@ -381,6 +389,22 @@ impl WaterJet {
                 let vz = d.z * sp + s.z * j * 1.1 + self.rnd(-0.2, 0.2);
                 let size = self.rnd(0.45, 1.05);
                 self.drops.spawn(m.x + s.x * j * mw, y, m.z + s.z * j * mw, vx, vy, vz, 2.5, size, 0);
+            }
+            // overflow: ~20 % more water dribbles slowly over the lower lip and falls 0.2..0.9 m in front of the bowl
+            self.acc.dribble += self.rate * 0.45 * 0.2 * dt;
+            while self.acc.dribble >= 1.0 {
+                self.acc.dribble -= 1.0;
+                let j = self.rnd(-1.0, 1.0);
+                let sp = self.rnd(0.5, 2.2);
+                let (m, s, mw) = (self.mouth, self.side, self.mouth_width);
+                let vy = self.rnd(-0.3, 0.3);
+                let lat = j * 0.35;
+                let size = self.rnd(0.5, 1.0);
+                self.drops.spawn(
+                    m.x + s.x * j * mw, m.y - 0.02, m.z + s.z * j * mw,
+                    fwd.x * sp + s.x * lat, vy, fwd.z * sp + s.z * lat,
+                    2.0, size, 0,
+                );
             }
             self.acc.foam += 70.0 * dt;
             while self.acc.foam >= 1.0 {
@@ -521,6 +545,14 @@ impl WaterJet {
                 let hs = self.rnd(0.35, 1.3);
                 let vy = self.rnd(0.6, 1.7);
                 let size = self.rnd(0.3, 0.6);
+                if self.rng.next() < 0.3 {
+                    // splash-back: thrown back toward the bowl
+                    let back = -vin.normalize_or_zero() + self.side * self.rnd(-0.6, 0.6);
+                    let hb = self.rnd(0.8, 2.0);
+                    let vb = self.rnd(1.0, 2.2);
+                    self.drops.spawn(l.x, 0.02, l.z, back.x * hb, vb, back.z * hb, 1.6, size * 1.2, 1);
+                    continue;
+                }
                 self.drops.spawn(
                     l.x + a.cos() * 0.03, 0.02, l.z + a.sin() * 0.03,
                     a.cos() * hs + vin.x * 0.35, vy, a.sin() * hs + vin.z * 0.35,
@@ -708,14 +740,24 @@ impl WaterJet {
     fn update_puddle(&mut self, dt: f32) {
         if self.vol > 0.0 {
             self.dry += dt;
-            let r = (0.08 + self.vol.sqrt() * 0.21).min(0.9);
+            // while it is fed, the puddle creeps back toward the bowl (centre moves, it grows to cover the gap)
+            if self.dry < 0.5 {
+                self.spread = (self.spread + dt * 0.15).min(0.5);
+            }
+            let (mut tx, mut tz) = (self.pud_x, self.pud_z);
+            if self.wsum > 0.0 {
+                (tx, tz) = (self.wx / self.wsum, self.wz / self.wsum);
+            }
+            let (gx, gz) = (self.bowl_front.x - tx, self.bowl_front.z - tz);
+            let gap = gx.hypot(gz);
+            let f = self.spread * 0.6;
+            let (tx, tz) = (tx + gx * f, tz + gz * f);
+            let r = (0.08 + self.vol.sqrt() * 0.21).min(0.9) + gap * f * 0.9;
             let s = self.pud_sx + (r - self.pud_sx) * (dt * 3.0).min(1.0);
             self.pud_sx = s;
-            if self.wsum > 0.0 {
-                let k = (dt * 4.0).min(1.0);
-                self.pud_x += (self.wx / self.wsum - self.pud_x) * k;
-                self.pud_z += (self.wz / self.wsum - self.pud_z) * k;
-            }
+            let k = (dt * 4.0).min(1.0);
+            self.pud_x += (tx - self.pud_x) * k;
+            self.pud_z += (tz - self.pud_z) * k;
             if self.dry < 3.0 {
                 self.pud_opacity = (self.pud_opacity + dt * 3.0).min(0.7);
             } else {

@@ -11,9 +11,15 @@ export const TANK_BULGE_Y = 0.4;
  * Tank shape in tank-local coordinates (origin = tank centre).
  * @param {{w:number,h:number,d:number}} T tank size; opts: round (m), bulge (m), taper (bottom width factor)
  */
-export function tankShape(T, { round = 0.11, bulge = 0.025, taper = 0.9 } = {}) {
+/** corner radius at the top / bottom as a factor of `round` (bottom corners rounder) */
+export const TANK_ROUND_TOP = 0.9, TANK_ROUND_BOTTOM = 1.15;
+
+export function tankShape(T, { round = 0.10, bulge = 0.02, taper = 0.93 } = {}) {
   const hx = T.w / 2, hy = T.h / 2, hz = T.d / 2;
-  const r = Math.max(0.005, Math.min(round, Math.min(hx, hy, hz) - 0.005));
+  const lim = (v) => Math.max(0.005, Math.min(v, Math.min(hx, hy, hz) - 0.005));
+  const rTop = lim(round * TANK_ROUND_TOP), rBot = lim(round * TANK_ROUND_BOTTOM);
+  /** corner radius at box height y (smoothstep bottom -> top) */
+  const radius = (y) => { const t = clamp((y + hy) / (2 * hy), 0, 1); return rBot + (rTop - rBot) * t * t * (3 - 2 * t); };
   const H = [hx, hy, hz];
   /** taper (x fully, z half) + face bulge; p = [x, y, z] on the rounded box */
   const deform = (p) => {
@@ -40,6 +46,7 @@ export function tankShape(T, { round = 0.11, bulge = 0.025, taper = 0.9 } = {}) 
   };
   /** box-surface point q -> rounded-box point + normal */
   const rounded = (q) => {
+    const r = radius(q[1]);
     const c = q.map((v, k) => clamp(v, -(H[k] - r), H[k] - r));
     let d = q.map((v, k) => v - c[k]);
     let l = Math.hypot(...d);
@@ -56,7 +63,7 @@ export function tankShape(T, { round = 0.11, bulge = 0.025, taper = 0.9 } = {}) 
     return { p: deform(p), n: deformNormal(p, n) };
   };
   return {
-    hx, hy, hz, r, bulge, taper, deform, surface,
+    hx, hy, hz, rTop, rBot, radius, bulge, taper, deform, surface,
     front: (x, y) => surface([x, y, hz]),
     back: (x, y) => surface([x, y, -hz]),
     side: (sx, y, z) => surface([sx * hx, y, z]),
@@ -70,10 +77,10 @@ export function tankShape(T, { round = 0.11, bulge = 0.025, taper = 0.9 } = {}) 
 export function pillowGeometry(S, nFlat = 12, nRound = 6) {
   const H = [S.hx, S.hy, S.hz];
   const samples = (h) => {
-    const a = [], f = h - S.r;
-    for (let i = 0; i < nRound; i++) a.push(-h + (S.r * i) / nRound);
+    const r = Math.max(S.rTop, S.rBot), a = [], f = h - r;   // the rounded bands get the dense rows
+    for (let i = 0; i < nRound; i++) a.push(-h + (r * i) / nRound);
     for (let i = 0; i < nFlat; i++) a.push(-f + (2 * f * i) / nFlat);
-    for (let i = 0; i <= nRound; i++) a.push(f + (S.r * i) / nRound);
+    for (let i = 0; i <= nRound; i++) a.push(f + (r * i) / nRound);
     return a;
   };
   const pos = [], nrm = [], uv = [], idx = [];

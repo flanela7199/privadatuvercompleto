@@ -109,11 +109,14 @@ pub struct Action {
     pub t: f32,
     flag_a: bool, // spewing / torn / whoosh
     flag_b: bool, // dripped / landed
+    /// seconds the timeline was held (paper: keeps streaming while a flush gurgles / spews, max HOLD_MAX)
+    hold: f32,
 }
+const HOLD_MAX: f32 = 3.0;
 
 impl Action {
     pub fn new(kind: Kind) -> Self {
-        Self { kind, t: 0.0, flag_a: false, flag_b: false }
+        Self { kind, t: 0.0, flag_a: false, flag_b: false, hold: 0.0 }
     }
 
     pub fn start(&mut self, fx: &mut Fx) {
@@ -130,7 +133,7 @@ impl Action {
         self.t >= self.kind.duration()
     }
 
-    pub fn update(&mut self, t: f32, _dt: f32, fx: &mut Fx, o: &mut Overrides) {
+    pub fn update(&mut self, t: f32, dt: f32, fx: &mut Fx, o: &mut Overrides) {
         match self.kind {
             Kind::Flush => {
                 o.handle = if t < 0.6 { smooth(0.0, 0.18, t) } else { 1.0 - smooth(0.6, 0.9, t) };
@@ -167,6 +170,12 @@ impl Action {
                 o.look = if t > 1.6 && t < 3.4 { Some((0.0, 0.6)) } else { None };
             }
             Kind::Paper => {
+                // flush + paper together: the paper keeps streaming (windy phase) while he spews, so the
+                // strip flies through the water (the timeline pauses; alone it looks exactly the same)
+                if (fx.jet.emitting || fx.jet.gurgle > 0.05) && (1.6..2.0).contains(&t) && self.hold < HOLD_MAX {
+                    self.hold += dt;
+                    self.t -= dt;
+                }
                 if t < 2.5 {
                     fx.paper.target_len = 3.4;
                     fx.paper.feed_speed = 1.7 * smooth(0.0, 0.35, t) * (1.0 - 0.3 * smooth(1.8, 2.5, t));
@@ -190,13 +199,16 @@ impl Action {
                 // the roll is on his own tank front (left, below the eye): a small turn and a
                 // look down at it, then down at the paper piling in front of the bowl
                 o.head_yaw = -0.05 * smooth(0.0, 0.3, t) * (1.0 - smooth(2.6, 3.2, t));
-                o.look = if t < 2.6 {
-                    Some((-0.12, -0.55))
-                } else if t < 3.4 {
-                    Some((-0.12, -0.85))
-                } else {
-                    None
-                };
+                // (while he spews, the flush decides where he looks: the jet keeps its aim)
+                if !fx.jet.emitting {
+                    o.look = if t < 2.6 {
+                        Some((-0.12, -0.55))
+                    } else if t < 3.4 {
+                        Some((-0.12, -0.85))
+                    } else {
+                        o.look
+                    };
+                }
                 o.mouth = if t < 2.4 { Some(0.3 + 0.15 * (t * 20.0).sin()) } else { None };
             }
             Kind::Gargle => {

@@ -31,6 +31,34 @@ pub const TANK_FRONT: f32 = TANK_Z + TANK_D / 2.0;
 pub const EYE_X: f32 = 0.172;
 pub const EYE_Y: f32 = 0.33;
 pub const EYE_R: f32 = 0.14;
+/// Eye styles (`theme.body.eyes.style`), mirror of `DIM.eyeStyles` in ToiletTuber.js. `classico` (default) =
+/// the reference image: flat white disc, thick black outline, medium pupil + highlight, calm pupils;
+/// `googly` = 3D dome + big jiggly pupil; `desenho` = cartoon oval, big solid pupil, no outline;
+/// `serio` = classico + a porcelain upper eyelid (JS mesh); `sticker` = flat printed, drifting pupils.
+#[derive(Clone, Copy, Debug)]
+pub struct EyeStyle {
+    pub name: &'static str,
+    pub flat: bool,
+    pub outline: f32,
+    pub pupil: f32,
+    pub oval: f32,
+    pub pupil_z: f32,
+    pub damp: f32,
+    pub drift: bool,
+}
+pub const EYE_STYLES: [EyeStyle; 5] = [
+    EyeStyle { name: "classico", flat: true, outline: 0.12, pupil: 0.38, oval: 1.0, pupil_z: 0.002, damp: 16.0, drift: false },
+    EyeStyle { name: "googly", flat: false, outline: 0.0, pupil: 0.44, oval: 1.0, pupil_z: 0.03, damp: 9.0, drift: false },
+    EyeStyle { name: "desenho", flat: true, outline: 0.0, pupil: 0.42, oval: 1.15, pupil_z: 0.0005, damp: 14.0, drift: false },
+    EyeStyle { name: "serio", flat: true, outline: 0.12, pupil: 0.38, oval: 1.0, pupil_z: 0.002, damp: 16.0, drift: false },
+    EyeStyle { name: "sticker", flat: true, outline: 0.11, pupil: 0.3, oval: 1.1, pupil_z: 0.0005, damp: 9.0, drift: true },
+];
+/// eye style `sticker`: size / spacing factors (the other styles use EYE_SIZE_DEFAULT / EYE_SPACING_DEFAULT)
+pub const STICKER_SIZE: f32 = 1.15;
+pub const STICKER_SPACING: f32 = 0.97;
+pub const STICKER_OUTLINE: f32 = 0.11;
+pub const STICKER_PUPIL: f32 = 0.3;
+pub const STICKER_OVAL: f32 = 1.1;
 
 /// seat (= lower lip): egg ring rx/rz, hole radius factor, height
 pub const SEAT_RX: f32 = 0.405;
@@ -103,7 +131,8 @@ pub const ROLL_R: f32 = 0.085;
 pub const ROLL_LEN: f32 = 0.19;
 /// side mount: roll centre beyond the side face / above the tank centre / ahead of its centre
 pub const ROLL_SIDE_OUT: f32 = 0.125;
-pub const ROLL_SIDE_UP: f32 = 0.08;
+/// side-mount roll height above the tank bottom (fixed: a taller tank grows above it)
+pub const ROLL_SIDE_UP: f32 = 0.34;
 pub const ROLL_SIDE_FWD: f32 = 0.02;
 /// front mount: roll x as a fraction of the tank width, height above the tank bottom, gap to the tank face
 pub const ROLL_X_F: f32 = -0.3 / 0.95;
@@ -115,10 +144,26 @@ pub const HANDLE: [f32; 3] = [0.34, TANK_Y + 0.17, TANK_FRONT + 0.005];
 
 /// Pillow tank defaults (`theme.body.tank`): corner radius (m), face bulge (m), bottom width factor,
 /// tank-lid edge radius (m)
-pub const TANK_ROUND: f32 = 0.11;
-pub const TANK_BULGE: f32 = 0.025;
-pub const TANK_TAPER: f32 = 0.9;
+/// Defaults measured on the reference image of the original character: tank height/width 0.76
+/// (height factor 1.38, grows upward from the fixed bottom), slight taper, corner radius ~11% of
+/// the width, thick rounded tank lid (17% of the width) overhanging ~5% of the width all around.
+pub const TANK_H_DEFAULT: f32 = 1.38;
+pub const TANK_ROUND: f32 = 0.10;
+pub const TANK_BULGE: f32 = 0.02;
+pub const TANK_TAPER: f32 = 0.93;
 pub const TANK_LID_ROUND: f32 = 0.035;
+pub const TANK_LID_THICK: f32 = 0.14;
+pub const TANK_LID_OVER: f32 = 0.045;
+/// the tank lid's top is slightly domed (m at its centre)
+pub const TANK_LID_DOME: f32 = 0.012;
+/// corner radius at the top / bottom as a factor of `round` (bottom corners slightly rounder)
+pub const TANK_ROUND_TOP: f32 = 0.9;
+pub const TANK_ROUND_BOTTOM: f32 = 1.15;
+/// default googly eyes on the taller face: radius ~0.167 and centre spacing ~0.35 of the tank width,
+/// at mid height; default neck a bit shorter so the taller head stays in frame
+pub const EYE_SIZE_DEFAULT: f32 = 1.13;
+pub const EYE_SPACING_DEFAULT: f32 = 0.97;
+pub const NECK_DEFAULT: f32 = 0.9;
 /// top/bottom faces bulge less than the sides (fraction of `bulge`)
 pub const TANK_BULGE_Y: f32 = 0.4;
 
@@ -131,7 +176,9 @@ pub struct TankShape {
     pub hx: f32,
     pub hy: f32,
     pub hz: f32,
-    pub r: f32,
+    /// corner radius at the top / bottom (blends smoothly with height)
+    pub r_top: f32,
+    pub r_bot: f32,
     pub bulge: f32,
     pub taper: f32,
 }
@@ -139,8 +186,8 @@ pub struct TankShape {
 impl TankShape {
     pub fn new(w: f32, h: f32, d: f32, round: f32, bulge: f32, taper: f32) -> Self {
         let (hx, hy, hz) = (w / 2.0, h / 2.0, d / 2.0);
-        let r = round.min(hx.min(hy).min(hz) - 0.005).max(0.005);
-        Self { hx, hy, hz, r, bulge, taper }
+        let lim = |r: f32| r.min(hx.min(hy).min(hz) - 0.005).max(0.005);
+        Self { hx, hy, hz, r_top: lim(round * TANK_ROUND_TOP), r_bot: lim(round * TANK_ROUND_BOTTOM), bulge, taper }
     }
     /// taper + face bulge of a point on the rounded box
     pub fn deform(&self, p: Vec3) -> Vec3 {
@@ -162,10 +209,16 @@ impl TankShape {
         let j = Mat3::from_cols(col(Vec3::X), col(Vec3::Y), col(Vec3::Z));
         (j.inverse().transpose() * n).normalize()
     }
+    /// corner radius at box height `y` (smoothstep from the bottom to the top radius)
+    pub fn radius(&self, y: f32) -> f32 {
+        let t = ((y + self.hy) / (2.0 * self.hy)).clamp(0.0, 1.0);
+        self.r_bot + (self.r_top - self.r_bot) * t * t * (3.0 - 2.0 * t)
+    }
     /// box-surface point `q` -> rounded-box point + normal
     fn rounded(&self, q: Vec3) -> (Vec3, Vec3) {
         let h = Vec3::new(self.hx, self.hy, self.hz);
-        let inner = h - Vec3::splat(self.r);
+        let r = self.radius(q.y);
+        let inner = h - Vec3::splat(r);
         let c = q.clamp(-inner, inner);
         let d = q - c;
         let n = if d.length() < 1e-7 {
@@ -174,7 +227,7 @@ impl TankShape {
         } else {
             d.normalize()
         };
-        (c + n * self.r, n)
+        (c + n * r, n)
     }
     /// box-surface point `q` -> pillow surface point + outward normal (tank-local)
     pub fn surface(&self, q: Vec3) -> (Vec3, Vec3) {
@@ -215,6 +268,10 @@ pub struct BodyDims {
     pub tank_bulge: f32,
     pub tank_taper: f32,
     pub tank_lid_round: f32,
+    /// tank lid slab thickness / overhang per side (m) and its domed top (head space y)
+    pub tank_lid_thick: f32,
+    pub tank_lid_over: f32,
+    pub lid_top: f32,
     /// lowest / highest point of the tank (head space y)
     pub tank_bottom: f32,
     pub tank_top: f32,
@@ -224,6 +281,17 @@ pub struct BodyDims {
     pub eye_z: f32,
     pub eye_n: [f32; 3],
     pub eye_r: f32,
+    /// eye style: flat sticker (default) or 3D googly; outline / pupil (fractions of the radius),
+    /// vertical oval factor, pupil height above the eye centre and its max travel (x; y = x * oval)
+    pub eye_sticker: bool,
+    /// eye style (`EYE_STYLES` name) and the pupil spring damping (classico/serio are calmer than googly)
+    pub eye_style: &'static str,
+    pub pupil_damp: f32,
+    pub eye_outline: f32,
+    pub eye_pupil: f32,
+    pub eye_oval: f32,
+    pub pupil_z: f32,
+    pub pupil_travel: f32,
     /// paper roll centre (head space), its holder on the tank surface, and the mount (false = side, true = front)
     pub roll: [f32; 3],
     pub roll_holder: [f32; 3],
@@ -240,8 +308,9 @@ pub struct BodyDims {
 }
 
 impl Default for BodyDims {
+    /// the defaults of `theme.body` (an empty block)
     fn default() -> Self {
-        Self::new(1.0, 1.0, 1.0, 1.0, 1.0, 0.0)
+        Self::from_json("{}")
     }
 }
 
@@ -266,6 +335,9 @@ impl BodyDims {
             tank_bulge: TANK_BULGE,
             tank_taper: TANK_TAPER,
             tank_lid_round: TANK_LID_ROUND,
+            tank_lid_thick: TANK_LID_THICK,
+            tank_lid_over: TANK_LID_OVER,
+            lid_top: 0.0,
             tank_bottom: 0.0,
             tank_top: 0.0,
             eye_x: 0.0,
@@ -273,12 +345,20 @@ impl BodyDims {
             eye_z: 0.0,
             eye_n: [0.0, 0.0, 1.0],
             eye_r: EYE_R * es,
+            eye_sticker: false,
+            eye_style: "googly",
+            pupil_damp: 9.0,
+            eye_outline: 0.0,
+            eye_pupil: 0.44,
+            eye_oval: 1.0,
+            pupil_z: 0.03,
+            pupil_travel: EYE_R * es * 0.5,
             roll: [0.0; 3],
             roll_holder: [0.0; 3],
             roll_front: false,
             handle: [0.0; 3],
             handle_n: [0.0, 0.0, 1.0],
-            eye_base: [EYE_X * esp * w, tank_y + (EYE_Y - TANK_Y) * h + ey],
+            eye_base: [EYE_X * esp * w, tank_y + ey],
             handle_base: [HANDLE[0] * w, tank_y + (HANDLE[1] - TANK_Y) * h],
             neck: 1.0,
             head_y: HEAD_Y,
@@ -301,6 +381,33 @@ impl BodyDims {
         self.attach();
         self
     }
+    /// tank lid slab thickness 0.04..0.2 m and overhang per side 0..0.08 m (non-finite -> default)
+    pub fn with_lid(mut self, thick: f32, over: f32) -> Self {
+        let f = |v: f32, a: f32, b: f32, d: f32| if v.is_finite() { v.clamp(a, b) } else { d };
+        self.tank_lid_thick = f(thick, 0.04, 0.2, TANK_LID_THICK);
+        self.tank_lid_over = f(over, 0.0, 0.08, TANK_LID_OVER);
+        self.attach();
+        self
+    }
+    /// Eye style (unknown -> `classico`) + optional overrides outline 0..0.2, pupil 0.2..0.5,
+    /// oval 0.9..1.3 (non-finite -> the style's value). Flat styles: pupil travel = radius - pupil - outline.
+    pub fn with_eye_style(mut self, style: &str, outline: f32, pupil: f32, oval: f32) -> Self {
+        let st = EYE_STYLES.iter().find(|s| s.name == style).unwrap_or(&EYE_STYLES[0]);
+        let f = |v: f32, a: f32, b: f32, d: f32| if v.is_finite() { v.clamp(a, b) } else { d };
+        self.eye_style = st.name;
+        self.eye_sticker = st.drift;
+        self.pupil_damp = st.damp;
+        if st.flat {
+            self.eye_outline = f(outline, 0.0, 0.2, st.outline);
+            self.eye_pupil = f(pupil, 0.2, 0.5, st.pupil);
+            self.eye_oval = f(oval, 0.9, 1.3, st.oval);
+            self.pupil_z = st.pupil_z;
+            self.pupil_travel = self.eye_r * (1.0 - self.eye_pupil - self.eye_outline);
+        } else {
+            (self.eye_outline, self.eye_pupil, self.eye_oval, self.pupil_z, self.pupil_travel) = (0.0, st.pupil, 1.0, st.pupil_z, self.eye_r * 0.5);
+        }
+        self
+    }
     /// paper roll mount: side face (default) or tank front-left
     pub fn with_roll_mount(mut self, front: bool) -> Self {
         self.roll_front = front;
@@ -313,20 +420,20 @@ impl BodyDims {
         let c = Vec3::new(0.0, self.tank_y, self.tank_z);
         self.tank_bottom = self.tank_y - sh.top_max();
         self.tank_top = self.tank_y + sh.top_max();
+        self.lid_top = self.tank_top - 0.006 + self.tank_lid_thick + TANK_LID_DOME;
         let (p, n) = sh.front(self.eye_base[0], self.eye_base[1] - self.tank_y);
         let e = p + c;
         (self.eye_x, self.eye_y, self.eye_z, self.eye_n) = (e.x, e.y, e.z + 0.004, n.to_array());
         let (p, n) = sh.front(self.handle_base[0], self.handle_base[1] - self.tank_y);
         self.handle = (p + c + n * 0.005).to_array();
         self.handle_n = n.to_array();
-        let h = self.tank_h / TANK_H;
         if self.roll_front {
             let (p, _) = sh.front(ROLL_X_F * self.tank_w, TANK_BOTTOM + ROLL_ABOVE_BOTTOM - self.tank_y);
             let hp = p + c;
             self.roll_holder = hp.to_array();
             self.roll = [hp.x, hp.y, hp.z + ROLL_R + ROLL_GAP];
         } else {
-            let (p, _) = sh.side(-1.0, ROLL_SIDE_UP * h, ROLL_SIDE_FWD);
+            let (p, _) = sh.side(-1.0, (TANK_BOTTOM + ROLL_SIDE_UP - self.tank_y).min(sh.hy - sh.r_top), ROLL_SIDE_FWD);
             let hp = p + c;
             self.roll_holder = hp.to_array();
             self.roll = [hp.x - ROLL_SIDE_OUT, hp.y, hp.z];
@@ -344,10 +451,15 @@ impl BodyDims {
         let j = Json::parse(s).unwrap_or(Json::Null);
         let (t, e, n) = (j.get("tank"), j.get("eyes"), j.get("neck"));
         let nan = f64::NAN;
+        let style = e.map_or("classico", |e| e.s("style", "classico"));
+        let sticker = style == "sticker";
+        let (ds, dsp) = if sticker { (STICKER_SIZE as f64, STICKER_SPACING as f64) } else { (EYE_SIZE_DEFAULT as f64, EYE_SPACING_DEFAULT as f64) };
         let front = j.get("roll").is_some_and(|r| r.s("mount", "side") == "front");
         let g = |o: Option<&Json>, k: &str, d: f64| o.map_or(d, |o| o.f(k, d)) as f32;
-        Self::new(g(t, "w", 1.0), g(t, "h", 1.0), g(t, "d", 1.0), g(e, "size", 1.0), g(e, "spacing", 1.0), g(e, "y", 0.0))
-            .with_neck(g(n, "length", 1.0))
+        Self::new(g(t, "w", 1.0), g(t, "h", TANK_H_DEFAULT as f64), g(t, "d", 1.0), g(e, "size", ds), g(e, "spacing", dsp), g(e, "y", 0.0))
+            .with_eye_style(style, g(e, "outline", nan), g(e, "pupil", nan), g(e, "oval", nan))
+            .with_neck(g(n, "length", NECK_DEFAULT as f64))
+            .with_lid(g(t, "lidThick", nan), g(t, "lidOver", nan))
             .with_tank_shape(g(t, "round", nan), g(t, "bulge", nan), g(t, "taper", nan), g(t, "lidRound", nan))
             .with_roll_mount(front)
     }
@@ -363,8 +475,11 @@ mod tests {
     #[test]
     fn body_dims_defaults_and_json() {
         let d = BodyDims::default();
-        assert!((d.tank_y - 0.3).abs() < 1e-6 && (d.tank_z - 0.14).abs() < 1e-6);
-        assert!((d.eye_y - EYE_Y).abs() < 0.01 && (d.front() - TANK_FRONT - TANK_BULGE).abs() < 1e-6);
+        // reference proportions: tank height/width 0.76, bottom fixed, eyes at mid height, thick lid
+        assert!(((d.tank_h / d.tank_w) - 0.755).abs() < 0.01 && (d.tank_y - d.tank_h / 2.0 - TANK_BOTTOM).abs() < 1e-6 && (d.tank_z - 0.14).abs() < 1e-6);
+        assert!((d.eye_y - d.tank_y).abs() < 0.01 && (d.front() - TANK_FRONT - TANK_BULGE).abs() < 1e-6);
+        assert!(((d.eye_r / d.tank_w) - 0.167).abs() < 0.003 && ((2.0 * d.eye_x / d.tank_w) - 0.35).abs() < 0.02, "{d:?}");
+        assert!((d.lid_top - d.tank_top - TANK_LID_THICK - TANK_LID_DOME + 0.006).abs() < 1e-6 && (d.head_y - (NECK_BASE_Y + 0.38 * NECK_DEFAULT)).abs() < 1e-5);
         // the eyes sit on the bulged front face, slightly in front of the flat box
         assert!(d.eye_z > TANK_FRONT + 0.01 && d.eye_z < d.front() + 0.005 && d.eye_n[2] > 0.95, "{d:?}");
         // side mount: holder on the curved left side face, roll 12.5 cm out
@@ -373,7 +488,19 @@ mod tests {
         let fr = BodyDims::from_json(r#"{"roll":{"mount":"front"}}"#);
         assert!(fr.roll_front && (fr.roll[0] - fr.roll_holder[0]).abs() < 1e-6 && (fr.roll[2] - fr.roll_holder[2] - ROLL_R - ROLL_GAP).abs() < 1e-6);
         // flat, hard box = the old geometry
-        let flat = BodyDims::from_json(r#"{"tank":{"round":0.02,"bulge":0,"taper":1}}"#);
+        let flat = BodyDims::from_json(r#"{"tank":{"round":0.02,"bulge":0,"taper":1},"eyes":{"spacing":1}}"#);
+        // default eyes: flat stickers; googly = the old 3D look
+        // default eyes = classico (flat disc, outline 0.12, pupil 0.38, calm pupils)
+        assert!(d.eye_style == "classico" && (d.eye_r - EYE_R * EYE_SIZE_DEFAULT).abs() < 1e-6 && (d.pupil_travel - d.eye_r * 0.5).abs() < 1e-6 && d.pupil_damp == 16.0);
+        let gg = BodyDims::from_json(r#"{"eyes":{"style":"googly"}}"#);
+        assert!(gg.eye_style == "googly" && (gg.pupil_travel - gg.eye_r * 0.5).abs() < 1e-6 && gg.pupil_z == 0.03 && gg.pupil_damp == 9.0);
+        let ds = BodyDims::from_json(r#"{"eyes":{"style":"desenho"}}"#);
+        assert!(ds.eye_outline == 0.0 && (ds.eye_oval - 1.15).abs() < 1e-6 && (ds.pupil_travel - ds.eye_r * 0.58).abs() < 1e-6);
+        assert_eq!(BodyDims::from_json(r#"{"eyes":{"style":"nope"}}"#).eye_style, "classico");
+        let ss = BodyDims::from_json(r#"{"eyes":{"style":"sticker"}}"#);
+        assert!(ss.eye_sticker && (ss.eye_r - EYE_R * STICKER_SIZE).abs() < 1e-6 && (ss.pupil_travel - ss.eye_r * 0.59).abs() < 1e-6);
+        let st = BodyDims::from_json(r#"{"eyes":{"style":"sticker","outline":0.5,"pupil":0.25,"oval":1.2}}"#);
+        assert!((st.eye_outline - 0.2).abs() < 1e-6 && (st.eye_pupil - 0.25).abs() < 1e-6 && (st.eye_oval - 1.2).abs() < 1e-6);
         assert!((flat.eye_z - TANK_FRONT - 0.004).abs() < 1e-5 && (flat.eye_x - EYE_X).abs() < 1e-5 && (flat.front() - TANK_FRONT).abs() < 1e-6);
         let sh = BodyDims::default().shape();
         for q in [Vec3::new(0.3, 0.1, sh.hz), Vec3::new(sh.hx, 0.2, 0.15), Vec3::new(-0.1, sh.hy, -0.17)] {
@@ -386,6 +513,6 @@ mod tests {
         assert_eq!(BodyDims::from_json("not json"), BodyDims::default());
         assert_eq!(BodyDims::from_json(""), BodyDims::default());
         let n = BodyDims::from_json(r#"{"neck":{"length":1.5}}"#);
-        assert!((n.head_y - (NECK_BASE_Y + 0.38 * 1.5)).abs() < 1e-5 && (BodyDims::default().head_y - HEAD_Y).abs() < 1e-6);
+        assert!((n.head_y - (NECK_BASE_Y + 0.38 * 1.5)).abs() < 1e-5 && (BodyDims::default().head_y - (NECK_BASE_Y + 0.38 * NECK_DEFAULT)).abs() < 1e-6);
     }
 }

@@ -84,6 +84,47 @@ ok(tb.props.filter((p) => p.id.includes('toilet_paper_stack#') && p.dyn).length 
 // rebuild keeps everything consistent
 tb.buildAccessories();
 ok(r.prop_count() === tb.props.length, `rebuild re-registers (${r.prop_count()})`);
+// furniture: a test chair on floor_under (seatHeight 0.45): sit, backflip kicks it away, he sits again
+const { registerAccessory } = await import('../src/accessories/index.js');
+const { registerFurnitureInfo } = await import('../src/rig/ToiletTuber.js');
+registerAccessory('test_chair', ({ THREE: T }) => {
+  const g = new T.Group(), m = new T.MeshBasicMaterial();
+  const seat = new T.Mesh(new T.BoxGeometry(0.46, 0.45, 0.46), m); seat.position.y = 0.225; g.add(seat);
+  const back = new T.Mesh(new T.BoxGeometry(0.46, 0.5, 0.05), m); back.position.set(0, 0.7, -0.2); g.add(back);
+  return g;
+});
+registerFurnitureInfo({ test_chair: { seatHeight: 0.45, mass: 2.5 } });
+const t2 = new ToiletTuber({ ...base, slots: { ...(base.slots || {}), floor_under: [{ id: 'test_chair' }] } });
+t2.setPropSettings({ resetAfter: 1.5 });
+const run2 = (n, f) => { for (let i = 0; i < n; i++) { t2.update(1 / 60, { look: { x: 0, y: 0 }, mouth: 0 }); t2.root.updateMatrixWorld(); f?.(); } };
+const chair = t2.props.find((p) => p.id.includes('test_chair'));
+ok(Math.abs(t2.seatHeight() - 0.45) < 1e-6 && !!chair, `chair registered as a seat (seatHeight ${t2.seatHeight()})`);
+t2.play('sit'); run2(80);
+ok(t2.isSitting && Math.abs(t2.body.position.y - 0.45) < 0.02, `sitting: base y ${t2.body.position.y.toFixed(3)}`);
+t2.play('backflip');
+let chairFar = 0;
+run2(150, () => { chairFar = Math.max(chairFar, Math.hypot(chair.target.position.x, chair.target.position.z)); });
+ok(chairFar > 0.5 && t2.body.position.y < 0.03, `backflip kicked the chair ${chairFar.toFixed(2)} m, he is on the floor (y ${t2.body.position.y.toFixed(3)})`);
+let again = false;
+run2(900, () => { again ||= t2.isSitting && !chair.dyn && Math.abs(t2.body.position.y - 0.45) < 0.02; });
+ok(again, 'the chair came back and he sat on it again');
+t2.play('stand'); run2(80);
+ok(!t2.isSitting && t2.body.position.y < 0.02, 'stand: back on the floor');
+// real furniture: cadeira_skol seat height honours params.scale (vs seatScale) and the slot transform scale
+const { FURNITURE_INFO } = await import('../src/accessories/furniture.js');
+registerFurnitureInfo(FURNITURE_INFO);
+const F = FURNITURE_INFO.cadeira_skol;
+for (const [label, entry, want] of [
+  ['default', { id: 'cadeira_skol' }, F.seatHeight],
+  ['params.scale x1.2', { id: 'cadeira_skol', params: { scale: F.seatScale * 1.2 } }, F.seatHeight * 1.2],
+  ['transform.scale 0.8', { id: 'cadeira_skol', transform: { scale: 0.8 } }, F.seatHeight * 0.8],
+]) {
+  const t3 = new ToiletTuber({ ...base, slots: { ...(base.slots || {}), floor_under: [entry] } });
+  t3.play('sit');
+  for (let i = 0; i < 80; i++) { t3.update(1 / 60, { look: { x: 0, y: 0 }, mouth: 0 }); t3.root.updateMatrixWorld(); }
+  ok(Math.abs(t3.seatHeight() - want) < 1e-4 && Math.abs(t3.body.position.y - want) < 0.02 && t3.props.some((p) => p.id.includes('cadeira_skol')),
+    `cadeira_skol ${label}: seat ${t3.seatHeight().toFixed(3)} (want ${want.toFixed(3)}), base ${t3.body.position.y.toFixed(3)}`);
+}
 tb.setPropSettings({ enabled: false });
 console.log(bad ? `props smoke: ${bad} problem(s)` : 'props smoke: ok');
 process.exit(bad ? 1 : 0);

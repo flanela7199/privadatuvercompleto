@@ -413,6 +413,8 @@ struct Prop {
     nudge_t: f32,
     /// he sits on it: water / paper / bumps leave it alone
     occupied: bool,
+    /// seconds left ignoring the character's colliders (just kicked out from under him)
+    ghost: f32,
 }
 
 /// world-space view of a collider for hit tests
@@ -719,6 +721,7 @@ impl Props {
             nudge_yaw: 0.0,
             nudge_t: 0.0,
             occupied: false,
+            ghost: 0.0,
         });
         self.rest_buf[slot * 16..slot * 16 + 16].copy_from_slice(&rest.to_cols_array());
         self.write_out();
@@ -784,6 +787,7 @@ impl Props {
                 p.v = v;
                 p.w = w;
                 p.slow_t = 0.0;
+                p.ghost = 0.3;
                 if p.hit_cd <= 0.0 {
                     self.events.push(format!("prop_hit:{}:{:.2}", p.id, v.length()));
                     p.hit_cd = 0.15;
@@ -1070,7 +1074,7 @@ impl Props {
             let mut floor = false;
             let mut cs = [Contact { r: Vec3::ZERO, n: Vec3::Y, vs: Vec3::ZERO, k: 1.0, kt: 1.0, bounce: 0.0, jn: 0.0, jt: Vec3::ZERO }; MAX_CONTACTS];
             let f = Frame::rigid(p.q, p.x + p.q * p.c_off, p.sh);
-            let near = env.mask(f.lo, f.hi);
+            let near = if p.ghost > 0.0 { 0 } else { env.mask(f.lo, f.hi) };
             if near == 0 && f.lo.y > 0.0 {
                 // in the air, away from him: nothing to touch
                 p.on_floor = false;
@@ -1116,7 +1120,7 @@ impl Props {
             }
         }
         // body vs body
-        if !pairs {
+        if !pairs || !self.slots.iter().flatten().any(|p| p.state == DYNAMIC) {
             return;
         }
         // body vs body once per frame. Collider frames: attached ones come from hits() (rest poses do not change within a frame),
@@ -1156,6 +1160,7 @@ impl Props {
     fn settle(&mut self, dt: f32, _env: &Env) {
         let reset = self.reset_after;
         for p in self.slots.iter_mut().flatten() {
+            p.ghost = (p.ghost - dt).max(0.0);
             if p.hit_max > HIT_EVENT_SPEED && p.hit_cd <= 0.0 {
                 self.events.push(format!("prop_hit:{}:{:.2}", p.id, p.hit_max));
                 p.hit_cd = 0.15;

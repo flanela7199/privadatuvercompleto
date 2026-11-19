@@ -12,15 +12,15 @@ export const FMT = {
   px: (v: number) => `${Math.round(v)} px`,
   deg: (v: number) => `${Math.round(v)}°`,
 };
-type Props = { value: number; min: number; max: number; step?: number; fmt?: keyof typeof FMT; onChange: (v: number) => void; disabled?: boolean };
+type Props = { value: number; min: number; max: number; step?: number; fmt?: keyof typeof FMT; onChange: (v: number) => void; disabled?: boolean; display?: string };
 
 /** Range slider with a right-aligned value label. */
-export function Slider({ value, min, max, step = 0.01, fmt = 'n2', onChange, disabled }: Props) {
+export function Slider({ value, min, max, step = 0.01, fmt = 'n2', onChange, disabled, display }: Props) {
   const v = Number(value ?? 0);
   return (
     <div className="slider">
       <input type="range" min={min} max={max} step={step} value={v} disabled={disabled} onChange={(e) => onChange(+e.target.value)} />
-      <output>{FMT[fmt](v)}</output>
+      <output>{display ?? FMT[fmt](v)}</output>
     </div>
   );
 }

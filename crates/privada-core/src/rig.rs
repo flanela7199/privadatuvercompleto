@@ -522,6 +522,8 @@ pub struct Rig {
     flip_kicked: bool,
     /// after kicking the chair away: seconds until the base starts coming down (he is airborne by then)
     sit_drop_t: f32,
+    /// wet perforations that gave way (tests / debug)
+    pub wet_tears: u32,
     prev_seat_state: f32,
     /// last frame's body / head matrices (kinematic collider velocity for the props)
     prev_bm: Mat4,
@@ -609,6 +611,7 @@ impl Rig {
             resit: false,
             flip_kicked: false,
             sit_drop_t: -1.0,
+            wet_tears: 0,
             prev_seat_state: crate::props::REST,
             prev_bm: Mat4::IDENTITY,
             prev_hm: Mat4::IDENTITY,
@@ -782,6 +785,9 @@ impl Rig {
         self.handle.p = Vec3::from(d.handle);
         self.handle.q = Quat::from_rotation_arc(Vec3::Z, Vec3::from(d.handle_n));
         self.head.p.y = d.head_y;
+        self.pupils[0].p.z = d.pupil_z;
+        self.pupils[1].p.z = d.pupil_z;
+        (self.s.px.d, self.s.py.d) = (d.pupil_damp, d.pupil_damp);   // calmer pupils for the flat eye styles
         // paper_holder sits on the tank surface (front or left side face); the roll relative to it
         self.roll.p = Vec3::from(d.roll) - Vec3::from(d.roll_holder);
     }
@@ -845,7 +851,7 @@ impl Rig {
                 let local = Vec3::new(0.0, LID_DEPTH + LID_DOME + 0.01, if i == n { 0.0 } else { -LID_SEG * (1.0 - f) });
                 let p = head_inv.transform_point3(b.transform_point3(local));
                 if p.y > d.tank_bottom - mm
-                    && p.y < d.tank_top + 0.1
+                    && p.y < d.lid_top + 0.02
                     && p.z > tank_z - tank_d / 2.0 - d.tank_bulge - mm
                     && p.z < front
                     && p.x.abs() < tank_w / 2.0 + d.tank_bulge + mm
@@ -1172,17 +1178,24 @@ impl Rig {
                 }
             }
         };
-        let max_off = self.dims.eye_r * 0.5;
-        let (mut px, mut py) = (s.px.x, s.py.x);
-        let len = px.hypot(py);
-        if len > 1.0 {
-            px /= len;
-            py /= len;
-        }
+        // pupil travel = eye radius - pupil - outline (sticker eyes; y scaled by the oval); sticker
+        // pupils also drift a little, independently per eye (the slightly "derp" stare)
+        let (tx, ty) = (self.dims.pupil_travel, self.dims.pupil_travel * self.dims.eye_oval);
         let es = s.eye_scale.x;
         for i in 0..2 {
-            self.pupils[i].p.x = px * max_off;
-            self.pupils[i].p.y = py * max_off;
+            let ph = 1.7 * i as f32;
+            let drift = if self.dims.eye_sticker { 0.1 } else { 0.0 };
+            let (mut px, mut py) = (
+                s.px.x + drift * (self.time * 0.71 + ph + 0.4).sin(),
+                s.py.x + drift * (self.time * 0.53 + 2.3 * ph + 1.1).sin(),
+            );
+            let len = px.hypot(py);
+            if len > 1.0 {
+                px /= len;
+                py /= len;
+            }
+            self.pupils[i].p.x = px * tx;
+            self.pupils[i].p.y = py * ty;
             self.eyes[i].s = Vec3::new(es, es * (1.0 - 0.92 * blink), es);
         }
 
@@ -1209,11 +1222,21 @@ impl Rig {
         }
         // the roll turns about its axis (X on the front mount, Z on the side mount) while feeding
         self.roll.q = if self.dims.roll_front { Quat::from_rotation_x(self.roll_rot) } else { Quat::from_rotation_z(self.roll_rot) };
+        // paper out while he spews: the jet drags the air with it, so airborne paper (the streaming strip, the
+        // torn piece) is drawn in toward the column, crosses the arc and gets soaked
+        let n = self.jet.stream_samples(&mut self.stream_samples);
+        let k = 30.0 * self.jet.stream_amount();
+        for p in [&mut self.paper, &mut self.torn] {
+            p.attract.clear();
+            p.attract.extend(self.stream_samples[..n].iter().map(|s| s.p));
+            p.attract_k = k;
+        }
         self.paper.update(dt);
         // a wet perforation gave way: the wet part drops off (only once the last torn piece is mostly gone)
         if let Some(k) = self.paper.tear_request.take() {
             if self.torn.fade <= 0.4 && self.paper.tear_at(k, &mut self.torn, false) {
                 self.events.push("rip".into());
+                self.wet_tears += 1;
             }
         }
         if self.torn.fade > 0.0 {
@@ -1387,8 +1410,12 @@ impl Rig {
         if has_props {
             let hm = bm * self.head.mat();
             let d = &self.dims;
-            let lid_top = d.tank_y + d.tank_h / 2.0 + 0.0625;
-            let bottom = d.tank_y - d.tank_h / 2.0;
+            // pillow tank: bulged faces + the tank lid slab on top (the head_top socket sits on it)
+            // (same lid as ToiletTuber.js: thickness max(0.065, 2 r + 0.012), overhang 0.012 + 0.4 r)
+            let lid_t = (2.0 * d.tank_lid_round + 0.012).max(0.065);
+            let lid_top = d.tank_top - 0.006 + lid_t;
+            let bottom = d.tank_bottom;
+            let over = (0.012 + 0.4 * d.tank_lid_round).max(d.tank_bulge);
             let env = Env {
                 character: true,
                 body: bm,
@@ -1396,7 +1423,7 @@ impl Rig {
                 head: hm,
                 head_inv: hm.inverse(),
                 tank_c: Vec3::new(0.0, (bottom + lid_top) * 0.5, d.tank_z),
-                tank_h: Vec3::new((d.tank_w + 0.04) * 0.5, (lid_top - bottom) * 0.5, (d.tank_d + 0.05) * 0.5),
+                tank_h: Vec3::new(d.tank_w * 0.5 + over, (lid_top - bottom) * 0.5, d.tank_d * 0.5 + over + 0.003),
                 pipe_a: Vec3::new(0.0, NECK_BASE_Y, PIPE_Z),
                 pipe_b: Vec3::new(0.0, d.head_y, PIPE_Z),
                 pipe_r: 0.045,
@@ -1955,6 +1982,26 @@ mod tests {
         assert_eq!(o[0], crate::props::NUDGED, "recoil nudged the chair");
         assert!(o[3] < -0.01, "pushed back (his -z): {}", o[3]);
         assert!(r.is_sitting());
+    }
+
+    #[test]
+    fn paper_then_flush_soaks_the_strip_with_the_default_side_roll() {
+        let mut r = Rig::new(21);
+        assert!(!r.dims.roll_front);
+        r.play("paper");
+        run(&mut r, 60, (0.0, 0.0), Mouth::default());
+        r.play("flush");
+        let (mut mean, mut lowmax) = (0.0f32, 0.0f32);
+        for _ in 0..360 {
+            r.update(DT, (0.0, 0.0), Mouth::default());
+            let pts: Vec<_> = r.paper.pts.iter().skip(1).chain(r.torn.pts.iter()).collect();
+            if pts.len() > 20 {
+                mean = mean.max(pts.iter().map(|o| o.wet).sum::<f32>() / pts.len() as f32);
+            }
+            lowmax = lowmax.max(r.jet.puddle_out[2]);
+        }
+        assert!(mean > 0.4, "mean strip wetness {mean}");
+        assert!(r.wet_tears > 0, "wet perforations gave way under the weight");
     }
 
     /// profiling aid: cargo test -p privada-core --release profile_props -- --ignored --nocapture
