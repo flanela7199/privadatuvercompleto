@@ -26,10 +26,16 @@ import { ACTIONS } from '../anim/actions.js';
 import { WaterJet } from '../fx/waterJet.js';
 import { PaperStrip } from '../fx/paperStrip.js';
 import { loadWasm, WasmRig, BUF, SC } from './wasmrig.js';
+import { tankShape, pillowGeometry } from './tank.js';
 
 // The per-frame logic runs in Rust (crates/privada-core via web/pkg) when available;
 // this file then only builds the meshes and APPLIES the Rust pose. Pure-JS fallback below.
 const WASM = await loadWasm();
+// physics metadata of the accessories (ACCESSORY_INFO[id].physics) for the Rust props simulation.
+// JS fallback (no wasm): props stay attached and the paper never gets wet.
+const ACC_INFO = WASM ? await import('../accessories/extra.js').then((m) => m.ACCESSORY_INFO || {}, () => ({})) : {};
+const PROP_STRIDE = 12;
+const _pm = new THREE.Matrix4(), _pm2 = new THREE.Matrix4(), _pv = new THREE.Vector3(), _pq = new THREE.Quaternion(), _ps = new THREE.Vector3();
 
 /** All proportions in one place (meters-ish, origin on the floor). */
 export const DIM = {
@@ -44,7 +50,8 @@ export const DIM = {
   waterY: 0.465,
   pipeZ: -0.56,
   headY: 1.0,
-  tank: { w: 0.95, h: 0.52, d: 0.36, y: 0.3, z: 0.14 },
+  // tank (head) = soft pillow: corner radius, face bulge, bottom width factor, tank-lid edge radius (theme.body.tank)
+  tank: { w: 0.95, h: 0.52, d: 0.36, y: 0.3, z: 0.14, round: 0.11, bulge: 0.025, taper: 0.9, lidRound: 0.035 },
   eye: { x: 0.172, y: 0.33, r: 0.14 },
   egg: 0.08,                                   // front of bowl/seat/lid narrower (elongated bowl)
   rimTop: 0.638, rimOuterR: 0.414,             // bowl rim glaze top / outer radius (lathe units)
@@ -86,17 +93,31 @@ export function bodyDims(body = {}) {
   const w = f(t.w, 0.6, 1.6), h = f(t.h, 0.6, 1.6), d = f(t.d, 0.6, 1.6);
   const T0 = DIM.tank, E0 = DIM.eye, R = DIM.roll;
   const bottom = T0.y - T0.h / 2, back = T0.z - T0.d / 2;
-  const tank = { w: T0.w * w, h: T0.h * h, d: T0.d * d, y: 0, z: 0 };
+  const tank = {
+    w: T0.w * w, h: T0.h * h, d: T0.d * d, y: 0, z: 0,
+    round: f(t.round, 0.02, 0.16, T0.round), bulge: f(t.bulge, 0, 0.06, T0.bulge),
+    taper: f(t.taper, 0.7, 1.15, T0.taper), lidRound: f(t.lidRound, 0.01, 0.05, T0.lidRound),
+  };
   tank.y = bottom + tank.h / 2; tank.z = back + tank.d / 2;
-  const front = tank.z + tank.d / 2;
-  const eye = { x: E0.x * f(e.spacing, 0.6, 1.6) * w, y: tank.y + (E0.y - T0.y) * h + f(e.y, -0.12, 0.12, 0), r: E0.r * f(e.size, 0.5, 1.8) };
+  const S = tankShape(tank, tank);
+  tank.shape = S; tank.bottom = tank.y - S.topMax; tank.top = tank.y + S.topMax;
+  const front = tank.z + S.frontMax;                       // frontmost point of the bulged face
+  const onFront = (x, y) => { const q = S.front(x, y - tank.y); return { p: [q.p[0], q.p[1] + tank.y, q.p[2] + tank.z], n: q.n }; };
+  const ef = onFront(E0.x * f(e.spacing, 0.6, 1.6) * w, tank.y + (E0.y - T0.y) * h + f(e.y, -0.12, 0.12, 0));
+  const eye = { x: ef.p[0], y: ef.p[1], z: ef.p[2] + 0.004, n: ef.n, r: E0.r * f(e.size, 0.5, 1.8) };
+  const hf = onFront(0.34 * w, tank.y + 0.17 * h);
   const neck = f(nk.length, 0.6, 1.6);
+  let roll;
+  if (body?.roll?.mount === 'front') {
+    const hp = onFront(R.xf * tank.w, bottom + R.above).p;
+    roll = { ...R, mount: 'front', holder: hp, x: hp[0], y: hp[1], z: hp[2] + R.r + R.gap };
+  } else {
+    const q = S.side(-1, R.sideUp * h, R.sideFwd), hp = [q.p[0], q.p[1] + tank.y, q.p[2] + tank.z];
+    roll = { ...R, mount: 'side', holder: hp, x: hp[0] - R.sideOut, y: hp[1], z: hp[2] };
+  }
   return {
     ...DIM, tank, eye, front, neck, headY: DIM.neckBaseY + (DIM.headY - DIM.neckBaseY) * neck,
-    handle: [0.34 * w, tank.y + 0.17 * h, front + 0.005],
-    roll: body?.roll?.mount === 'front'
-      ? { ...R, mount: 'front', x: R.xf * tank.w, y: bottom + R.above, z: front + R.r + R.gap }
-      : { ...R, mount: 'side', x: -(tank.w / 2 + R.sideOut), y: tank.y + R.sideUp * h, z: tank.z + R.sideFwd },
+    handle: hf.p.map((v, k) => v + hf.n[k] * 0.005), handleN: hf.n, roll,
   };
 }
 
@@ -109,6 +130,13 @@ const LID_Z0 = -0.01;
 const LID_SEG = (2 * DIM.lid.rz + 0.02) / (DIM.lid.bones - 1);
 const LID_FRONT_Z = DIM.lid.rz - DIM.hingeZ + 0.004;              // lid front point, lid-pivot space
 const LID_PIVOT = [0, DIM.rimY + SEAT_Y0 + DIM.seat.h + 0.004, DIM.hingeZ - 0.004];
+/** socket mouth_corner: [x, centred z] of the seat's outer outline at x = 0.17 (character's right corner) */
+const MOUTH_CORNER = (() => {
+  const { rx, rz } = DIM.seat;
+  let lo = 0, hi = Math.PI / 2;
+  for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (rx * Math.cos(m) * (1 - DIM.egg * Math.sin(m)) > 0.17) lo = m; else hi = m; }
+  return [0.17, rz * Math.sin((lo + hi) / 2)];
+})();
 
 /** Mouth channels beyond the base five (all optional, default 0); see input/visemes.js */
 export const MOUTH_EXT = ['cornerL', 'cornerR', 'jawSide', 'jawFwd', 'upperRaise', 'lips'];
@@ -173,7 +201,7 @@ function addMorphs(geo, names, fn) {
   geo.morphAttributes.normal = N;
   geo.morphTargetsRelative = true;
 }
-const _qy = new THREE.Quaternion(), _qx = new THREE.Quaternion(), _Y = new THREE.Vector3(0, 1, 0), _X = new THREE.Vector3(1, 0, 0);
+const _qy = new THREE.Quaternion(), _qx = new THREE.Quaternion(), _Y = new THREE.Vector3(0, 1, 0), _X = new THREE.Vector3(1, 0, 0), _HZ = new THREE.Vector3(0, 0, 1);
 /** pivot rotation: jaw yaw, then the hinge about the (yawed) hinge axis (= Ry * Rx, as in Rust) */
 function setPivotQ(obj, yaw, ang) {
   obj.quaternion.copy(_qy.setFromAxisAngle(_Y, yaw)).multiply(_qx.setFromAxisAngle(_X, ang));
@@ -484,26 +512,32 @@ export class ToiletTuber {
     // Head = tank
     const head = this.head = group('head', body, 0, D.headY, D.pipeZ);
     const T = D.tank;
-    const tank = mesh('tank', new RoundedBoxGeometry(T.w, T.h, T.d, 5, 0.04), porcelain, head);
+    // soft pillow tank (tank.js: rounded + bulged + tapered, same surface math as Rust TankShape)
+    const tank = mesh('tank', pillowGeometry(T.shape), porcelain, head);
     tank.position.set(0, T.y, T.z);
-    const tankLid = mesh('tank_lid', new RoundedBoxGeometry(T.w + 0.04, 0.065, T.d + 0.05, 4, 0.022), M.get('tankLid', 'porcelain'), head);
-    tankLid.position.set(0, T.y + T.h / 2 + 0.03, T.z);
-    const front = T.z + T.d / 2;
+    // rounded tank lid; the overhang grows with its edge radius
+    const lidT = Math.max(0.065, 2 * T.lidRound + 0.012), lidOv = 0.012 + 0.4 * T.lidRound;
+    const lidTop = T.top - 0.006 + lidT;
+    const tankLid = mesh('tank_lid', new RoundedBoxGeometry(2 * (T.shape.hx + lidOv), lidT, 2 * (T.shape.hz + lidOv) + 0.005, 4, T.lidRound), M.get('tankLid', 'porcelain'), head);
+    tankLid.position.set(0, lidTop - lidT / 2, T.z);
+    const front = D.front;                                   // frontmost point of the bulged face
+    const _Z = new THREE.Vector3(0, 0, 1), faceQ = (n) => new THREE.Quaternion().setFromUnitVectors(_Z, new THREE.Vector3(...n));
     for (const sx of [1, -1]) {
       const bolt = mesh('tank_bolt', new THREE.CylinderGeometry(0.02, 0.02, 0.025, 6), M.get('bolt', 'chrome'), head);
-      bolt.position.set(0.3 * sx * (T.w / DIM.tank.w), T.y - T.h / 2 - 0.012, T.z);
+      bolt.position.set(0.3 * sx * (T.w / DIM.tank.w), T.bottom - 0.012, T.z);
       const washer = mesh('tank_washer', new THREE.CylinderGeometry(0.03, 0.03, 0.005, 24), rubber, head);
-      washer.position.set(0.3 * sx * (T.w / DIM.tank.w), T.y - T.h / 2 - 0.002, T.z);
+      washer.position.set(0.3 * sx * (T.w / DIM.tank.w), T.bottom - 0.002, T.z);
     }
     // fill-valve inlet under the tank (left)
     const inlet = mesh('tank_inlet', new THREE.CylinderGeometry(0.03, 0.03, 0.04, 6), M.get('valve', 'chrome'), head);
-    inlet.position.set(-0.36 * (T.w / DIM.tank.w), T.y - T.h / 2 - 0.02, T.z - 0.06);
+    inlet.position.set(-0.36 * (T.w / DIM.tank.w), T.bottom - 0.02, T.z - 0.06);
 
     // Googly eyes
     this.eyes = [];
     for (const s of [-1, 1]) {
       const E = D.eye;   // follows theme.body (size, spacing, height)
-      const eye = group(s < 0 ? 'eye_L' : 'eye_R', head, E.x * s, E.y, front + 0.004);
+      const eye = group(s < 0 ? 'eye_L' : 'eye_R', head, E.x * s, E.y, E.z);
+      eye.quaternion.copy(faceQ([E.n[0] * s, E.n[1], E.n[2]]));   // flush with the curved front face
       const white = mesh('eye_white', new THREE.CylinderGeometry(E.r, E.r, 0.025, 48), M.get('eyeWhite'), eye);
       white.rotation.x = Math.PI / 2; white.position.z = 0.0125;
       const rim = mesh('eye_rim', new THREE.TorusGeometry(E.r, 0.009, 10, 64), M.get('outline'), eye);
@@ -517,6 +551,8 @@ export class ToiletTuber {
 
     // Flush handle (front, upper right)
     const handle = this.nodes.handle = group('flush_handle', head, ...D.handle);
+    this.handleBaseQ = faceQ(D.handleN);                          // on the curved face; the lever turns about its local z
+    handle.quaternion.copy(this.handleBaseQ);
     const esc = mesh('handle_escutcheon', new THREE.CylinderGeometry(0.036, 0.04, 0.012, 32), chrome, handle);
     esc.rotation.x = Math.PI / 2; esc.position.z = 0.006;
     const nut = mesh('handle_nut', new THREE.CylinderGeometry(0.022, 0.022, 0.016, 6), chrome, handle);
@@ -535,8 +571,8 @@ export class ToiletTuber {
     const paperMat = M.get('paper');
     let roll;
     if (front_) {
-      const holder = group('paper_holder', head, R.x, R.y, front);
-      const out = R.z - front;                                  // roll axis in front of the face
+      const holder = group('paper_holder', head, ...R.holder);   // on the curved front face
+      const out = R.z - R.holder[2];                            // roll axis in front of the face
       const ax = R.len / 2 + 0.022;
       for (const sx of [1, -1]) {
         const plate = mesh('holder_plate', new RoundedBoxGeometry(0.05, 0.07, 0.014, 3, 0.006), chrome, holder);
@@ -548,8 +584,8 @@ export class ToiletTuber {
       rod.rotation.z = Math.PI / 2; rod.position.set(0, 0, out);
       roll = this.nodes.roll = group('paper_roll', holder, 0, 0, out);
     } else {
-      const holder = group('paper_holder', head, -T.w / 2, R.y, R.z);
-      const off = R.x + T.w / 2;                                // roll axis out to the side (< 0)
+      const holder = group('paper_holder', head, ...R.holder);   // on the curved left side face
+      const off = R.x - R.holder[0];                            // roll axis out to the side (< 0)
       const plate = mesh('holder_plate', new RoundedBoxGeometry(0.02, 0.07, 0.07, 3, 0.008), chrome, holder);
       plate.position.set(-0.008, 0, -R.len / 2 - 0.03);
       const arm = mesh('holder_arm', new THREE.CylinderGeometry(0.012, 0.012, Math.abs(off), 12), chrome, holder);
@@ -573,22 +609,29 @@ export class ToiletTuber {
     seam.position.set(0, R.r, 0);
 
     // Sockets for theme accessories
+    const tf = T.shape.front(0, -0.17 * (T.h / DIM.tank.h));
+    const tankFront = [tf.p[0] + tf.n[0] * 0.01, tf.p[1] + T.y + tf.n[1] * 0.01, tf.p[2] + T.z + tf.n[2] * 0.01];
     this.sockets = {
       face: faceSock,
-      head_top: group('socket_head_top', head, 0, T.y + T.h / 2 + 0.065, T.z),
-      tank_front: group('socket_tank_front', head, 0, T.y - 0.17 * (T.h / DIM.tank.h), front + 0.01),
-      side_right: group('socket_side_right', head, T.w / 2 + 0.01, T.y, T.z),
+      head_top: group('socket_head_top', head, 0, lidTop, T.z),
+      tank_front: group('socket_tank_front', head, ...tankFront),
+      side_right: group('socket_side_right', head, T.shape.halfW + 0.01, T.y, T.z),
       body_front: group('socket_body_front', body, 0, 0.25, 0.27),
       neck: group('socket_neck', body, 0, D.neckBaseY + (0.86 - D.neckBaseY) * D.neck, D.pipeZ + 0.09),
-      eyes: group('socket_eyes', head, 0, D.eye.y, front + 0.045),
-      back: group('socket_back', head, 0, T.y, T.z - T.d / 2 - 0.01),
+      eyes: group('socket_eyes', head, 0, D.eye.y, D.eye.z + 0.041),
+      back: group('socket_back', head, 0, T.y, T.z - T.shape.hz - T.bulge - 0.01),
       lid_top: group('socket_lid_top', this.lidBones[6], 0, L.depth + 0.006, 0.06),
       // upper lip: the lid's front point (underside), child of the front-most lid bone, +z out
+      // lower lip: centre of the lip gap at the seat's top front edge / its right (+x) corner, turned 25 deg
+      // outward; children of seat_bone_6 (the bone that carries most of the front edge's skin weight)
+      mouth: group('socket_mouth', this.seatBones[6], 0, SEAT_Y0 + SS.h, SS.rz - D.hingeZ - (SS.z0 + 6 * sSeg)),
+      mouth_corner: group('socket_mouth_corner', this.seatBones[6], MOUTH_CORNER[0], SEAT_Y0 + SS.h, MOUTH_CORNER[1] - D.hingeZ - (SS.z0 + 6 * sSeg)),
       lip_upper: group('socket_lip_upper', this.lidBones[nB - 1], 0, 0, LID_FRONT_Z - (LID_Z0 + (nB - 1) * segL)),
       floor_left: group('socket_floor_left', this.root, -0.62, 0, 0.15),
       floor_right: group('socket_floor_right', this.root, 0.62, 0, 0.15),
     };
     this.sockets.back.rotation.y = Math.PI;
+    this.sockets.mouth_corner.rotation.y = (25 * Math.PI) / 180;
     this.buildAccessories();
 
     // FX (world space, not part of the exported rig)
@@ -605,6 +648,14 @@ export class ToiletTuber {
     this.torn = new PaperStrip(stripMat, R.len * 0.96);
     this.torn.anchored = false; this.torn.fade = 0;
     this.fx.add(this.paper.mesh, this.torn.mesh);
+    if (this.rust) {   // wet paper: per-vertex RGBA from Rust (darker + translucent where wet)
+      for (const ps of [this.paper, this.torn]) {
+        const n = ps.geo.attributes.position.count;
+        ps.geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(n * 4).fill(1), 4).setUsage(THREE.DynamicDrawUsage));
+        ps.mat.vertexColors = true;
+        ps._wet = false;
+      }
+    }
     this.paperOutDir = new THREE.Vector3(0, 0, 1);
     this.root.updateMatrixWorld(true);
     this.updatePaperAnchor();
@@ -636,6 +687,124 @@ export class ToiletTuber {
         sock.add(wrap);
         this.accessories.push(wrap);
       });
+    }
+    this.registerProps();
+  }
+
+  /* ------------------------------------------------------- props physics (Rust only) */
+  // Accessories with ACCESSORY_INFO[id].physics (or a slot entry `physics: {...}` / `physical: true`;
+  // `physics: false` opts out) become rigid bodies in Rust when water / paper / another prop hits them.
+  // Each frame: rest matrices (socket moves with him) -> Rust; while not at rest the Rust pose drives
+  // the wrapper (or the part); back at rest the original local transform is restored.
+  registerProps() {
+    this.props = [];
+    const r = this.rust?.r;
+    if (!r?.register_prop) return;
+    r.clear_props();
+    if (!this.root) return;
+    this.root.updateMatrixWorld(true);
+    const rootInv = _pm2.copy(this.root.matrixWorld).invert();
+    for (const wrap of this.accessories) {
+      const e = wrap.userData.entry || {};
+      if (e.physics === false || e.physical === false) continue;
+      const meta = (e.physics && typeof e.physics === 'object' ? e.physics : null) ||
+        ACC_INFO[e.id]?.physics || (e.physical ? { shape: 'box', fit: true, mass: 0.3 } : null);
+      if (!meta) continue;
+      const obj = wrap.children[0];
+      if (!obj) continue;
+      if (meta.parts) {
+        let n = obj;
+        while (n.children.length === 1) n = n.children[0];
+        n.children.forEach((part, i) => this.addProp(`${wrap.name}#${i}`, part, null, { group: wrap.name, ...meta.parts }, rootInv));
+      } else this.addProp(wrap.name, wrap, obj, meta, rootInv);
+    }
+  }
+
+  /** register one body: `target` is the object the pose drives; metadata is in `obj` space (null = target space) */
+  addProp(id, target, obj, meta, rootInv) {
+    const box = new THREE.Box3();
+    let center, size;   // target-local
+    const cyl = meta.shape === 'cylinder';
+    if (meta.fit || !meta.size) {
+      const inv = new THREE.Matrix4().copy(target.matrixWorld).invert(), tmp = new THREE.Box3();
+      target.traverse((m) => {
+        if (!m.isMesh || !m.geometry?.attributes?.position) return;
+        if (!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+        box.union(tmp.copy(m.geometry.boundingBox).applyMatrix4(_pm.multiplyMatrices(inv, m.matrixWorld)));
+      });
+    }
+    if (!box.isEmpty()) {
+      center = box.getCenter(new THREE.Vector3()); size = box.getSize(new THREE.Vector3());
+    } else {
+      // metadata (accessory-local) -> target space through the accessory root (+ its inner scale, e.g. params.scale)
+      const M = new THREE.Matrix4();
+      if (obj) { obj.updateMatrix(); M.copy(obj.matrix); if (obj.children[0]) { obj.children[0].updateMatrix(); M.multiply(_pm.makeScale(...obj.children[0].scale.toArray())); } }
+      const sc = new THREE.Vector3().setFromMatrixScale(M);
+      center = new THREE.Vector3().fromArray(meta.center || [0, 0, 0]).applyMatrix4(M);
+      const sz = meta.size || [0.1, 0.1, 0.1];
+      size = Array.isArray(sz) ? new THREE.Vector3().fromArray(sz) : new THREE.Vector3(2 * sz.r, sz.h, 2 * sz.r);
+      size.multiply(sc);
+    }
+    if (!(size.x > 0.002 && size.y > 0.002 && size.z > 0.002)) return;
+    const com = center.clone(); com.y += ((meta.comY ?? 0.5) - 0.5) * size.y;
+    const shape = {
+      kind: cyl ? 'cylinder' : 'box',
+      size: cyl ? { r: Math.max(size.x, size.z) / 2, h: size.y } : size.toArray(),
+      mass: meta.mass ?? 0.3, center: center.toArray(), com: com.toArray(),
+      group: meta.group || '', buoyant: !!meta.buoyant,
+    };
+    target.updateMatrix();
+    const restLocal = target.matrix.clone();
+    const rest = _pm.multiplyMatrices(rootInv, target.parent.matrixWorld).multiply(restLocal);
+    const slot = this.rust.r.register_prop(id, JSON.stringify(shape), new Float32Array(rest.elements));
+    if (slot < 0) return;
+    this.props.push({
+      id, slot, target, restLocal, dyn: false,
+      p0: target.position.clone(), q0: target.quaternion.clone(), s0: target.scale.clone(),
+    });
+  }
+
+  /** settings.props = { resetAfter: seconds (default 8, 0 = never), enabled: true } */
+  setPropSettings(cfg = {}) {
+    this.propSettings = { resetAfter: cfg?.resetAfter ?? 8, enabled: cfg?.enabled !== false };
+    this.rust?.r.set_props_config?.(JSON.stringify(this.propSettings));
+  }
+
+  /** debug: shove a prop (wrapper name, e.g. 'slot_floor_left_0_toilet_paper_stack#1') with an impulse (N s, rig-root space) */
+  kickProp(id, x = 0, y = 0.05, z = 0.1) { return !!this.rust?.r.prop_kick?.(id, x, y, z); }
+
+  /** before the Rust update: rest matrices (rig-root space) into the shared buffer */
+  writePropRest() {
+    const R = this.rust;
+    if (!this.props?.length) return;
+    const view = R.view(BUF.PROP_REST);
+    const rootInv = _pm2.copy(this.root.matrixWorld).invert();
+    for (const p of this.props) {
+      _pm.multiplyMatrices(rootInv, p.target.parent.matrixWorld).multiply(p.restLocal);
+      _pm.toArray(view, p.slot * 16);
+    }
+  }
+
+  /** after the Rust update: drive the props that are not at rest */
+  applyPropPoses() {
+    if (!this.props?.length) return;
+    const P = this.rust.view(BUF.PROP_POSES);
+    let rootW = null;
+    for (const p of this.props) {
+      const k = p.slot * PROP_STRIDE, st = P[k];
+      if (st > 0) {
+        rootW ??= this.root.matrixWorld;
+        _pv.set(P[k + 1], P[k + 2], P[k + 3]); _pq.set(P[k + 4], P[k + 5], P[k + 6], P[k + 7]); _ps.set(P[k + 8], P[k + 9], P[k + 10]);
+        _pm.compose(_pv, _pq, _ps).premultiply(rootW);
+        const par = p.target.parent;
+        par.updateWorldMatrix(true, false);
+        _pm.premultiply(_pm2.copy(par.matrixWorld).invert());
+        _pm.decompose(p.target.position, p.target.quaternion, p.target.scale);
+        p.dyn = true;
+      } else if (p.dyn) {
+        p.target.position.copy(p.p0); p.target.quaternion.copy(p.q0); p.target.scale.copy(p.s0);
+        p.dyn = false;
+      }
     }
   }
 
@@ -907,8 +1076,8 @@ export class ToiletTuber {
         p.set(0, DIM.lid.depth + DIM.lid.dome + 0.01, i === bones.length ? 0 : -seg * (1 - f));
         b.localToWorld(p);
         this.head.worldToLocal(p);
-        if (p.y > T.y - T.h / 2 - m && p.y < T.y + T.h / 2 + 0.1 &&
-            p.z > T.z - T.d / 2 - m && p.z < front && Math.abs(p.x) < T.w / 2 + m) return true;
+        if (p.y > T.bottom - m && p.y < T.top + 0.1 &&
+            p.z > T.z - T.shape.hz - T.bulge - m && p.z < front && Math.abs(p.x) < T.shape.halfW + m) return true;
         if (R.mount === 'front' && Math.abs(p.x - R.x) < rlx && Math.abs(p.y - R.y) < rly && p.z > rz0 && p.z < rz1) return true;
       }
     }
@@ -926,6 +1095,7 @@ export class ToiletTuber {
     const mi = typeof input.mouth === 'number' ? { open: input.mouth } : (input.mouth || {});
     r.set_input(look.x || 0, look.y || 0, mi.open || 0, mi.round || 0, mi.wide || 0, mi.closed || 0, mi.sib || 0);
     r.set_input_ext?.(mi.cornerL || 0, mi.cornerR || 0, mi.jawSide || 0, mi.jawFwd || 0, mi.upperRaise || 0, mi.lips || 0);
+    this.writePropRest();
     r.update(dtRaw);
 
     // pose: local TRS per animated node
@@ -962,6 +1132,7 @@ export class ToiletTuber {
       headYawVel: S[SC.HEAD_YAW_VEL], headPitchVel: S[SC.HEAD_PITCH_VEL], lift: S[SC.ST_LIFT],
     };
     for (const a of this.accessories) a.traverse((x) => x.userData.update?.(st));
+    this.applyPropPoses();
 
     // water FX
     const J = this.jet;
@@ -997,8 +1168,16 @@ export class ToiletTuber {
     }
 
     // paper strips
-    const strip = (ps, pos, nrm, uv, perf, count, np, op) => {
+    const strip = (ps, pos, nrm, uv, perf, count, np, op, col, wetSc) => {
       const n = S[count] | 0, nperf = S[np] | 0;
+      // wet paper colours: upload only while wet (+ one reset to dry)
+      const ca = ps.geo.attributes.color;
+      if (ca && col != null) {
+        const wet = S[wetSc] > 0;
+        if (wet && n > 0) { ca.array.set(R.view(col).subarray(0, n * 8)); ca.needsUpdate = true; }
+        else if (!wet && ps._wet) { ca.array.fill(1); ca.needsUpdate = true; }
+        ps._wet = wet;
+      }
       if (n === 0 && ps._rustN === 0) return;          // empty and already cleared
       ps._rustN = n;
       const g = ps.geo;
@@ -1017,13 +1196,17 @@ export class ToiletTuber {
       ps.mat.opacity = S[op];
       ps.perfMat.opacity = S[op] * 0.9;
     };
-    strip(this.paper, BUF.PAPER_POS, BUF.PAPER_NRM, BUF.PAPER_UV, BUF.PAPER_PERF, SC.PAPER_COUNT, SC.PAPER_PERF, SC.PAPER_OPACITY);
-    strip(this.torn, BUF.TORN_POS, BUF.TORN_NRM, BUF.TORN_UV, BUF.TORN_PERF, SC.TORN_COUNT, SC.TORN_PERF, SC.TORN_OPACITY);
+    strip(this.paper, BUF.PAPER_POS, BUF.PAPER_NRM, BUF.PAPER_UV, BUF.PAPER_PERF, SC.PAPER_COUNT, SC.PAPER_PERF, SC.PAPER_OPACITY, BUF.PAPER_COL, SC.PAPER_WET);
+    strip(this.torn, BUF.TORN_POS, BUF.TORN_NRM, BUF.TORN_UV, BUF.TORN_PERF, SC.TORN_COUNT, SC.TORN_PERF, SC.TORN_OPACITY, BUF.TORN_COL, SC.TORN_WET);
 
     // sound events (no string allocation on the common empty frame)
     if (r.pending_events() > 0) {
       for (const e of r.drain_events().split(String.fromCharCode(10))) {
         if (e.startsWith('clack:')) this.emit('sfx', { type: 'clack', v: parseFloat(e.slice(6)) });
+        else if (e.startsWith('prop_hit:')) {   // prop_hit:<id>:<speed>
+          const i = e.lastIndexOf(':');
+          this.emit('sfx', { type: 'thud', v: parseFloat(e.slice(i + 1)), id: e.slice(9, i) });
+        } else if (e.startsWith('prop_reset:')) this.emit('sfx', 'pop');
         else this.emit('sfx', e);
       }
     }
@@ -1161,7 +1344,7 @@ export class ToiletTuber {
     this.nodes.water.scale.set(ws, 1, ws);
     this.nodes.swirl.position.y = this.nodes.water.position.y + 0.002;
     this.nodes.swirl.scale.set(ws, 1, ws);
-    this.nodes.handle.rotation.z = S.handle.x * 0.6;
+    this.nodes.handle.quaternion.copy(this.handleBaseQ).multiply(_qx.setFromAxisAngle(_HZ, S.handle.x * 0.6));
 
     // accessories
     const st = {

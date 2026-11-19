@@ -13,17 +13,18 @@
         "id": "mustache_english"
       }
     ],
-    "face": [
-      {
-        "id": "rose_in_mouth"
-      }
-    ],
+    "face": [],
     "neck": [
       {
         "id": "bow_tie_real",
         "params": {
           "color": "#1d2f63"
         }
+      }
+    ],
+    "mouth": [
+      {
+        "id": "rose_in_mouth"
       }
     ]
   },

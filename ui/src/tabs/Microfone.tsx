@@ -3,7 +3,7 @@ import { useStore, live, useLiveTick } from '../state/config';
 import { invoke, emit, isTauri } from '../lib/bridge';
 import { CHANNELS, loadMic } from '../lib/legacy';
 import { STANDARD_VISEME_LIST, shapeOpen } from '../lib/catalog';
-import { Section, Field, Fields } from '../components/Section';
+import { Section, Field, Fields, Note } from '../components/Section';
 import { Button } from '../components/Button';
 import { Select } from '../components/Select';
 import { Slider } from '../components/Slider';
@@ -15,6 +15,30 @@ const LABELS: Record<string, string> = { level: 'Volume', open: 'Abrir', round: 
 // browser fallback mic: runs the WebAudio analyzer in the panel and broadcasts `mouth`
 let browserMic: any = null;
 let micEnabled = true; // read by the browser-mic loop (kept current on every render)
+
+/** live input level on a −80..0 dB scale with the gate, learned noise floor and voice peak markers */
+function DbMeter({ gateDb }: { gateDb: number }) {
+  useLiveTick();
+  const m: any = live.mouth;
+  const pos = (db: number) => `${Math.max(0, Math.min(1, (db + 80) / 80)) * 100}%`;
+  const has = (v: any) => typeof v === 'number' && Number.isFinite(v);
+  return (
+    <div className="dbm">
+      <div className="dbm-track">
+        {has(m.db) && <div className="dbm-fill" style={{ width: pos(m.db) }} />}
+        <div className="dbm-mark gate" style={{ left: pos(gateDb) }} title={`Silêncio: ${gateDb} dB`} />
+        {has(m.floorDb) && <div className="dbm-mark floor" style={{ left: pos(m.floorDb) }} title={`Ruído da sala: ${m.floorDb.toFixed(0)} dB`} />}
+        {has(m.peakDb) && <div className="dbm-mark peak" style={{ left: pos(m.peakDb) }} title={`Pico da sua voz: ${m.peakDb.toFixed(0)} dB`} />}
+      </div>
+      <div className="dbm-legend">
+        <span><b>{has(m.db) ? `${m.db.toFixed(0)} dB` : '— dB'}</b> agora</span>
+        <span><i className="sw gate" /> silêncio {gateDb} dB</span>
+        <span><i className="sw floor" /> ruído {has(m.floorDb) ? `${m.floorDb.toFixed(0)} dB` : '—'}</span>
+        <span><i className="sw peak" /> pico da voz {has(m.peakDb) ? `${m.peakDb.toFixed(0)} dB` : '—'}</span>
+      </div>
+    </div>
+  );
+}
 
 function Meters({ mouth }: { mouth: { maxOpen: number; curve: number } }) {
   useLiveTick();
@@ -105,15 +129,25 @@ export function Microfone() {
           <Field label="Dispositivo">
             <Select value={a.device || ''} options={devs ? [['', 'Padrão do sistema'], ...devs.map((d) => [d, d] as [string, string])] : [['', 'carregando…']]} onChange={(v) => set('device', v || null)} />
           </Field>
-          <Field label="Silêncio abaixo de" tip="Ruído abaixo deste volume não mexe a boca. Suba se a boca mexe sozinha."><Slider value={a.gateDb} min={-80} max={-20} step={1} fmt="db" onChange={(v) => set('gateDb', v)} /></Field>
-          <Field label="Faixa até boca aberta" tip="Menor = abre mais fácil."><Slider value={a.rangeDb} min={10} max={50} step={1} fmt="db" onChange={(v) => set('rangeDb', v)} /></Field>
+          <Field label="Nivelamento automático (recomendado p/ quem fala alto)" tip="Aprende o volume da sua voz e o ruído da sala e ajusta a abertura sozinho.">
+            <Toggle checked={a.autoLevel !== false} onChange={(v) => set('autoLevel', v)} />
+          </Field>
+          <Field label="Ganho / Sensibilidade" tip="Aumenta ou diminui o volume do microfone antes de tudo. Negativo = menos sensível."><Slider value={a.gainDb ?? 0} min={-30} max={20} step={1} fmt="dbs" onChange={(v) => set('gainDb', v)} /></Field>
+          <Field label="Silêncio abaixo de" tip="Ruído abaixo deste volume não mexe a boca. Suba se a boca mexe sozinha."><Slider value={a.gateDb} min={-80} max={0} step={1} fmt="db" onChange={(v) => set('gateDb', v)} /></Field>
+          <Field label="Faixa até boca aberta" tip={a.autoLevel !== false ? 'Com o nivelamento automático ligado a faixa é aprendida sozinha.' : 'Menor = abre mais fácil.'}>
+            <Slider value={a.rangeDb} min={10} max={60} step={1} fmt="db" disabled={a.autoLevel !== false} onChange={(v) => set('rangeDb', v)} />
+          </Field>
           <Field label="Segurar entre sílabas" tip="Quanto tempo a boca fica aberta nas consoantes."><Slider value={a.hold} min={0} max={0.5} step={0.01} fmt="s" onChange={(v) => set('hold', v)} /></Field>
         </Fields>
       </Section>
       <Section title="Limites da boca" desc="Controla quanto a tampa abre com a sua voz.">
         <MouthLimits />
       </Section>
-      <Section title="Nível e forma da boca"><Meters mouth={s.cfg.settings.mouth} /></Section>
+      <Section title="Nível e forma da boca">
+        <DbMeter gateDb={a.gateDb} />
+        <div style={{ marginTop: 12 }}><Meters mouth={s.cfg.settings.mouth} /></div>
+        <div style={{ marginTop: 12 }}><Note>💡 Se a boca abre demais: ligue o <b>nivelamento automático</b> ou baixe o <b>ganho</b>.</Note></div>
+      </Section>
       <Section title="Testar formas da boca" desc="Os visemas padrão — clique para a privada fazer a forma.">
         <div className="vis-grid">
           {STANDARD_VISEME_LIST.map(([v, hint]) => (

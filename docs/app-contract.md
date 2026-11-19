@@ -91,7 +91,7 @@ when the character page reports ready (the panel may finish later).
 | event | direction | payload |
 |---|---|---|
 | `cursor` | Rust → all, 60 Hz (on change, else ~2/s) | `{ x, y, win }`: global cursor in **virtual-desktop physical px** (all monitors) + the avatar window rect `win: { x, y, w, h, scale, ix, iy, iw, ih } \| null` (outer x/y/w/h and client ix/iy/iw/ih, physical px) |
-| `mouth` | Rust → avatar, ~60 Hz | `{ open, round, wide, closed, sib, level }` all 0..1 (same meaning as src/input/visemes.js) |
+| `mouth` | Rust → all, ~60 Hz | `{ open, round, wide, closed, sib, level }` all 0..1 (same meaning as src/input/visemes.js) + meter `{ db, peakDb, floorDb }` (dB after gain, auto-level peak, noise floor) |
 | `hotkey` | Rust → all | `{ action, arg }` (see Actions) |
 | `command` | control → avatar | `{ action, arg }` (same shape as hotkey) |
 | `state` | control → avatar | full `Config` (avatar applies outfit/scene/settings) |
@@ -261,3 +261,19 @@ placed at the bottom). It stays in the taskbar (OBS window capture lists it).
 (before WebView2/Tauri/windows). A second launch finds it, sets the auto-reset event
 `Local\PrivadaTuber-activate` and exits with code 0 (no window). The running instance waits on that event
 and shows the character + panel. (tauri-plugin-single-instance was removed.)
+
+## Microphone loudness (AudioCfg)
+
+`set_audio({ audio: { enabled, device, gateDb, rangeDb, hold, gainDb, autoLevel } })`
+(same fields in `config.audio`; the JS fallback `web/src/input/mic.js` behaves identically):
+
+| field | range / default | meaning |
+|---|---|---|
+| `gainDb` | −30..+20, 0 | input gain applied to the measured level |
+| `autoLevel` | bool, **true** | AUTO-LEVEL: tracks the speaker's peak (attack 50 ms, release 4 s, only while voice) and the noise floor (fast down, +1.5 dB/s up); `x = (db − floor − 6) / max(12, peak − floor − 6)`, soft knee `0.68·x + 1.6·max(0, x−1)` → normal speech ≈ 0.5–0.7, only shouting reaches 1. Fixes a loud/close mic pinning the mouth open |
+| `gateDb` | −90..0, −50 | absolute floor: below it the mouth is closed (both modes) |
+| `rangeDb` | 10..60, 28 | manual mode only: `loud = (db − gate) / range` |
+| `hold` | 0..1 s, 0.14 | keep the shape between syllables |
+
+Measured (unit tests, synthetic speech): −6 dBFS loud speech → mean open 0.59, never pinned (manual mode: 1.0);
+−40 dBFS quiet speech → mean open 0.55 after adaptation; silence → closed.

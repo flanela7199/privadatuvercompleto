@@ -13,11 +13,7 @@
         "id": "mustache_walrus"
       }
     ],
-    "face": [
-      {
-        "id": "pipe"
-      }
-    ],
+    "face": [],
     "tank_front": [
       {
         "id": "star_badge"
@@ -29,6 +25,11 @@
         "params": {
           "color": "#b3121b"
         }
+      }
+    ],
+    "mouth_corner": [
+      {
+        "id": "pipe"
       }
     ]
   }

@@ -74,4 +74,10 @@ export const sfx = {
   boing() { tone(200, 520, 0.35, 0.2, 'triangle'); },
   clack(d) { tone(140, 60, 0.07, Math.min(0.3, (d?.v ?? 3) * 0.04), 'square'); },
   pop() { tone(500, 900, 0.08, 0.12, 'sine'); },
+  // a prop hitting the floor / the toilet / another prop: d.v = impact speed (m/s), louder when harder
+  thud(d) {
+    const v = Math.max(0, Math.min(1, (d?.v ?? 1) / 3));
+    tone(130 + 40 * v, 48, 0.16, 0.04 + 0.26 * v, 'sine');
+    burst({ sec: 0.12, type: 'lowpass', f0: 900, f1: 160, q: 0.7, peak: 0.03 + 0.2 * v, attack: 0.004 });
+  },
 };

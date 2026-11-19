@@ -29,17 +29,18 @@
         "id": "mustache_english"
       }
     ],
-    "face": [
-      {
-        "id": "pipe"
-      }
-    ],
+    "face": [],
     "neck": [
       {
         "id": "necktie",
         "params": {
           "color": "#3a3a3a"
         }
+      }
+    ],
+    "mouth_corner": [
+      {
+        "id": "pipe"
       }
     ]
   },

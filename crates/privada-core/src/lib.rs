@@ -5,15 +5,19 @@
 //! * [`rig`]   — springs, look, blink, googly eyes, lip (lid bones + morphs), seat, lid collision, body/head
 //! * [`actions`] — flush, paper, jump, backflip, no, gargle, blink (same timings as web/src/anim/actions.js)
 //! * [`water`] — flush water jet / drops / foam / puddle / ripples
-//! * [`paper`] — toilet-paper verlet strip with perforations and tearing
+//! * [`paper`] — toilet-paper verlet strip with perforations, tearing and wetness
+//! * [`props`] — rigid-body props (accessories knocked over by water / paper / each other)
 //! * [`toss`]  — overlay drag / throw / bounce physics (screen space)
 //! * [`dsp`]   — microphone FFT -> mouth vector (owned by the app worker)
 pub mod dim;
 pub mod dsp;
 pub mod geo;
 pub mod paper;
+pub mod props;
 pub mod util;
 pub mod water;
 pub mod actions;
 pub mod rig;
 pub mod toss;
+/// re-exported so the bindings use the same math types without their own dependency
+pub use glam;

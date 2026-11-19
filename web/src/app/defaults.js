@@ -43,7 +43,7 @@ export const DEFAULT_CONFIG = {
     'Ctrl+Shift+2': { action: 'outfit', arg: 'soviet' },
     'Ctrl+Shift+3': { action: 'outfit', arg: 'golden' },
   },
-  audio: { enabled: true, device: null, gateDb: -50, rangeDb: 28, hold: 0.14 },
+  audio: { enabled: true, device: null, gateDb: -50, rangeDb: 28, hold: 0.14, gainDb: 0, autoLevel: true },
   render: { fps: 60, pixelRatio: 1.5, ao: false },
   // look: how far he turns toward the mouse (whole virtual desktop, all monitors)
   look: { range: 1.0, reachPx: 1400, maxYawDeg: 80, maxPitchDeg: 35 },

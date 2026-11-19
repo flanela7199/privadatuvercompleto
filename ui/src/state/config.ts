@@ -5,9 +5,9 @@
 // (throttled 80 ms, trailing) after every change.
 import React from 'react';
 import { invoke, listen, emit } from '../lib/bridge';
-import { loadThemes, DEFAULT_CONFIG, makeResolver, loadPresets } from '../lib/legacy';
+import { loadThemes, DEFAULT_CONFIG, makeResolver, loadPresets, loadFurniture } from '../lib/legacy';
 import { captureOutfitThumb, requestOutfitThumbs } from '../lib/thumbs';
-import { clone, normalizeConfig } from '../lib/catalog';
+import { clone, normalizeConfig, setFurnitureInfo } from '../lib/catalog';
 
 export type State = { ready: boolean; cfg: any; work: any; themes: Record<string, any>; presets: Record<string, any>; hkFailed: string[] };
 type Action = { type: 'init'; state: State } | { type: 'update'; fn: (d: State) => void; fork?: boolean };
@@ -120,6 +120,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const themes = await loadThemes('../themes/');
       emit('loading', { progress: 0.25, text: 'carregando presets…' });
       const presets = await loadPresets('../presets/');
+      setFurnitureInfo(await loadFurniture()); // registers the furniture accessories too
       emit('loading', { progress: 0.4, text: 'lendo configuração…' });
       const loaded = await invoke('load_config').catch(() => null);
       const next = build({ ...EMPTY, themes, presets }, loaded);

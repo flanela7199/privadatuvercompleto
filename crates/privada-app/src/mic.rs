@@ -22,6 +22,12 @@ pub struct AudioCfg {
     pub range_db: f32,
     #[serde(default = "d_hold")]
     pub hold: f32,
+    /// input gain (dB, -30..+20)
+    #[serde(default)]
+    pub gain_db: f32,
+    /// adapt to the speaker's loudness (default on)
+    #[serde(default = "yes")]
+    pub auto_level: bool,
 }
 fn yes() -> bool { true }
 fn d_gate() -> f32 { -50.0 }
@@ -30,11 +36,12 @@ fn d_hold() -> f32 { 0.14 }
 
 impl Default for AudioCfg {
     fn default() -> Self {
-        Self { enabled: true, device: None, gate_db: d_gate(), range_db: d_range(), hold: d_hold() }
+        Self { enabled: true, device: None, gate_db: d_gate(), range_db: d_range(), hold: d_hold(), gain_db: 0.0, auto_level: true }
     }
 }
 
 #[derive(Serialize, Clone, Copy)]
+#[serde(rename_all = "camelCase")]
 struct MouthEvent {
     open: f32,
     round: f32,
@@ -42,10 +49,14 @@ struct MouthEvent {
     closed: f32,
     sib: f32,
     level: f32,
+    /// meter: current dB (after gain), auto-level peak and noise floor
+    db: f32,
+    peak_db: f32,
+    floor_db: f32,
 }
 impl From<Mouth> for MouthEvent {
     fn from(m: Mouth) -> Self {
-        Self { open: m.open, round: m.round, wide: m.wide, closed: m.closed, sib: m.sib, level: m.level }
+        Self { open: m.open, round: m.round, wide: m.wide, closed: m.closed, sib: m.sib, level: m.level, db: m.db, peak_db: m.peak_db, floor_db: m.floor_db }
     }
 }
 
@@ -153,7 +164,7 @@ fn mic_thread(app: AppHandle, rx: Receiver<AudioCfg>) {
         if let Some(c) = newest {
             let reopen = stream.is_none() || c.device != cfg.device || c.enabled != cfg.enabled;
             cfg = c;
-            analyzer.params = MouthParams { gate_db: cfg.gate_db, range_db: cfg.range_db, hold: cfg.hold };
+            analyzer.params = MouthParams { gate_db: cfg.gate_db, range_db: cfg.range_db, hold: cfg.hold, gain_db: cfg.gain_db, auto_level: cfg.auto_level }.sanitized();
             if reopen {
                 stream = None;
                 analyzer.reset();

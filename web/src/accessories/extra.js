@@ -492,25 +492,44 @@ registerAccessory('eyepatch', ({ mats }, p) => {
 });
 
 /* ================================================================ FACE */
+// Mouth props. Sockets (both children of seat_bone_6, so they ride the LOWER lip):
+//   mouth        centre of the lip gap at the seat's top front edge, +z out, +y up
+//   mouth_corner the right (+x) corner of the lips, turned ~25 deg outward
+// The upper lip (lid) rests ~0.05 rad open, i.e. a ~4.5 cm gap at the front, so anything
+// held between the lips stays under ~3.5 cm thick where it crosses the gap.
+
+/** z (relative to the front point, <= 0) of the seat's outer edge at lateral offset x. */
+function lipEdgeZ(dim, x) {
+  const S = dim?.seat || { rx: 0.405, rz: 0.495 }, k = dim?.egg ?? 0.08;
+  const ax = Math.min(Math.abs(x), S.rx * 0.999);
+  let lo = 0, hi = Math.PI / 2;
+  for (let i = 0; i < 32; i++) { const m = (lo + hi) / 2; if (S.rx * Math.cos(m) * (1 - k * Math.sin(m)) > ax) lo = m; else hi = m; }
+  return S.rz * Math.sin((lo + hi) / 2) - S.rz;
+}
+
 registerAccessory('cigar', ({ mats }, p) => {
   const { root, inner } = rig(p);
-  const cig = new THREE.Group(); cig.position.set(0.11, -0.045, 0.02); cig.rotation.set(0.18, 0.55, 0); inner.add(cig);
-  const L = 0.2;
-  const body = mesh(new THREE.CylinderGeometry(0.018, 0.016, L, 24), M(mats, 'tobacco', p.color), cig, 0, 0, L / 2);
+  // butt ~4 cm inside the mouth, resting on the lower lip; angled down and out, ember outward
+  const cig = new THREE.Group(); cig.position.set(0, 0.018, -0.045); cig.rotation.set(0.22, 0.1, 0); inner.add(cig);
+  const L = 0.21, R = 0.0155;
+  const body = mesh(new THREE.CylinderGeometry(R, R * 0.92, L, 24), M(mats, 'tobacco', p.color), cig, 0, 0, L / 2);
   body.rotation.x = Math.PI / 2;
-  const band = mesh(new THREE.CylinderGeometry(0.0185, 0.0185, 0.02, 24), M(mats, 'fabric', '#8f1622'), cig, 0, 0, 0.04);
-  band.rotation.x = Math.PI / 2;
-  const ash = mesh(new THREE.CylinderGeometry(0.017, 0.018, 0.02, 20), M(mats, 'ash'), cig, 0, 0, L + 0.01);
+  const cap = mesh(new THREE.SphereGeometry(R * 0.92, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), M(mats, 'tobacco', p.color), cig, 0, 0, 0);
+  cap.rotation.x = -Math.PI / 2;                                // rounded head inside the mouth
+  const band = mesh(new THREE.CylinderGeometry(R + 0.0008, R + 0.0008, 0.018, 24), M(mats, 'fabric', '#8f1622'), cig, 0, 0, 0.07);
+  band.rotation.x = Math.PI / 2;                                // just outside the lips
+  const ash = mesh(new THREE.CylinderGeometry(R * 0.9, R * 0.92, 0.022, 20), M(mats, 'ash'), cig, 0, 0, L + 0.011);
   ash.rotation.x = Math.PI / 2;
   const emberMat = new THREE.MeshStandardMaterial({ color: '#ff6a2a', emissive: new THREE.Color('#ff3a00'), emissiveIntensity: 2, roughness: 1 });
-  const ember = mesh(new THREE.CircleGeometry(0.016, 20), emberMat, cig, 0, 0, L + 0.0205);
+  const ember = mesh(new THREE.CircleGeometry(R * 0.85, 20), emberMat, cig, 0, 0, L + 0.0225);
   ember.castShadow = false;
   const smoke = new Smoke(inner, 14);
   const tip = new THREE.Vector3();
   const bob = new Spring(120, 8);
   root.userData.update = (st) => {
-    bob.target = st.talk * 0.15 + Math.sin(st.time * 9) * 0.05 * st.talk; bob.step(st.dt);
-    cig.rotation.x = 0.18 + bob.x;
+    // lips grip it: it dips a little as the mouth opens and wobbles while talking
+    bob.target = st.talk * 0.12 + Math.sin(st.time * 9) * 0.04 * st.talk; bob.step(st.dt);
+    cig.rotation.x = 0.22 + bob.x;
     cig.updateMatrix();
     tip.set(0, 0, L + 0.03).applyMatrix4(cig.matrix);
     smoke.origin.copy(tip);
@@ -522,34 +541,40 @@ registerAccessory('cigar', ({ mats }, p) => {
 
 registerAccessory('pipe', ({ mats }, p) => {
   const { root, inner } = rig(p);
-  const pipe = new THREE.Group(); pipe.position.set(-0.1, -0.05, 0.02); pipe.rotation.y = -0.4; inner.add(pipe);
+  // bit held in the corner of the lips, stem out and down, bowl hanging below with the opening up
+  const pipe = new THREE.Group(); pipe.position.set(0, 0.017, -0.035); pipe.rotation.set(0.08, 0.05, 0); inner.add(pipe);
   const wood = M(mats, 'wood', p.color || '#5b3218');
-  mesh(tube([[0, 0, 0], [0, -0.005, 0.06], [0, -0.03, 0.12], [0, -0.04, 0.15]], 0.009, 32, 10), M(mats, 'plastic', '#121212'), pipe);
-  const bowl = mesh(lathe([[0.0, 0.0], [0.03, 0.0], [0.036, 0.03], [0.035, 0.075], [0.026, 0.078], [0.024, 0.01], [0, 0.01]], 32), wood, pipe, 0, -0.07, 0.17);
+  const bit = M(mats, 'plastic', '#121212');
+  mesh(tube([[0, 0, 0], [0, -0.002, 0.04], [0, -0.006, 0.07]], 0.0075, 24, 10), bit, pipe);
+  mesh(tube([[0, -0.006, 0.07], [0, -0.012, 0.1], [0, -0.025, 0.125], [0, -0.035, 0.135]], 0.0095, 24, 10), wood, pipe);
+  const bowl = mesh(lathe([[0.0, 0.0], [0.03, 0.0], [0.036, 0.03], [0.035, 0.075], [0.026, 0.078], [0.024, 0.01], [0, 0.01]], 32), wood, pipe, 0, -0.08, 0.16);
   const ember = mesh(new THREE.CircleGeometry(0.023, 16), new THREE.MeshStandardMaterial({ color: '#ff6a2a', emissive: new THREE.Color('#ff3300'), emissiveIntensity: 1.2 }), bowl, 0, 0.065, 0);
   ember.rotation.x = -Math.PI / 2; ember.castShadow = false;
   const smoke = new Smoke(inner, 10);
   root.userData.update = (st) => {
+    pipe.rotation.x = 0.08 + Math.sin(st.time * 8) * 0.04 * st.talk;
     pipe.updateMatrix();
-    smoke.origin.set(0, 0.01, 0.17).applyMatrix4(pipe.matrix);
+    smoke.origin.set(0, -0.005, 0.16).applyMatrix4(pipe.matrix);
     smoke.update(st.dt, st.time, 0.8);
-    pipe.rotation.x = Math.sin(st.time * 8) * 0.04 * st.talk;
   };
   return root;
 });
 
-registerAccessory('rose_in_mouth', ({ mats }, p) => {
+registerAccessory('rose_in_mouth', ({ mats, dim }, p) => {
   const { root, inner } = rig(p);
   const leaf = M(mats, 'leaf');
-  const bz = (x) => 1.22 * Math.sqrt(Math.max(0, 0.38 * 0.38 - x * x)) - 0.464 + 0.04;
+  // stem clenched across the lip gap, just inside the front edge, following its curve;
+  // the flower sticks out past the character's right corner
+  const y = 0.02, zIn = (x) => lipEdgeZ(dim, x) - 0.008;
   const stem = [];
-  for (let i = 0; i <= 10; i++) { const x = -0.2 + i * 0.045; stem.push([x, -0.04 + Math.sin(i * 0.5) * 0.004, bz(Math.min(0.3, Math.abs(x)))]); }
-  mesh(tube(stem, 0.006, 48, 8), leaf, inner);
-  for (const [x, s] of [[-0.08, 1], [0.1, -1]]) {
-    const l = mesh(new THREE.SphereGeometry(0.03, 16, 10), leaf, inner, x, -0.04 + 0.02 * s, bz(Math.abs(x)) + 0.01);
-    l.scale.set(1.4, 0.15, 0.6); l.rotation.z = 0.5 * s;
+  for (let i = 0; i <= 12; i++) { const x = -0.15 + i * 0.035; stem.push([x, y + Math.sin(i * 0.6) * 0.003, zIn(x)]); }
+  stem.push([0.31, y + 0.004, zIn(0.29) + 0.03]);
+  mesh(tube(stem, 0.0055, 64, 8), leaf, inner);
+  for (const [x, s] of [[-0.12, 1], [0.2, -1]]) {
+    const l = mesh(new THREE.SphereGeometry(0.03, 16, 10), leaf, inner, x, y + 0.014 * s, zIn(x) + 0.02);
+    l.scale.set(1.4, 0.15, 0.6); l.rotation.set(0.2 * s, -0.4, 0.5 * s);
   }
-  const flower = new THREE.Group(); flower.position.set(0.27, -0.035, bz(0.27) + 0.02); inner.add(flower);
+  const flower = new THREE.Group(); flower.position.set(0.335, y + 0.006, zIn(0.29) + 0.045); flower.rotation.set(0.2, -0.6, -1.2); inner.add(flower);
   const petal = M(mats, 'petal', p.color);
   const pg = new THREE.SphereGeometry(0.04, 20, 12, 0, Math.PI, 0, Math.PI * 0.6);
   for (let i = 0; i < 11; i++) {
@@ -559,30 +584,38 @@ registerAccessory('rose_in_mouth', ({ mats }, p) => {
     pm.scale.setScalar(0.5 + ring * 0.3);
     pm.rotation.set(-0.3 - ring * 0.35, a, 0);
   }
+  const sw = new Spring(90, 5);
+  root.userData.update = (st) => {
+    sw.target = -st.headYawVel * 0.05 + Math.sin(st.time * 7) * 0.03 * st.talk; sw.step(st.dt);
+    flower.rotation.z = -1.2 + sw.x;
+  };
   return root;
 });
 
 registerAccessory('tongue', ({ mats }, p) => {
   const { root, inner } = rig(p);
   const mat = M(mats, 'tongue', p.color);
-  inner.position.set(0, 0.15, 0.0);
+  // root inside the mouth on the lower lip; it slides out over the lip edge and hangs down the front
+  inner.position.set(0, 0.017, -0.07);
+  const BASE = [0.1, 0.55, 0.65, 0.4];                // per-segment bend (rad): flat -> over the edge -> hanging
   const segs = [];
   let parent = inner;
   for (let i = 0; i < 4; i++) {
     const g = new THREE.Group(); g.position.z = i === 0 ? 0 : 0.055; parent.add(g);
     const m = mesh(new THREE.SphereGeometry(0.06, 24, 16), mat, g, 0, 0, 0.03);
-    m.scale.set(1.25 - i * 0.12, 0.28, 0.75);
-    if (i < 3) { const groove = mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.05, 6), M(mats, 'tongue', '#a8404d'), g, 0, 0.015, 0.03); groove.rotation.x = Math.PI / 2; }
-    segs.push({ g, s: new Spring(140 - i * 20, 6) });
+    m.scale.set(1.2 - i * 0.12, 0.27, 0.75);          // ~3.2 cm thick: fits the lip gap
+    if (i < 3) { const groove = mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.05, 6), M(mats, 'tongue', '#a8404d'), g, 0, 0.0155, 0.03); groove.rotation.x = Math.PI / 2; }
+    segs.push({ g, s: new Spring(140 - i * 20, 6), y: new Spring(90 - i * 10, 5) });
     parent = g;
   }
   root.userData.update = (st) => {
     for (let i = 0; i < segs.length; i++) {
       const c = segs[i];
-      c.s.target = 0.35 + i * 0.12 + Math.sin(st.time * 10 - i) * 0.12 * st.talk - st.lift * 2;
-      c.s.step(st.dt);
+      c.s.target = BASE[i] + Math.sin(st.time * 10 - i) * 0.12 * st.talk * (i ? 1 : 0.3) - st.lift * 2 * (i ? 1 : 0);
+      c.y.target = Math.sin(st.time * 6 - i * 0.8) * (0.04 + 0.1 * st.talk) - st.headYawVel * 0.03 * i;
+      c.s.step(st.dt); c.y.step(st.dt);
       c.g.rotation.x = c.s.x;
-      c.g.rotation.y = Math.sin(st.time * 3 + i) * 0.06;
+      c.g.rotation.y = c.y.x;
     }
   };
   return root;
@@ -809,19 +842,29 @@ export const ACCESSORY_INFO = {
   nerd_glasses: { name: 'Óculos nerd', socket: 'eyes', category: 'Olhos' },
   eyepatch: { name: 'Tapa-olho', socket: 'eyes', category: 'Olhos' },
   // face
-  cigar: { name: 'Charuto', socket: 'face', category: 'Rosto' },
-  pipe: { name: 'Cachimbo', socket: 'face', category: 'Rosto' },
-  rose_in_mouth: { name: 'Rosa na boca', socket: 'face', category: 'Rosto' },
-  tongue: { name: 'Língua', socket: 'face', category: 'Rosto' },
+  cigar: { name: 'Charuto', socket: 'mouth_corner', category: 'Rosto' },
+  pipe: { name: 'Cachimbo', socket: 'mouth_corner', category: 'Rosto' },
+  rose_in_mouth: { name: 'Rosa na boca', socket: 'mouth', category: 'Rosto' },
+  tongue: { name: 'Língua', socket: 'mouth', category: 'Rosto' },
   // body
   bow_tie_real: { name: 'Gravata-borboleta', socket: 'body_front', category: 'Corpo' },
   necktie: { name: 'Gravata', socket: 'body_front', category: 'Corpo' },
   gold_chain: { name: 'Corrente de ouro', socket: 'body_front', category: 'Corpo' },
   cape: { name: 'Capa', socket: 'back', category: 'Corpo' },
-  // props
-  rubber_duck: { name: 'Patinho de borracha', socket: 'head_top', category: 'Objetos' },
-  plunger: { name: 'Desentupidor', socket: 'floor_right', category: 'Objetos' },
-  toilet_brush_holder: { name: 'Escova sanitária', socket: 'floor_left', category: 'Objetos' },
-  air_freshener: { name: 'Bom Ar (spray)', socket: 'head_top', category: 'Objetos' },
-  toilet_paper_stack: { name: 'Pilha de papel', socket: 'floor_left', category: 'Objetos' },
+  // props. physics = rigid body when hit by water / paper / each other (Rust/wasm rig only, see ToiletTuber.registerProps):
+  //   shape 'box' | 'cylinder', size [x,y,z] | {r,h} (m, accessory-local, measured with Box3 from the built geometry),
+  //   center = collider centre, comY = centre of mass height as a fraction of the collider (0 bottom .. 1 top), mass kg,
+  //   fit: true = re-measure the Box3 at runtime (follows params like x / scale), parts = one body per child part (group),
+  //   buoyant = spins / bobs when hit by water and floats in the puddle
+  rubber_duck: { name: 'Patinho de borracha', socket: 'head_top', category: 'Objetos',
+    physics: { shape: 'box', size: [0.19, 0.22, 0.307], center: [0.3, 0.108, -0.005], comY: 0.4, mass: 0.08, fit: true, buoyant: true } },
+  plunger: { name: 'Desentupidor', socket: 'floor_right', category: 'Objetos',
+    physics: { shape: 'cylinder', size: { r: 0.12, h: 0.75 }, center: [0, 0.375, 0], comY: 0.28, mass: 0.45 } },
+  toilet_brush_holder: { name: 'Escova sanitária', socket: 'floor_left', category: 'Objetos',
+    physics: { shape: 'cylinder', size: { r: 0.075, h: 0.479 }, center: [0, 0.239, 0], comY: 0.22, mass: 0.55 } },
+  air_freshener: { name: 'Bom Ar (spray)', socket: 'head_top', category: 'Objetos',
+    physics: { shape: 'cylinder', size: { r: 0.037, h: 0.253 }, center: [0.33, 0.126, 0], comY: 0.42, mass: 0.3, fit: true } },
+  toilet_paper_stack: { name: 'Pilha de papel', socket: 'floor_left', category: 'Objetos',
+    physics: { shape: 'box', size: [0.37, 0.315, 0.12], center: [0, 0.158, 0], mass: 0.6,
+      parts: { shape: 'cylinder', size: { r: 0.06, h: 0.105 }, center: [0, 0.0525, 0], comY: 0.5, mass: 0.1 } } },
 };

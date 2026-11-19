@@ -8,8 +8,9 @@
 use crate::actions::{Action, Fx, Kind, Overrides};
 use crate::dim::*;
 use crate::paper::PaperStrip;
+use crate::props::{Env, Props};
 use crate::util::{clamp, Rng, Spring};
-use crate::water::WaterJet;
+use crate::water::{DropHash, StreamSample, WaterJet};
 use glam::{Mat4, Quat, Vec3};
 
 /// Default look range: 80° yaw, 35° pitch (body + head together).
@@ -53,7 +54,13 @@ pub mod sc {
     pub const TORN_OPACITY: usize = 17;
     pub const PUDDLE_VERSION: usize = 18;
     pub const BOWL_RISE: usize = 19;
-    pub const LEN: usize = 20;
+    /// highest wetness of the paper strip / torn piece (0 = dry: JS may skip the colour upload)
+    pub const PAPER_WET: usize = 20;
+    pub const TORN_WET: usize = 21;
+    /// prop slots in use, props not attached (dynamic / on the floor / flying back)
+    pub const PROP_COUNT: usize = 22;
+    pub const PROPS_ACTIVE: usize = 23;
+    pub const LEN: usize = 24;
 }
 
 /// Mouth input vector. The first five channels are 0..1 (see web/src/input/visemes.js);
@@ -494,6 +501,10 @@ pub struct Rig {
     pub jet: WaterJet,
     pub paper: PaperStrip,
     pub torn: PaperStrip,
+    /// rigid-body props (accessories that get knocked over), rig-root space
+    pub props: Props,
+    drop_hash: DropHash,
+    stream_samples: [StreamSample; 12],
     paper_out_dir: Vec3,
     events: Vec<String>,
     // outputs
@@ -503,6 +514,19 @@ pub struct Rig {
     /// jaw (lid + seat assembly) yaw and forward shift of this frame
     jaw_yaw: f32,
     jaw_fwd: f32,
+    /// sitting: the whole body base is raised by `sit.x` (spring ~0.3 s); `seat_h` = the chair's seat height
+    sit: Spring,
+    seat_h: f32,
+    /// the chair went away under him: sit again once it is back in its socket
+    resit: bool,
+    flip_kicked: bool,
+    /// after kicking the chair away: seconds until the base starts coming down (he is airborne by then)
+    sit_drop_t: f32,
+    prev_seat_state: f32,
+    /// last frame's body / head matrices (kinematic collider velocity for the props)
+    prev_bm: Mat4,
+    prev_hm: Mat4,
+    prev_valid: bool,
 }
 
 impl Default for Rig {
@@ -570,6 +594,9 @@ impl Rig {
             jet: WaterJet::new(seed ^ 0xA5A5),
             paper: PaperStrip::new(roll_w),
             torn: PaperStrip::new(roll_w),
+            props: Props::new(),
+            drop_hash: DropHash::new(0.1),
+            stream_samples: [StreamSample::default(); 12],
             paper_out_dir: Vec3::NEG_X,
             events: Vec::new(),
             pose: vec![0.0; NODE_ORDER.len() * POSE_STRIDE],
@@ -577,6 +604,15 @@ impl Rig {
             morphs: [0.0; MORPHS],
             jaw_yaw: 0.0,
             jaw_fwd: 0.0,
+            sit: Spring::new(110.0, 21.0),
+            seat_h: 0.0,
+            resit: false,
+            flip_kicked: false,
+            sit_drop_t: -1.0,
+            prev_seat_state: crate::props::REST,
+            prev_bm: Mat4::IDENTITY,
+            prev_hm: Mat4::IDENTITY,
+            prev_valid: false,
         };
         r.torn.anchored = false;
         r.torn.fade = 0.0;
@@ -657,6 +693,42 @@ impl Rig {
     }
     /// Lower lip state: (drop below rest of the front centre underside in m (>0 = lower),
     /// forward slide of the front edge in m), in body space.
+    /* ------------------------------------------------------------ sitting on furniture */
+    /// persistent sit height (m): raises the whole body base (smoothly, ~0.3 s). 0 = on the floor
+    pub fn set_sit_height(&mut self, h: f32) {
+        self.sit.target = if h.is_finite() { h.clamp(0.0, 2.0) } else { 0.0 };
+        if self.sit.target <= 0.0 {
+            self.resit = false;
+        }
+    }
+    /// current base height (m) and the target
+    pub fn sit_height(&self) -> f32 {
+        self.sit.x
+    }
+    pub fn is_sitting(&self) -> bool {
+        self.sit.target > 0.01
+    }
+    /// seat height of the chair on `floor_under` (0 = none): `play("sit")` hops up to it
+    pub fn set_seat_height(&mut self, h: f32) {
+        self.seat_h = if h.is_finite() { h.clamp(0.0, 2.0) } else { 0.0 };
+        if self.seat_h <= 0.0 && self.sit.target > 0.0 {
+            self.sit.target = 0.0;
+        }
+    }
+    pub fn seat_height(&self) -> f32 {
+        self.seat_h
+    }
+    /// the seat height he can hop onto now (0 when there is no chair or it was knocked away)
+    fn seat_free_height(&self) -> f32 {
+        if self.seat_h <= 0.0 {
+            return 0.0;
+        }
+        match self.props.seat() {
+            Some(k) if !self.props.is_free(k) => 0.0,
+            _ => self.seat_h,
+        }
+    }
+
     pub fn seat_front(&self) -> (f32, f32) {
         let chain = seat_chain(&self.seat_ang, &self.seat_slide, &self.seat_lift, self.seat_gain);
         let v = self.seat_morphed(Vec3::new(0.0, SEAT_Y0, SEAT_ZC + SEAT_RZ));
@@ -701,18 +773,17 @@ impl Rig {
     /// eyes / handle / roll rest positions from the body dims (head space)
     fn place_body_nodes(&mut self) {
         let d = self.dims;
-        let ez = d.front() + 0.004;
-        self.eyes[0].p = Vec3::new(-d.eye_x, d.eye_y, ez);
-        self.eyes[1].p = Vec3::new(d.eye_x, d.eye_y, ez);
+        // eyes / handle sit on the curved (pillow) front face, turned to its normal
+        let [nx, ny, nz] = d.eye_n;
+        self.eyes[0].p = Vec3::new(-d.eye_x, d.eye_y, d.eye_z);
+        self.eyes[1].p = Vec3::new(d.eye_x, d.eye_y, d.eye_z);
+        self.eyes[0].q = Quat::from_rotation_arc(Vec3::Z, Vec3::new(-nx, ny, nz));
+        self.eyes[1].q = Quat::from_rotation_arc(Vec3::Z, Vec3::new(nx, ny, nz));
         self.handle.p = Vec3::from(d.handle);
+        self.handle.q = Quat::from_rotation_arc(Vec3::Z, Vec3::from(d.handle_n));
         self.head.p.y = d.head_y;
-        self.roll.p = if d.roll_front {
-            // paper_holder on the tank face at (roll x, roll y, front); the roll in front of it
-            Vec3::new(0.0, 0.0, d.roll[2] - d.front())
-        } else {
-            // paper_holder on the left side face at (-w/2, roll y, roll z); the roll out to the side
-            Vec3::new(d.roll[0] + d.tank_w / 2.0, 0.0, 0.0)
-        };
+        // paper_holder sits on the tank surface (front or left side face); the roll relative to it
+        self.roll.p = Vec3::from(d.roll) - Vec3::from(d.roll_holder);
     }
 
     /// Paper leaves the roll along its tangent (down), from the outer side (side mount, axis Z)
@@ -759,7 +830,7 @@ impl Rig {
         let head_inv = self.head_m().inverse();
         let mm = 0.035;
         let d = &self.dims;
-        let (tank_y, tank_h, tank_z, tank_d, tank_w) = (d.tank_y, d.tank_h, d.tank_z, d.tank_d, d.tank_w);
+        let (tank_z, tank_d, tank_w) = (d.tank_z, d.tank_d, d.tank_w);
         let front = d.front() + 0.07; // eyes/handle stick out in front
         // the paper roll + holder in front of the tank face
         let [rx, ry, rz] = d.roll;
@@ -773,11 +844,11 @@ impl Rig {
                 }
                 let local = Vec3::new(0.0, LID_DEPTH + LID_DOME + 0.01, if i == n { 0.0 } else { -LID_SEG * (1.0 - f) });
                 let p = head_inv.transform_point3(b.transform_point3(local));
-                if p.y > tank_y - tank_h / 2.0 - mm
-                    && p.y < tank_y + tank_h / 2.0 + 0.1
-                    && p.z > tank_z - tank_d / 2.0 - mm
+                if p.y > d.tank_bottom - mm
+                    && p.y < d.tank_top + 0.1
+                    && p.z > tank_z - tank_d / 2.0 - d.tank_bulge - mm
                     && p.z < front
-                    && p.x.abs() < tank_w / 2.0 + mm
+                    && p.x.abs() < tank_w / 2.0 + d.tank_bulge + mm
                 {
                     return true;
                 }
@@ -965,6 +1036,15 @@ impl Rig {
             }
         }
         self.active.retain(|a| !a.finished());
+        if let Some(v) = o.sit_to {
+            let h = if v > 0.5 { self.seat_free_height() } else { 0.0 };
+            self.set_sit_height(h);
+        }
+        self.sit.step(dt);
+        if self.sit.x < 0.0 {
+            self.sit.x = 0.0;
+            self.sit.v = self.sit.v.max(0.0);
+        }
 
         let (lx, ly) = o.look.unwrap_or(look);
         let (lx, ly) = (clamp(lx, -1.0, 1.0), clamp(ly, -1.0, 1.0));
@@ -1035,7 +1115,7 @@ impl Rig {
         let flipping = o.flip != 0.0;
         self.body.p = Vec3::new(
             (self.time * 63.0).sin() * 0.008 * o.shake,
-            s.lift.x + if flipping { fy + o.flip_lift } else { 0.0 },
+            s.lift.x + self.sit.x + if flipping { fy + o.flip_lift } else { 0.0 },
             (self.time * 51.0).cos() * 0.005 * o.shake + if flipping { fz } else { 0.0 },
         );
 
@@ -1117,7 +1197,7 @@ impl Rig {
         self.water.s = Vec3::new(ws, 1.0, ws);
         self.swirl.p.y = self.water.p.y + 0.002;
         self.swirl.s = self.water.s;
-        self.handle.q = Quat::from_rotation_z(s.handle.x * 0.6);
+        self.handle.q = Quat::from_rotation_arc(Vec3::Z, Vec3::from(self.dims.handle_n)) * Quat::from_rotation_z(s.handle.x * 0.6);
 
         let (hyv, hpv, liftv, lid_x) = (s.h_yaw.v, s.h_pitch.v, s.lift.v, s.lid.x);
 
@@ -1130,6 +1210,12 @@ impl Rig {
         // the roll turns about its axis (X on the front mount, Z on the side mount) while feeding
         self.roll.q = if self.dims.roll_front { Quat::from_rotation_x(self.roll_rot) } else { Quat::from_rotation_z(self.roll_rot) };
         self.paper.update(dt);
+        // a wet perforation gave way: the wet part drops off (only once the last torn piece is mostly gone)
+        if let Some(k) = self.paper.tear_request.take() {
+            if self.torn.fade <= 0.4 && self.paper.tear_at(k, &mut self.torn, false) {
+                self.events.push("rip".into());
+            }
+        }
         if self.torn.fade > 0.0 {
             self.torn.update(dt);
             self.torn.fade -= dt * 0.5;
@@ -1148,6 +1234,8 @@ impl Rig {
         self.jet.dir = bq * Vec3::from(SPOUT_DIR).normalize();
         self.jet.side = bq * Vec3::X;
         self.jet.update(dt);
+        self.furniture(dt, &o, bm);
+        self.interact(dt, bm, binv);
         let splashes = std::mem::take(&mut self.jet.splashes);
         for _ in 0..splashes {
             if self.rng.next() < 0.05 {
@@ -1176,7 +1264,155 @@ impl Rig {
         sc[sc::TORN_OPACITY] = self.torn.opacity;
         sc[sc::PUDDLE_VERSION] = self.jet.puddle_version as f32;
         sc[sc::BOWL_RISE] = self.jet.bowl_rise;
+        sc[sc::PAPER_WET] = self.paper.max_wet;
+        sc[sc::TORN_WET] = self.torn.max_wet;
+        sc[sc::PROP_COUNT] = self.props.count() as f32;
+        sc[sc::PROPS_ACTIVE] = self.props.active() as f32;
         self.write_pose();
+    }
+
+    /// Water x paper x props: wet the paper where the water hits it, then step the props
+    /// (hit by drops / the column / the paper strips / each other).
+    /// The chair he sits on reacts to his animations: backflip kicks it away (he lands on the floor and
+    /// sits again once it is back), landings wobble it, the flush recoil pushes it back, turning twists it.
+    fn furniture(&mut self, dt: f32, o: &Overrides, bm: Mat4) {
+        let Some(k) = self.props.seat() else {
+            self.flip_kicked = o.flip_lift > 0.0 || o.flip != 0.0;
+            return;
+        };
+        let sitting = self.sit.target > 0.01;
+        let st = self.props.state(k);
+        let free = self.props.is_free(k);
+        let (_, bq, bt) = bm.to_scale_rotation_translation();
+        let mut fwd = bq * Vec3::Z;
+        fwd.y = 0.0;
+        let fwd = fwd.normalize_or(Vec3::Z);
+        let side = Vec3::Y.cross(fwd);
+        let m = self.props.mass(k);
+        self.props.set_occupied(k, sitting && free);
+        // backflip from the chair: the legs kick it backward (+ up + a tumble), he lands on the floor
+        if o.flip_lift > 0.0 || o.flip != 0.0 {
+            if !self.flip_kicked && sitting && st != crate::props::RETURNING {
+                self.props.set_occupied(k, false);
+                let v = -fwd * 2.6 + Vec3::Y * 2.2 + side * (self.rng.next() - 0.5) * 0.6;
+                self.props.launch(k, v, side * -7.0 + Vec3::Y * (self.rng.next() - 0.5) * 3.0);
+                self.sit_drop_t = 0.3;
+                self.resit = true;
+            }
+            self.flip_kicked = true;
+        } else {
+            self.flip_kicked = false;
+        }
+        if self.sit_drop_t >= 0.0 {
+            self.sit_drop_t -= dt;
+            if self.sit_drop_t < 0.0 {
+                self.sit.target = 0.0;
+            }
+            self.prev_seat_state = st;
+            return;
+        }
+        let sitting = self.sit.target > 0.01;
+        // landing on it (jump / sit hop): it wobbles and slides a little; a hard landing can tip it
+        if o.impact > 0.0 && sitting && free {
+            let a = self.rng.next() * std::f32::consts::TAU;
+            let dir = side * a.cos() + fwd * a.sin();
+            if o.impact < 0.6 {
+                // a gentle landing (the sit hop): it just shifts a little
+                self.props.nudge(k, dir * (0.012 * o.impact / 0.35), (self.rng.next() - 0.5) * 0.06);
+            } else {
+                let j = m * o.impact;
+                let horiz = dir * 0.45;
+                self.props.set_occupied(k, false);
+                self.props.kick(k, (Vec3::NEG_Y * 0.8 + horiz) * j, Vec3::Y * (self.seat_h * 0.5) + dir * 0.1);
+            }
+        }
+        if sitting && free {
+            // flush recoil pushes the chair back a little; body turns / the "no" shake twist a light chair
+            if self.jet.emitting {
+                self.props.nudge(k, -fwd * (0.03 * dt), 0.0);
+            }
+            let kk = (0.6 / m).min(0.25);
+            let dyaw = (self.s.yaw.v + 0.3 * self.s.h_yaw.v) * dt * kk * 0.2;
+            if dyaw.abs() > 1e-6 {
+                self.props.nudge(k, Vec3::ZERO, dyaw);
+            }
+        }
+        // the chair is gone from under him (knocked away / tipped / flying back): down to the floor
+        if sitting && !free {
+            let gone = self.props.com(k).is_some_and(|c| Vec3::new(c.x - bt.x, 0.0, c.z - bt.z).length() > 0.25)
+                || self.props.up(k).is_some_and(|u| u.y < 0.85);
+            if gone {
+                self.sit.target = 0.0;
+                self.resit = true;
+            }
+        }
+        // ... and back on it once it returned to its socket
+        if self.resit && free && st == crate::props::REST && self.prev_seat_state != crate::props::REST && self.seat_h > 0.0 {
+            self.resit = false;
+            self.play("sit");
+        }
+        self.prev_seat_state = st;
+    }
+
+    fn interact(&mut self, dt: f32, bm: Mat4, binv: Mat4) {
+        let paper_out = self.paper.pts.len() > 1 || self.torn.pts.len() > 1;
+        let has_props = self.props.count() > 0;
+        if !paper_out && !has_props {
+            return;
+        }
+        // bucket the drops only if some paper / prop is near the drop cloud
+        let (dlo, dhi) = (self.jet.drops_lo - Vec3::splat(0.15), self.jet.drops_hi + Vec3::splat(0.15));
+        let touches = |lo: Vec3, hi: Vec3| hi.cmpge(dlo).all() && lo.cmple(dhi).all();
+        let strip_box = |s: &PaperStrip| {
+            (s.pts.len() > 1).then(|| s.pts.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(a, b), o| (a.min(o.p), b.max(o.p))))
+        };
+        let near = self.jet.live_count > 0
+            && (strip_box(&self.paper).is_some_and(|(a, b)| touches(a, b))
+                || (self.torn.fade > 0.0 && strip_box(&self.torn).is_some_and(|(a, b)| touches(a, b)))
+                || self.props.bounds().is_some_and(|(a, b)| touches(a, b)));
+        if near {
+            self.drop_hash.build(&self.jet);
+        } else {
+            self.drop_hash.clear();
+        }
+        let ns = self.jet.stream_samples(&mut self.stream_samples);
+        let puddle = self.jet.puddle_out;
+        if paper_out {
+            let st = &self.stream_samples[..ns];
+            self.paper.soak(dt, &mut self.jet, &mut self.drop_hash, st, puddle);
+            if self.torn.fade > 0.0 {
+                self.torn.soak(dt, &mut self.jet, &mut self.drop_hash, st, puddle);
+            }
+        }
+        if has_props {
+            let hm = bm * self.head.mat();
+            let d = &self.dims;
+            let lid_top = d.tank_y + d.tank_h / 2.0 + 0.0625;
+            let bottom = d.tank_y - d.tank_h / 2.0;
+            let env = Env {
+                character: true,
+                body: bm,
+                body_inv: binv,
+                head: hm,
+                head_inv: hm.inverse(),
+                tank_c: Vec3::new(0.0, (bottom + lid_top) * 0.5, d.tank_z),
+                tank_h: Vec3::new((d.tank_w + 0.04) * 0.5, (lid_top - bottom) * 0.5, (d.tank_d + 0.05) * 0.5),
+                pipe_a: Vec3::new(0.0, NECK_BASE_Y, PIPE_Z),
+                pipe_b: Vec3::new(0.0, d.head_y, PIPE_Z),
+                pipe_r: 0.045,
+                puddle,
+                bounds: [(Vec3::ZERO, Vec3::ZERO); 3],
+                body_prev: if self.prev_valid { self.prev_bm } else { bm },
+                head_prev: if self.prev_valid { self.prev_hm } else { hm },
+                inv_dt: 1.0 / dt.max(1e-4),
+            }
+            .with_bounds();
+            self.props.step(dt, &env, &mut self.jet, &mut self.drop_hash, [&mut self.paper, &mut self.torn]);
+            self.events.append(&mut self.props.events);
+            self.prev_bm = bm;
+            self.prev_hm = hm;
+            self.prev_valid = true;
+        }
     }
 
     fn write_pose(&mut self) {
@@ -1437,7 +1673,7 @@ mod tests {
         // resized tank: the roll follows and the anchor is still on its surface
         r.set_body_dims(BodyDims::new(1.5, 0.7, 1.4, 1.0, 1.0, 0.0).with_roll_mount(front));
         let want_x = if front { -0.3 * 1.5 } else { -(TANK_W * 1.5 / 2.0 + ROLL_SIDE_OUT) };
-        assert!((r.dims.roll[0] - want_x).abs() < 1e-5);
+        assert!((r.dims.roll[0] - want_x).abs() < 0.04, "roll x {} vs {want_x}", r.dims.roll[0]); // on the curved (tapered, bulged) surface
         check(&r, "resized");
         r.play("paper");
         for f in 0..120 {
@@ -1506,7 +1742,7 @@ mod tests {
         r.set_body_dims(BodyDims::from_json(r#"{"tank":{"w":1.6,"h":1.6,"d":1.6},"eyes":{"size":1.8,"spacing":1.6,"y":0.12}}"#));
         let d = r.body_dims();
         let eye_l = &r.pose()[11 * POSE_STRIDE..11 * POSE_STRIDE + 3];
-        assert!((eye_l[0] + d.eye_x).abs() < 1e-6 && (eye_l[1] - d.eye_y).abs() < 1e-6 && (eye_l[2] - d.front() - 0.004).abs() < 1e-6);
+        assert!((eye_l[0] + d.eye_x).abs() < 1e-6 && (eye_l[1] - d.eye_y).abs() < 1e-6 && (eye_l[2] - d.eye_z).abs() < 1e-6);
         for i in 0..400 {
             let look = ((i as f32 / 15.0).sin(), -1.0);
             r.update(DT, look, Mouth { open: 1.0, ..Default::default() });
@@ -1563,6 +1799,202 @@ mod tests {
         r.set_body_dims(BodyDims::from_json(r#"{"neck":{"length":1.4}}"#));
         run(&mut r, 30, (0.0, 0.0), Mouth::default());
         assert!(r.pose()[POSE_STRIDE + 1] > HEAD_Y + 0.14, "longer neck: head y {}", r.pose()[POSE_STRIDE + 1]);
+    }
+
+    #[test]
+    fn flush_knocks_over_a_prop_in_its_path_and_leaves_the_others() {
+        use crate::props::{PropDef, DYNAMIC, PROP_STRIDE, REST};
+        let mut r = Rig::new(4);
+        r.props.configure(r#"{"resetAfter": 0}"#);
+        let tall = PropDef::from_json(r#"{"kind":"cylinder","size":{"r":0.05,"h":0.3},"mass":0.4,"com":[0,0.12,0],"center":[0,0.15,0]}"#).unwrap();
+        let hit = r.props.register("in_path", tall.clone(), Mat4::from_translation(Vec3::new(0.0, 0.0, 1.85))) as usize;
+        let side = r.props.register("floor_left", tall, Mat4::from_translation(Vec3::new(-0.62, 0.0, 0.15))) as usize;
+        let duck = PropDef::from_json(r#"{"kind":"box","size":[0.18,0.2,0.25],"mass":0.08,"center":[0.3,0.1,0],"buoyant":true,"onBody":true}"#).unwrap();
+        let top = r.head_m() * Mat4::from_translation(Vec3::new(0.0, r.dims.tank_y + r.dims.tank_h / 2.0 + 0.065, r.dims.tank_z));
+        let dk = r.props.register("duck", duck, top) as usize;
+        r.play("flush");
+        r.play("paper");
+        let mut ev = Vec::new();
+        for _ in 0..360 {
+            r.update(DT, (0.0, 0.0), Mouth::default());
+            ev.extend(r.drain_events());
+        }
+        assert_ne!(r.props.state(hit), REST, "the column knocked it");
+        assert!(r.props.up(hit).unwrap().y < 0.7, "tipped: {:?}", r.props.up(hit));
+        assert!(ev.iter().any(|e| e.starts_with("prop_hit:in_path:")), "thud event: {ev:?}");
+        assert_eq!(r.props.state(side), REST, "nothing hit the floor_left prop");
+        assert_eq!(r.props.state(dk), REST, "the duck on the tank stays put");
+        assert!(r.props.out.iter().all(|v| v.is_finite()));
+        assert!(r.scalars()[sc::PROP_COUNT] == 3.0 && r.scalars()[sc::PROPS_ACTIVE] >= 1.0);
+        let _ = DYNAMIC + PROP_STRIDE as f32;
+    }
+
+    #[test]
+    fn flush_while_paper_is_out_wets_it() {
+        let mut r = Rig::new(2);
+        r.set_body_dims(BodyDims::from_json(r#"{"roll":{"mount":"front"}}"#));
+        // front roll: the pile runs toward the puddle. Flush first, then the paper streams out through the spew
+        r.play("flush");
+        run(&mut r, 75, (0.0, 0.0), Mouth::default());
+        r.play("paper");
+        let mut wet = 0.0f32;
+        for _ in 0..300 {
+            r.update(DT, (0.0, 0.0), Mouth::default());
+            wet = wet.max(r.scalars()[sc::PAPER_WET]).max(r.scalars()[sc::TORN_WET]);
+        }
+        assert!(wet > 0.3, "the spew soaked the paper: {wet}");
+        assert!(r.paper.col.iter().all(|c| c.is_finite() && (0.0..=1.0).contains(c)));
+    }
+
+    fn chair_rig() -> (Rig, usize) {
+        use crate::props::PropDef;
+        let mut r = Rig::new(11);
+        r.props.configure(r#"{"resetAfter": 1.5}"#);
+        let chair = PropDef::from_json(r#"{"kind":"box","size":[0.46,0.45,0.46],"mass":2.5,"center":[0,0.225,0],"com":[0,0.2,0],"seat":true}"#).unwrap();
+        let k = r.props.register("slot_floor_under_0_skol_chair", chair, Mat4::IDENTITY) as usize;
+        r.set_seat_height(0.45);
+        (r, k)
+    }
+    fn base_y(r: &Rig) -> f32 {
+        r.pose()[1]
+    }
+
+    #[test]
+    fn sit_raises_the_base_smoothly_lid_still_clamped_and_stand_comes_down() {
+        let mut r = Rig::new(3);
+        r.set_seat_height(0.45);
+        assert!(r.play("sit"));
+        let (mut prev, mut max_step) = (base_y(&r), 0.0f32);
+        for _ in 0..90 {
+            r.update(DT, (0.0, 0.0), Mouth::default());
+            max_step = max_step.max((base_y(&r) - prev).abs());
+            prev = base_y(&r);
+        }
+        assert!(r.is_sitting());
+        assert!((base_y(&r) - 0.45).abs() < 0.02, "pedestal bottom at the seat: {}", base_y(&r));
+        assert!(max_step < 0.05, "smooth hop: max step {max_step}");
+        for i in 0..300 {
+            let look = ((i as f32 / 15.0).sin(), -1.0);
+            r.update(DT, look, Mouth { open: 1.0, ..Default::default() });
+            assert!(!r.lid_hits_head(r.hinge()), "seated frame {i}");
+        }
+        // backflip without a chair prop (no physics): lands back on the seat
+        r.play("backflip");
+        run(&mut r, 120, (0.0, 0.0), Mouth::default());
+        assert!((base_y(&r) - 0.45).abs() < 0.03, "back on the seat: {}", base_y(&r));
+        // paper and water still fall to the floor
+        r.play("flush");
+        r.play("paper");
+        run(&mut r, 300, (0.0, 0.0), Mouth::default());
+        assert!(r.paper.pts.iter().chain(r.torn.pts.iter()).any(|o| o.p.y < 0.05), "paper on the floor");
+        assert!(r.jet.puddle_out[4] > 0.1, "puddle on the floor");
+        r.play("stand");
+        let mut max_step = 0.0f32;
+        let mut prev = base_y(&r);
+        for _ in 0..90 {
+            r.update(DT, (0.0, 0.0), Mouth::default());
+            max_step = max_step.max((base_y(&r) - prev).abs());
+            prev = base_y(&r);
+        }
+        assert!(!r.is_sitting() && base_y(&r).abs() < 0.02, "back on the floor: {}", base_y(&r));
+        assert!(max_step < 0.05);
+        r.set_sit_height(0.3);
+        run(&mut r, 60, (0.0, 0.0), Mouth::default());
+        assert!((r.sit_height() - 0.3).abs() < 0.01);
+    }
+
+    #[test]
+    fn backflip_from_the_chair_kicks_it_away_and_he_sits_again() {
+        let (mut r, k) = chair_rig();
+        r.play("sit");
+        run(&mut r, 80, (0.0, 0.0), Mouth::default());
+        assert!(r.is_sitting() && r.props.is_free(k));
+        r.play("backflip");
+        let mut far = 0.0f32;
+        let mut ev = Vec::new();
+        for _ in 0..150 {
+            r.update(DT, (0.0, 0.0), Mouth::default());
+            ev.extend(r.drain_events());
+            let c = r.props.com(k).unwrap();
+            far = far.max(Vec3::new(c.x, 0.0, c.z).length());
+        }
+        assert!(far >= 0.5, "the chair flew {far} m");
+        assert!(!r.is_sitting() && base_y(&r).abs() < 0.03, "he landed on the floor: {}", base_y(&r));
+        assert!(ev.iter().any(|e| e.starts_with("prop_hit:slot_floor_under_0_skol_chair:")), "{ev:?}");
+        // the chair flies back to floor_under, he hops onto it again
+        let mut sat = false;
+        for _ in 0..900 {
+            r.update(DT, (0.0, 0.0), Mouth::default());
+            if r.props.is_free(k) && r.is_sitting() && (base_y(&r) - 0.45).abs() < 0.02 {
+                sat = true;
+                break;
+            }
+        }
+        assert!(sat, "seated again (chair state {}, base {})", r.props.state(k), base_y(&r));
+        assert!(r.props.out.iter().all(|v| v.is_finite()) && r.pose().iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn jump_wobbles_the_chair_and_flush_pushes_it_back() {
+        let (mut r, k) = chair_rig();
+        r.play("sit");
+        run(&mut r, 80, (0.0, 0.0), Mouth::default());
+        r.play("jump");
+        let mut moved = 0.0f32;
+        for _ in 0..120 {
+            r.update(DT, (0.0, 0.0), Mouth::default());
+            moved = moved.max(r.props.com(k).unwrap().distance(Vec3::new(0.0, 0.2, 0.0)));
+        }
+        assert!(moved > 0.002, "the chair wobbled: {moved}");
+        assert!(r.is_sitting(), "still seated after a jump");
+        run(&mut r, 400, (0.0, 0.0), Mouth::default());
+        assert!(r.props.is_free(k) && r.is_sitting(), "settled / back, still seated");
+        r.play("flush");
+        run(&mut r, 240, (0.0, 0.0), Mouth::default());
+        let o = &r.props.out[k * crate::props::PROP_STRIDE..];
+        assert_eq!(o[0], crate::props::NUDGED, "recoil nudged the chair");
+        assert!(o[3] < -0.01, "pushed back (his -z): {}", o[3]);
+        assert!(r.is_sitting());
+    }
+
+    /// profiling aid: cargo test -p privada-core --release profile_props -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn profile_props() {
+        use crate::props::PropDef;
+        use std::time::Instant;
+        for with in [false, true] {
+            let mut r = Rig::new(7);
+            r.props.configure(r#"{"resetAfter": 3}"#);
+            if with {
+                let roll = |y: f32| {
+                    let mut d = PropDef::from_json(r#"{"kind":"cylinder","size":{"r":0.06,"h":0.105},"mass":0.1,"center":[0,0.0525,0]}"#).unwrap();
+                    d.center.y += y;
+                    d.com = d.center;
+                    d
+                };
+                for (g, (bx, bz)) in [(-0.62f32, 0.15f32), (-0.28, 1.55)].iter().enumerate() {
+                    for (i, (x, y)) in [(-0.125, 0.0), (0.0, 0.0), (0.125, 0.0), (-0.0625, 0.105), (0.0625, 0.105), (0.0, 0.21)].iter().enumerate() {
+                        let mut d = roll(*y);
+                        d.group = format!("s{g}");
+                        r.props.register(&format!("s{g}r{i}"), d, Mat4::from_translation(Vec3::new(bx + x, 0.0, *bz)));
+                    }
+                }
+                let cyl = |rr: f32, h: f32, m: f32| PropDef::from_json(&format!(r#"{{"kind":"cylinder","size":{{"r":{rr},"h":{h}}},"mass":{m},"center":[0,{},0]}}"#, h / 2.0)).unwrap();
+                for (i, p) in [(0.62f32, 0.15f32), (0.0, 1.85), (0.0, 0.75), (-0.45, 2.05), (-0.8, 2.1), (0.3, 1.3), (0.5, 1.6), (-0.5, 1.0)].iter().enumerate() {
+                    r.props.register(&format!("c{i}"), cyl(0.06, 0.4, 0.4), Mat4::from_translation(Vec3::new(p.0, 0.0, p.1)));
+                }
+            }
+            let t0 = Instant::now();
+            for i in 0..3300 {
+                if i % 330 == 0 { r.play("flush"); }
+                if i % 330 == 75 { r.play("paper"); }
+                r.update(DT, (0.1, 0.0), Mouth::default());
+                r.drain_events();
+            }
+            let el = t0.elapsed().as_secs_f64() / 3300.0 * 1e6;
+            eprintln!("props={with} {el:.1} us/frame active={}", r.props.active());
+        }
     }
 }
 

@@ -9,6 +9,10 @@
 //! * `stream_pos`: (STREAM_SEG+1)*(STREAM_RAD+1) x 3, `stream_nrm` x 3, `stream_uv` x 2, `stream_visible`
 //! * `ripples`  : RIPPLES x [x, z, scale, opacity, visible]
 //! * `puddle`   : [x, z, sx, sz, opacity], `puddle_radial` (PUDDLE_SEG+1 factors, ring vertices 1..), `puddle_version`
+//!
+//! Interaction (props.rs, paper wetness): [`DropHash`] buckets the live drops each frame,
+//! [`WaterJet::stream_samples`] samples the coherent column, `drop_state` / `set_drop` /
+//! `absorb_drop` read, redirect or soak up single drops.
 use crate::util::Rng;
 use glam::{Mat4, Quat, Vec3};
 use std::f32::consts::PI;
@@ -116,6 +120,11 @@ pub struct WaterJet {
     pub bowl_slosh: f32,
     /// number of splashes since the last `take_splashes()` (rig turns some into "drip" sfx)
     pub splashes: u32,
+    /// live drops after the last update (cheap: counted in the drop loop)
+    pub live_count: usize,
+    /// bounding box of the live drops after the last update (valid when live_count > 0)
+    pub drops_lo: Vec3,
+    pub drops_hi: Vec3,
 
     time: f32,
     speed_now: f32,
@@ -172,6 +181,9 @@ impl WaterJet {
             bowl_rise: 0.0,
             bowl_slosh: 0.0,
             splashes: 0,
+            live_count: 0,
+            drops_lo: Vec3::ZERO,
+            drops_hi: Vec3::ZERO,
             time: 0.0,
             speed_now: 3.2,
             acc: Acc::default(),
@@ -218,6 +230,48 @@ impl WaterJet {
     }
     pub fn live_drops(&self) -> usize {
         self.drops.life.iter().filter(|l| **l > 0.0).count()
+    }
+
+    /// position, velocity and size of drop `i` if it is alive
+    #[inline]
+    pub fn drop_state(&self, i: usize) -> Option<(Vec3, Vec3, f32)> {
+        if self.drops.life[i] <= 0.0 {
+            return None;
+        }
+        let o = i * 3;
+        let (p, v) = (&self.drops.p, &self.drops.v);
+        Some((Vec3::new(p[o], p[o + 1], p[o + 2]), Vec3::new(v[o], v[o + 1], v[o + 2]), self.drops.size[i]))
+    }
+    /// move / redirect a live drop (bounce off a prop); its matrix follows next frame
+    pub fn set_drop(&mut self, i: usize, p: Vec3, v: Vec3) {
+        let o = i * 3;
+        self.drops.p[o..o + 3].copy_from_slice(&[p.x, p.y, p.z]);
+        self.drops.v[o..o + 3].copy_from_slice(&[v.x, v.y, v.z]);
+    }
+    /// soak up a drop (absorbed by paper)
+    pub fn absorb_drop(&mut self, i: usize) {
+        self.drops.kill(i);
+    }
+    /// Samples along the coherent column (none when it is not visible): position, water velocity,
+    /// radius. Returns how many were written into `out`.
+    pub fn stream_samples(&self, out: &mut [StreamSample]) -> usize {
+        if !self.stream_visible || out.is_empty() {
+            return 0;
+        }
+        let tt = Self::ground_time(self.mouth.y, self.v0.y).max(1e-3);
+        let (t0, t1) = (self.t_back, self.t_front);
+        let n = out.len();
+        for (k, o) in out.iter_mut().enumerate() {
+            let t = t0 + (t1 - t0) * (k as f32 + 0.5) / n as f32;
+            o.p = self.arc_point(t);
+            o.v = Vec3::new(self.v0.x, self.v0.y + G * t, self.v0.z);
+            o.r = 0.036 * self.amt * (0.7 + 0.75 * (t / tt));
+        }
+        n
+    }
+    /// how much water the column carries now (0..1, ramps in when it starts)
+    pub fn stream_amount(&self) -> f32 {
+        if self.stream_visible { self.amt } else { 0.0 }
     }
 
     fn rnd(&mut self, a: f32, b: f32) -> f32 {
@@ -558,6 +612,18 @@ impl WaterJet {
             let m = Mat4::from_scale_rotation_translation(Vec3::new(sc, sc * (1.0 + speed * 0.22), sc), q, p);
             self.drops.set(i, m);
         }
+        let (mut n, mut lo, mut hi) = (0, Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        for i in 0..DROPS {
+            if self.drops.life[i] > 0.0 {
+                let p = Vec3::new(self.drops.p[i * 3], self.drops.p[i * 3 + 1], self.drops.p[i * 3 + 2]);
+                lo = lo.min(p);
+                hi = hi.max(p);
+                n += 1;
+            }
+        }
+        self.live_count = n;
+        self.drops_lo = lo;
+        self.drops_hi = hi;
     }
 
     fn update_foam(&mut self, dt: f32, level_y: f32) {
@@ -669,9 +735,181 @@ impl WaterJet {
     }
 }
 
+/// one sample of the coherent water column (world space)
+#[derive(Clone, Copy, Debug, Default)]
+pub struct StreamSample {
+    pub p: Vec3,
+    pub v: Vec3,
+    pub r: f32,
+}
+
+const HASH_TABLE: usize = 1024;
+/// Uniform-grid spatial hash of the live drops (counting sort into buckets), rebuilt each frame.
+/// A query visits each bucket at most once (stamped); callers re-check the real distance.
+#[derive(Clone)]
+pub struct DropHash {
+    pub cell: f32,
+    start: Vec<u32>,
+    items: Vec<u32>,
+    keys: Vec<u16>,
+    stamp: Vec<u32>,
+    gen: u32,
+    /// live drops in the hash and their bounding box
+    pub live: usize,
+    pub lo: Vec3,
+    pub hi: Vec3,
+}
+
+impl Default for DropHash {
+    fn default() -> Self {
+        Self::new(0.1)
+    }
+}
+
+impl DropHash {
+    pub fn new(cell: f32) -> Self {
+        Self {
+            cell,
+            start: vec![0; HASH_TABLE + 1],
+            items: vec![0; DROPS],
+            keys: vec![0; DROPS],
+            stamp: vec![0; HASH_TABLE],
+            gen: 0,
+            live: 0,
+            lo: Vec3::ZERO,
+            hi: Vec3::ZERO,
+        }
+    }
+    #[inline]
+    fn bucket(ix: i32, iy: i32, iz: i32) -> usize {
+        ((ix.wrapping_mul(73_856_093) ^ iy.wrapping_mul(19_349_663) ^ iz.wrapping_mul(83_492_791)) as u32 as usize) & (HASH_TABLE - 1)
+    }
+    #[inline]
+    fn cell_of(&self, v: f32) -> i32 {
+        (v / self.cell).floor() as i32
+    }
+    /// bucket every live drop of `jet`
+    pub fn build(&mut self, jet: &WaterJet) {
+        self.start.fill(0);
+        let d = &jet.drops;
+        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        let mut live = 0;
+        for i in 0..DROPS {
+            if d.life[i] <= 0.0 {
+                self.keys[i] = u16::MAX;
+                continue;
+            }
+            let o = i * 3;
+            let p = Vec3::new(d.p[o], d.p[o + 1], d.p[o + 2]);
+            lo = lo.min(p);
+            hi = hi.max(p);
+            let b = Self::bucket(self.cell_of(p.x), self.cell_of(p.y), self.cell_of(p.z));
+            self.keys[i] = b as u16;
+            self.start[b + 1] += 1;
+            live += 1;
+        }
+        for b in 0..HASH_TABLE {
+            self.start[b + 1] += self.start[b];
+        }
+        // fill with start[b] as the cursor, then shift back
+        for i in 0..DROPS {
+            let b = self.keys[i];
+            if b == u16::MAX {
+                continue;
+            }
+            let b = b as usize;
+            self.items[self.start[b] as usize] = i as u32;
+            self.start[b] += 1;
+        }
+        for b in (1..=HASH_TABLE).rev() {
+            self.start[b] = self.start[b - 1];
+        }
+        self.start[0] = 0;
+        self.live = live;
+        self.lo = lo;
+        self.hi = hi;
+    }
+    pub fn clear(&mut self) {
+        self.live = 0;
+    }
+    /// does the box [lo, hi] overlap the drops' bounding box?
+    #[inline]
+    pub fn overlaps(&self, lo: Vec3, hi: Vec3) -> bool {
+        self.live > 0 && hi.cmpge(self.lo).all() && lo.cmple(self.hi).all()
+    }
+    /// calls `f` with every live drop whose cell overlaps the box [lo, hi] (each at most once)
+    pub fn query(&mut self, lo: Vec3, hi: Vec3, mut f: impl FnMut(usize)) {
+        if !self.overlaps(lo, hi) {
+            return;
+        }
+        let (lo, hi) = (lo.max(self.lo), hi.min(self.hi));
+        let (x0, x1) = (self.cell_of(lo.x), self.cell_of(hi.x));
+        let (y0, y1) = (self.cell_of(lo.y), self.cell_of(hi.y));
+        let (z0, z1) = (self.cell_of(lo.z), self.cell_of(hi.z));
+        let cells = (x1 - x0 + 1) as i64 * (y1 - y0 + 1) as i64 * (z1 - z0 + 1) as i64;
+        if cells > (self.live as i64).max(64) {
+            // a box bigger than the drop cloud: visit every live drop once
+            for k in 0..self.live {
+                f(self.items[k] as usize);
+            }
+            return;
+        }
+        self.gen = self.gen.wrapping_add(1);
+        if self.gen == 0 {
+            self.stamp.fill(0);
+            self.gen = 1;
+        }
+        for ix in x0..=x1 {
+            for iy in y0..=y1 {
+                for iz in z0..=z1 {
+                    let b = Self::bucket(ix, iy, iz);
+                    if self.stamp[b] == self.gen {
+                        continue;
+                    }
+                    self.stamp[b] = self.gen;
+                    for k in self.start[b]..self.start[b + 1] {
+                        f(self.items[k as usize] as usize);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn drop_hash_finds_every_drop_in_a_box() {
+        let mut w = WaterJet::new(3);
+        w.origin = Vec3::new(0.0, 0.465, 0.0);
+        w.mouth = Vec3::new(0.0, 0.69, 0.43);
+        w.dir = Vec3::new(0.0, 0.42, 0.9).normalize();
+        w.emitting = true;
+        for _ in 0..40 {
+            w.update(1.0 / 60.0);
+        }
+        let mut h = DropHash::new(0.1);
+        h.build(&w);
+        assert_eq!(h.live, w.live_drops());
+        let inside = |p: Vec3, lo: Vec3, hi: Vec3| p.cmpge(lo).all() && p.cmple(hi).all();
+        for (lo, hi) in [(Vec3::new(-0.2, 0.3, 0.4), Vec3::new(0.2, 0.9, 0.9)), (Vec3::splat(-9.0), Vec3::splat(9.0))] {
+            let mut want: Vec<usize> = (0..DROPS).filter(|&i| w.drop_state(i).is_some_and(|(p, _, _)| inside(p, lo, hi))).collect();
+            let mut got = Vec::new();
+            h.query(lo, hi, |i| {
+                if w.drop_state(i).is_some_and(|(p, _, _)| inside(p, lo, hi)) {
+                    got.push(i)
+                }
+            });
+            got.sort();
+            want.sort();
+            assert!(!want.is_empty());
+            assert_eq!(got, want);
+        }
+        let mut s = [StreamSample::default(); 8];
+        assert_eq!(w.stream_samples(&mut s), 8);
+        assert!(s.iter().all(|o| o.r > 0.0 && o.p.is_finite()));
+    }
     #[test]
     fn jet_spews_lands_and_makes_a_puddle() {
         let mut w = WaterJet::new(1);

@@ -18,14 +18,15 @@
         "id": "mustache_pencil"
       }
     ],
-    "face": [
-      {
-        "id": "cigar"
-      }
-    ],
+    "face": [],
     "body_front": [
       {
         "id": "gold_chain"
+      }
+    ],
+    "mouth_corner": [
+      {
+        "id": "cigar"
       }
     ]
   },

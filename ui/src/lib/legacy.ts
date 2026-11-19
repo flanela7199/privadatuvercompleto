@@ -11,6 +11,18 @@ export { makeResolver, loadPresets, migrateOutfit } from '../../../web/src/app/o
 export { outfitThumbKey, accThumbKey } from '../../../web/src/app/thumbkeys.js';
 import '../../../web/src/accessories/glb.js';
 
+/**
+ * Optional furniture pack (web/src/accessories/furniture.js: registers its accessories and exports
+ * FURNITURE_INFO). Loaded through import.meta.glob so the panel still builds when the file is absent.
+ */
+const furnitureMods = import.meta.glob('../../../web/src/accessories/furniture.js');
+export async function loadFurniture(): Promise<Record<string, any>> {
+  const load = Object.values(furnitureMods)[0];
+  if (!load) return {};
+  try { return ((await load()) as any).FURNITURE_INFO || {}; }
+  catch (e) { console.error('[panel] furniture.js failed to load:', e); return {}; }
+}
+
 export async function loadMic(): Promise<any> {
   return (await import('../../../web/src/input/mic.js')).Mic;
 }

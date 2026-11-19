@@ -5,12 +5,12 @@ export const APP_VERSION = '0.1.0';
 export type Opt = [string | number, string];
 
 export const SOCKETS: Record<string, string> = {
-  lip_upper: 'Lábio superior (tampa)', head_top: 'Topo da cabeça', eyes: 'Olhos', tank_front: 'Frente do tanque', face: 'Rosto (frente da bacia)',
+  lip_upper: 'Lábio superior (tampa)', floor_under: 'Chão (embaixo dele)', head_top: 'Topo da cabeça', eyes: 'Olhos', tank_front: 'Frente do tanque', face: 'Rosto (frente da bacia)',
   lid_top: 'Tampa (boca)', body_front: 'Corpo (frente)', neck: 'Pescoço (cano)', side_right: 'Lado direito',
   back: 'Costas', floor_left: 'Chão esquerdo', floor_right: 'Chão direito',
 };
 export const SOCKET_OPTS: Opt[] = Object.entries(SOCKETS);
-export const CATS = ['Todos', 'Chapéus', 'Olhos', 'Rosto', 'Bigodes', 'Corpo', 'Objetos', 'Outros'];
+export const CATS = ['Todos', 'Chapéus', 'Olhos', 'Rosto', 'Bigodes', 'Corpo', 'Objetos', 'Móveis', 'Outros'];
 export const MAT_KEYS: [string, string][] = [
   ['porcelain', 'Porcelana'], ['seat', 'Assento'], ['lid', 'Tampa'], ['tankLid', 'Tampa do tanque'],
   ['chrome', 'Metal'], ['gold', 'Ouro'], ['mustache', 'Bigode'], ['eyeWhite', 'Olho'],
@@ -43,7 +43,7 @@ export const sceneDefaults = (s: any = {}) => ({
 });
 
 /** body proportions (theme.body), see docs/app-contract.md "Body proportions + mouth limits" */
-export const BODY_DEFAULTS = { tank: { w: 1, h: 1, d: 1 }, eyes: { size: 1, spacing: 1, y: 0 }, neck: { length: 1 }, roll: { mount: 'side' as 'side' | 'front' } };
+export const BODY_DEFAULTS = { tank: { w: 1, h: 1, d: 1, round: 0.11, bulge: 0.025, taper: 0.9, lidRound: 0.035 }, eyes: { size: 1, spacing: 1, y: 0 }, neck: { length: 1 }, roll: { mount: 'side' as 'side' | 'front' } };
 /** open' = maxOpen * open^curve (what the avatar applies before the rig) */
 export const shapeOpen = (open: number, m: { maxOpen: number; curve: number }) => m.maxOpen * Math.pow(Math.max(0, Math.min(1, open)), m.curve);
 
@@ -63,7 +63,13 @@ export function normalizeConfig(c: any) {
   return out;
 }
 
+/** furniture metadata (FURNITURE_INFO from web/src/accessories/furniture.js), filled at boot */
+let FURNITURE: Record<string, any> = {};
+export function setFurnitureInfo(info: Record<string, any>) { FURNITURE = info || {}; }
+
 export function accInfo(id: string): { name: string; socket: string; category: string } {
+  const f = FURNITURE[id];
+  if (f) return { name: f.name || id.replace(/_/g, ' '), socket: f.socket || 'floor_under', category: 'Móveis' };
   const i = (ACCESSORY_INFO as any)[id];
   if ((MUSTACHE_IDS as string[]).includes(id)) return { name: i?.name || id.replace('mustache_', 'Bigode ').replace(/_/g, ' '), socket: i?.socket || 'lip_upper', category: 'Bigodes' };
   return i || { name: id.replace(/_/g, ' '), socket: 'head_top', category: 'Outros' };

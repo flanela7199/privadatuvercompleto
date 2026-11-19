@@ -19,7 +19,11 @@
 //! | 15 | morphs | 16 blend-shape weights, names in `morph_names()`: lid [smile, pucker, arch, corner_L_up, corner_L_down, corner_R_up, corner_R_down, pucker_L, pucker_R], then seat [corner_L_up, corner_L_down, corner_R_up, corner_R_down, pucker_L, pucker, pucker_R] |
 //! | 16 | stream_nrm | 49*13 x 3 (vertex normals, computed in Rust) |
 //! | 17/18 | paper / torn nrm | 150*2 x 3 (only the first `count*2` vertices are valid) |
+//! | 19 | prop poses | MAX_PROPS (32) x 12: [state, px,py,pz, qx,qy,qz,qw, sx,sy,sz, speed] (rig-root TRS of the accessory origin; state -1 empty, 0 rest, 1 dynamic, 2 on the floor, 3 flying back) |
+//! | 20 | prop rest | MAX_PROPS x 16 column-major rest matrices (rig-root space): **JS may write this view** every frame (same as `set_prop_rest`) |
+//! | 21/22 | paper / torn colour | 150*2 x 4 RGBA per vertex (wet = darker + translucent; 1 = dry) |
 use privada_core::dim::BodyDims;
+use privada_core::props::{PropDef, PROP_STRIDE};
 use privada_core::rig::{self, Mouth, MORPHS, MORPH_NAMES, MOUTH_CHANNELS, NODE_ORDER, STANDARD_VISEMES};
 use privada_core::toss;
 use wasm_bindgen::prelude::*;
@@ -96,7 +100,7 @@ impl Rig {
         let (d, s) = self.inner.seat_front();
         vec![d, s]
     }
-    /// flush | paper | jump | backflip | no | gargle | blink
+    /// flush | paper | jump | backflip | no | gargle | blink | sit | stand
     pub fn play(&mut self, name: &str) -> bool {
         self.inner.play(name)
     }
@@ -130,6 +134,91 @@ impl Rig {
     pub fn drain_events(&mut self) -> String {
         self.inner.drain_events().join("\n")
     }
+    /* ---------------------------------------------------------- sitting on furniture */
+    /// persistent sit height (m): raises the whole body base, smoothly (~0.3 s); 0 = floor
+    pub fn set_sit_height(&mut self, h: f32) {
+        self.inner.set_sit_height(h)
+    }
+    /// current base height (m)
+    pub fn sit_height(&self) -> f32 {
+        self.inner.sit_height()
+    }
+    pub fn is_sitting(&self) -> bool {
+        self.inner.is_sitting()
+    }
+    /// seat height of the chair on floor_under (0 = none): play("sit") hops up to it, play("stand") down
+    pub fn set_seat_height(&mut self, h: f32) {
+        self.inner.set_seat_height(h)
+    }
+    pub fn seat_height(&self) -> f32 {
+        self.inner.seat_height()
+    }
+
+    /* ---------------------------------------------------------- props physics */
+    /// Register (or replace) a physical prop. `shape_json`: `{"kind":"box"|"cylinder", "size":[x,y,z] | {"r","h"},
+    /// "mass", "com":[x,y,z], "center":[x,y,z], "group":"..", "buoyant":bool}` (object-local: the accessory's own
+    /// space, size = full extents); `rest` = its rest world (rig-root) matrix, 16 floats column-major.
+    /// Returns the slot (index into the prop buffers) or -1 (bad shape / 32 props already).
+    pub fn register_prop(&mut self, id: &str, shape_json: &str, rest: &[f32]) -> i32 {
+        let Ok(def) = PropDef::from_json(shape_json) else { return -1 };
+        let m = if rest.len() >= 16 { privada_core::glam::Mat4::from_cols_slice(&rest[..16]) } else { privada_core::glam::Mat4::IDENTITY };
+        self.inner.props.register(id, def, m)
+    }
+    pub fn unregister_prop(&mut self, id: &str) -> bool {
+        self.inner.props.unregister(id)
+    }
+    pub fn clear_props(&mut self) {
+        self.inner.props.clear()
+    }
+    /// slot of a prop id, -1 if unknown
+    pub fn prop_index(&self, id: &str) -> i32 {
+        self.inner.props.index(id).map_or(-1, |k| k as i32)
+    }
+    /// slots in use (prop buffers are valid for 0..prop_count())
+    pub fn prop_count(&self) -> u32 {
+        self.inner.props.count() as u32
+    }
+    /// new rest world matrix of a prop (call every frame: the sockets move with him); see also buffer 20
+    pub fn set_prop_rest(&mut self, id: &str, m: &[f32]) -> bool {
+        match self.inner.props.index(id) {
+            Some(k) => {
+                self.inner.props.set_rest(k, m);
+                true
+            }
+            None => false,
+        }
+    }
+    /// same by slot (no string)
+    pub fn set_prop_rest_slot(&mut self, slot: u32, m: &[f32]) {
+        self.inner.props.set_rest(slot as usize, m);
+    }
+    /// writable pointer to the rest-matrix buffer (MAX_PROPS x 16 f32)
+    pub fn prop_rest_ptr(&mut self) -> u32 {
+        self.inner.props.rest_buf.as_mut_ptr() as u32
+    }
+    /// copy of the pose buffer for the used slots: prop_count() x 12 (see buffer 19)
+    pub fn prop_poses(&self) -> Vec<f32> {
+        self.inner.props.out[..self.inner.props.count() * PROP_STRIDE].to_vec()
+    }
+    /// `{"resetAfter": seconds (0 = never, default 8), "enabled": bool}`
+    pub fn set_props_config(&mut self, json: &str) {
+        self.inner.props.configure(json)
+    }
+    /// push a prop (impulse in N s, rig-root space) at its centre of mass: debug / "kick" buttons
+    pub fn prop_kick(&mut self, id: &str, jx: f32, jy: f32, jz: f32) -> bool {
+        match self.inner.props.index(id) {
+            Some(k) => {
+                self.inner.props.kick(k, privada_core::glam::Vec3::new(jx, jy, jz), privada_core::glam::Vec3::ZERO);
+                true
+            }
+            None => false,
+        }
+    }
+    /// per-point wetness 0..1 of the paper strip (debug)
+    pub fn paper_wetness(&self) -> Vec<f32> {
+        self.inner.paper.pts.iter().map(|o| o.wet).collect()
+    }
+
     pub fn buf_ptr(&self, id: u32) -> u32 {
         self.slice(id).as_ptr() as u32
     }
@@ -161,6 +250,10 @@ impl Rig {
             16 => &r.jet.stream_nrm,
             17 => &r.paper.nrm,
             18 => &r.torn.nrm,
+            19 => &r.props.out,
+            20 => &r.props.rest_buf,
+            21 => &r.paper.col,
+            22 => &r.torn.col,
             _ => &[],
         }
     }

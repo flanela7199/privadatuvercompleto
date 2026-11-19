@@ -2,8 +2,10 @@ import React from 'react';
 
 export const FMT = {
   n2: (v: number) => v.toFixed(2),
+  m3: (v: number) => `${v.toFixed(3)} m`,
   int: (v: number) => String(Math.round(v)),
   db: (v: number) => `${v} dB`,
+  dbs: (v: number) => `${v > 0 ? '+' : ''}${v} dB`,
   s: (v: number) => `${v.toFixed(2)} s`,
   x: (v: number) => `${v.toFixed(2)}×`,
   pct: (v: number) => `${Math.round(v * 100)}%`,

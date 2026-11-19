@@ -106,6 +106,10 @@ export function Visual({ active }: { active: boolean }) {
             <Field label="Cabeça largura" tip="Largura do tanque"><Slider value={body.tank.w} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('tank', 'w', v)} /></Field>
             <Field label="Cabeça altura" tip="Altura do tanque"><Slider value={body.tank.h} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('tank', 'h', v)} /></Field>
             <Field label="Cabeça profund." tip="Profundidade do tanque"><Slider value={body.tank.d} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('tank', 'd', v)} /></Field>
+            <Field label="Arredondado" tip="Raio das quinas do tanque (metros)"><Slider value={body.tank.round} min={0.02} max={0.16} step={0.005} fmt="m3" onChange={(v) => setBody('tank', 'round', v)} /></Field>
+            <Field label="Estufado" tip="Quanto as faces do tanque incham para fora (metros)"><Slider value={body.tank.bulge} min={0} max={0.06} step={0.001} fmt="m3" onChange={(v) => setBody('tank', 'bulge', v)} /></Field>
+            <Field label="Afunilado embaixo" tip="Largura da base do tanque em relação ao topo (1 = reto)"><Slider value={body.tank.taper} min={0.7} max={1.15} step={0.01} fmt="x" onChange={(v) => setBody('tank', 'taper', v)} /></Field>
+            <Field label="Tampa arredondada" tip="Raio das bordas da tampa do tanque (metros)"><Slider value={body.tank.lidRound} min={0.01} max={0.05} step={0.001} fmt="m3" onChange={(v) => setBody('tank', 'lidRound', v)} /></Field>
             <Field label="Pescoço (cano)" tip="Comprimento do cano: sobe/desce a cabeça"><Slider value={body.neck.length} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('neck', 'length', v)} /></Field>
             <Field label="Olhos tamanho"><Slider value={body.eyes.size} min={0.5} max={1.8} step={0.01} fmt="x" onChange={(v) => setBody('eyes', 'size', v)} /></Field>
             <Field label="Olhos distância" tip="Separação entre os olhos"><Slider value={body.eyes.spacing} min={0.6} max={1.6} step={0.01} fmt="x" onChange={(v) => setBody('eyes', 'spacing', v)} /></Field>

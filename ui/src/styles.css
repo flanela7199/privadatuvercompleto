@@ -203,3 +203,14 @@ header .btn.primary { height: 30px; }
 .seg button:last-child { border-right: none; }
 .seg button:hover { color: var(--text); background: var(--panel2); }
 .seg button.sel { background: var(--acc-d); color: #fff; }
+
+/* dB meter (mic tab) */
+.dbm-track { position: relative; height: 14px; background: #0e0f13; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.dbm-fill { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, var(--ok), #d8e04b 70%, var(--bad)); transition: width .05s linear; }
+.dbm-mark { position: absolute; top: -1px; bottom: -1px; width: 2px; margin-left: -1px; }
+.dbm-mark.gate, .sw.gate { background: #c9ccd6; }
+.dbm-mark.floor, .sw.floor { background: var(--warn); }
+.dbm-mark.peak, .sw.peak { background: var(--acc); }
+.dbm-legend { display: flex; flex-wrap: wrap; gap: var(--s1) var(--s3); margin-top: 6px; font-size: 12px; color: var(--mut); }
+.dbm-legend b { color: var(--text); font-variant-numeric: tabular-nums; }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 3px; }

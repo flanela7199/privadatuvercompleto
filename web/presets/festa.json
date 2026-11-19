@@ -24,11 +24,7 @@
         "id": "mustache_curly"
       }
     ],
-    "face": [
-      {
-        "id": "tongue"
-      }
-    ],
+    "face": [],
     "neck": [
       {
         "id": "bow_tie_real",
@@ -40,6 +36,11 @@
     "floor_left": [
       {
         "id": "toilet_paper_stack"
+      }
+    ],
+    "mouth": [
+      {
+        "id": "tongue"
       }
     ]
   },

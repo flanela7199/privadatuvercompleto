@@ -23,6 +23,10 @@ pub struct Overrides {
     pub flip: f32,
     pub flip_lift: f32,
     pub spin: f32,
+    /// sit / stand: Some(1) = hop up onto the chair (sit height -> seat height), Some(0) = down to the floor
+    pub sit_to: Option<f32>,
+    /// landing impact this frame (1 = a normal jump), pushes the chair he sits on
+    pub impact: f32,
 }
 
 impl Default for Overrides {
@@ -30,7 +34,7 @@ impl Default for Overrides {
         Self {
             mouth: None, head_pitch: 0.0, head_yaw: 0.0, lift: 0.0, shake: 0.0, squash: 0.0,
             eye_scale: 1.0, swirl: 0.0, handle: 0.0, blink: None, look: None, flip: 0.0,
-            flip_lift: 0.0, spin: 0.0,
+            flip_lift: 0.0, spin: 0.0, sit_to: None, impact: 0.0,
         }
     }
 }
@@ -66,6 +70,8 @@ pub enum Kind {
     Blink,
     Jump,
     No,
+    Sit,
+    Stand,
 }
 
 impl Kind {
@@ -78,6 +84,8 @@ impl Kind {
             "blink" => Kind::Blink,
             "jump" => Kind::Jump,
             "no" => Kind::No,
+            "sit" => Kind::Sit,
+            "stand" => Kind::Stand,
             _ => return None,
         })
     }
@@ -90,6 +98,7 @@ impl Kind {
             Kind::Blink => 0.16,
             Kind::Jump => 1.0,
             Kind::No => 1.1,
+            Kind::Sit | Kind::Stand => 0.9,
         }
     }
 }
@@ -112,7 +121,7 @@ impl Action {
             Kind::Flush => fx.emit("flush"),
             Kind::Paper => fx.emit("paper"),
             Kind::Gargle => fx.emit("gargle"),
-            Kind::Backflip | Kind::Jump => fx.emit("boing"),
+            Kind::Backflip | Kind::Jump | Kind::Sit | Kind::Stand => fx.emit("boing"),
             Kind::Blink | Kind::No => {}
         }
     }
@@ -222,6 +231,7 @@ impl Action {
                 if !self.flag_b {
                     self.flag_b = true;
                     fx.emit("clack:9");
+                    o.impact = 1.4;
                 }
                 o.squash = -0.14 * (1.0 - smooth(t1, 1.55, t));
                 o.head_pitch = 0.15 * (1.0 - smooth(t1, 1.5, t));
@@ -236,10 +246,33 @@ impl Action {
                     o.squash = 0.08 * (1.0 - u);
                     o.mouth = Some(0.5);
                 } else {
+                    if !self.flag_b {
+                        self.flag_b = true;
+                        o.impact = 1.0;
+                    }
                     o.squash = -0.1 * (1.0 - smooth(0.78, 1.0, t));
                 }
             }
             Kind::No => o.head_yaw = (t * 16.0).sin() * 0.35 * (1.0 - smooth(0.6, 1.1, t)),
+            // hop up onto the chair / down to the floor: crouch, hop (the sit spring carries the base), land
+            Kind::Sit | Kind::Stand => {
+                if t < 0.2 {
+                    o.squash = -0.1 * smooth(0.0, 0.2, t);
+                    o.look = Some((0.0, -0.3));
+                } else if t < 0.62 {
+                    let u = (t - 0.2) / 0.42;
+                    o.lift = 0.18 * 4.0 * u * (1.0 - u);
+                    o.squash = 0.06 * (1.0 - u);
+                    o.sit_to = Some(if self.kind == Kind::Sit { 1.0 } else { 0.0 });
+                } else {
+                    if !self.flag_b {
+                        self.flag_b = true;
+                        fx.emit("clack:4");
+                        o.impact = 0.35;
+                    }
+                    o.squash = -0.1 * (1.0 - smooth(0.62, 0.9, t));
+                }
+            }
         }
     }
 

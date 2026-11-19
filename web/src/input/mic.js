@@ -5,14 +5,25 @@
 //   3.5-8 kHz hiss -> sibilant consonant (S, X, CH, T)
 //   only low hum (80-300 Hz) -> nasal M/N: lips closed
 // A short hold keeps the mouth open between syllables (consonants), then it relaxes.
+// Loudness: AUTO-LEVEL (default) tracks the speaker's peak (attack 50 ms, release 4 s, only while
+// voice) and the noise floor (fast down, slow up) and maps
+//   x = (db - floor - 6) / max(12, peak - floor - 6), loud = softKnee(x)
+// so normal speech sits ~0.5-0.7 and only shouting reaches 1; manual mode: (db - gate) / range.
+// gainDb is applied first; gateDb is an absolute floor. Identical to crates/privada-core/src/dsp.rs.
 import { zeroMouth, CHANNELS } from './visemes.js';
 
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
+const AGC = { margin: 6, minSpan: 12, attack: 0.05, release: 4, voiceAboveFloor: 10, initPeak: -20, initFloor: -70 };
+const knee = (x) => clamp01(0.68 * x + 1.6 * Math.max(0, x - 1));
 
 export class Mic {
   constructor() {
-    this.gateDb = -50;   // below this: silence
-    this.rangeDb = 28;   // gate + range = fully loud
+    this.gateDb = -50;   // below this: always silence (-90..0)
+    this.rangeDb = 28;   // manual mode: gate + range = fully loud (10..60)
+    this.gainDb = 0;     // input gain (-30..+20)
+    this.autoLevel = true;
+    this.peakDb = AGC.initPeak;
+    this.floorDb = AGC.initFloor;
     this.hold = 0.14;    // seconds the shape is held after the voice drops (consonants)
     this.level = 0;
     this.db = -100;
@@ -36,6 +47,7 @@ export class Mic {
     this.stream?.getTracks().forEach((t) => t.stop());
     this.ctx?.close();
     this.on = false; this.level = 0; this.mouth = zeroMouth();
+    this.peakDb = AGC.initPeak; this.floorDb = AGC.initFloor;
   }
   band(lo, hi) {
     const hz = this.ctx.sampleRate / this.an.fftSize;
@@ -49,8 +61,25 @@ export class Mic {
     this.an.getFloatTimeDomainData(this.buf);
     let s = 0;
     for (const v of this.buf) s += v * v;
-    this.db = 10 * Math.log10(s / this.buf.length + 1e-12);
-    const loud = clamp01((this.db - this.gateDb) / this.rangeDb);
+    const gate = Math.min(0, Math.max(-90, this.gateDb));
+    const range = Math.min(60, Math.max(10, this.rangeDb));
+    const gain = Math.min(20, Math.max(-30, this.gainDb));
+    const db = (this.db = 10 * Math.log10(s / this.buf.length + 1e-12) + gain);
+    // noise floor: quickly down, slowly (1.5 dB/s) up
+    if (db < this.floorDb) this.floorDb += (db - this.floorDb) * Math.min(1, dt * 4);
+    else this.floorDb = Math.min(db, this.floorDb + 1.5 * dt);
+    this.floorDb = Math.max(-100, this.floorDb);
+    const voice = db > gate && db > this.floorDb + AGC.voiceAboveFloor;
+    if (voice) {
+      const tau = db > this.peakDb ? AGC.attack : AGC.release;
+      this.peakDb += (db - this.peakDb) * Math.min(1, dt / tau);
+    }
+    let loud;
+    if (db <= gate) loud = 0;
+    else if (this.autoLevel) {
+      const base = this.floorDb + AGC.margin;
+      loud = knee((db - base) / Math.max(AGC.minSpan, this.peakDb - base));
+    } else loud = clamp01((db - gate) / range);
     this.level += (loud - this.level) * Math.min(1, dt * (loud > this.level ? 30 : 10));
 
     const target = zeroMouth();
@@ -79,6 +108,8 @@ export class Mic {
       const rate = tg > cur ? 28 : 7;
       this.mouth[k] = cur + (tg - cur) * Math.min(1, dt * rate);
     }
+    // same extra fields as the Rust `mouth` event (panel meter)
+    Object.assign(this.mouth, { level: this.level, db: this.db, peakDb: this.peakDb, floorDb: this.floorDb });
     return this.mouth;
   }
 }

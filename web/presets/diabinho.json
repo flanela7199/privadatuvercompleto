@@ -21,17 +21,18 @@
         "id": "mustache_dali"
       }
     ],
-    "face": [
-      {
-        "id": "tongue"
-      }
-    ],
+    "face": [],
     "back": [
       {
         "id": "cape",
         "params": {
           "color": "#1a0505"
         }
+      }
+    ],
+    "mouth": [
+      {
+        "id": "tongue"
       }
     ]
   },

@@ -143,6 +143,7 @@ let follow = true, micOn = true, scale = 1, charPx = BASE_PX, mode = 'window';
 function applySettings() {
   const st = settings();
   if (st.restOpen != null) tuber.restOpen = +st.restOpen;
+  tuber.setPropSettings?.(st.props);   // settings.props = { resetAfter: 8 (s, 0 = never), enabled: true }
   if (st.soundVolume != null) sfx.volume = +st.soundVolume;   // honoured if sfx.js supports a volume
   sfx.enabled = st.soundsEnabled !== false;
   const r = config.render || {};
