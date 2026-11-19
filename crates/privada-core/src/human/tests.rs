@@ -196,8 +196,9 @@ fn visemes_map_to_distinct_mouth_shapes() {
 #[test]
 fn rig_is_stable_for_10k_frames() {
     let mut r = rig::HumanRig::new(3);
-    let acts = ["laugh", "nod", "no", "surprise", "wink", "blink", "jump", "backflip", "gargle", "blargh", "sit", "stand"];
-    assert!(!r.play("flush"));
+    let acts = ["laugh", "nod", "no", "surprise", "wink", "blink", "jump", "backflip", "gargle", "blargh", "sit", "stand", "flush", "paper"];
+    r.set_seat_height(0.45);
+    assert!(!r.play("handstand"));
     let mut blinked = false;
     for i in 0..10_000 {
         let t = i as f32 / 60.0;
@@ -211,7 +212,8 @@ fn rig_is_stable_for_10k_frames() {
         r.update(dt, look, mouth);
         assert!(r.pose().iter().all(|x| x.is_finite()), "frame {i}");
         assert!(r.morphs().iter().all(|x| (0.0..=1.0).contains(x)), "frame {i}: {:?}", r.morphs());
-        assert!(r.cable_pos().iter().chain(r.cable_nrm()).all(|x| x.is_finite() && x.abs() < 2.0), "frame {i}");
+        assert!(r.cable_pos().iter().chain(r.cable_nrm()).all(|x| x.is_finite() && x.abs() < 4.0), "frame {i}");
+        assert!(r.scalars().iter().all(|x| x.is_finite()), "frame {i}");
         let (y, p, ro) = r.head_angles();
         assert!(y.abs() < 1.7 && p.abs() < 1.0 && ro.abs() < 0.5, "frame {i}: {y} {p} {ro}");
         for n in 0..rig::NODES {
@@ -375,8 +377,8 @@ fn actions_use_the_override_engine() {
     step(&mut r, 150);
     assert!(r.is_sitting());
     assert!(pelvis0 - y(&r, node::PELVIS) > 0.25, "pelvis drops {}", pelvis0 - y(&r, node::PELVIS));
-    assert!((y(&r, node::PELVIS) - (body::FLOOR + 0.45 + 0.105)).abs() < 0.02);
-    assert!(y(&r, node::FOOT_L) < body::FLOOR + 0.16, "feet near the floor: {}", y(&r, node::FOOT_L) - body::FLOOR);
+    assert!((y(&r, node::PELVIS) - (0.45 + 0.105)).abs() < 0.02, "root space has the floor at y = 0");
+    assert!(y(&r, node::FOOT_L) < 0.16, "feet near the floor: {}", y(&r, node::FOOT_L));
     r.play("stand");
     step(&mut r, 150);
     assert!((y(&r, node::PELVIS) - pelvis0).abs() < 0.01 && !r.is_sitting());
@@ -401,4 +403,151 @@ fn rig_is_stable_at_very_low_frame_rates() {
         }
         assert!(r.pose().iter().all(|x| x.is_finite() && x.abs() < 10.0));
     }
+}
+
+fn run(r: &mut rig::HumanRig, seconds: f32) {
+    for _ in 0..(seconds * 60.0) as usize {
+        r.update(1.0 / 60.0, (0.0, 0.0), Mouth::default());
+    }
+}
+
+#[test]
+fn flush_spits_water_from_the_mouth_spout() {
+    let mut r = rig::HumanRig::new(6);
+    r.blink_timer = 1e9;
+    run(&mut r, 0.5);
+    assert_eq!(r.jet.live_count, 0);
+    assert!(r.play("flush") && r.play("spit"), "same action under both names");
+    run(&mut r, 1.2);
+    assert!(r.morphs()[morph::m::CHEEK_PUFF] > 0.3, "gurgle: cheeks full");
+    assert!(!r.jet.emitting && r.jet.live_count == 0);
+    run(&mut r, 1.1); // t = 2.3: spewing
+    assert!(r.jet.emitting && r.morphs()[morph::m::JAW_OPEN] > 0.9, "jaw wide open while spewing");
+    assert!(r.jet.live_count > 80, "drops in the air: {}", r.jet.live_count);
+    let sp = r.spout();
+    let (mouth, dir) = (Vec3::new(sp[0], sp[1], sp[2]), Vec3::new(sp[3], sp[4], sp[5]));
+    assert!(mouth.y > 1.3 && mouth.y < 1.65 && dir.z > 0.6, "spout at head height, pointing forward: {sp:?}");
+    assert!((r.jet.mouth - mouth).length() < 1e-4 && r.jet.dir.dot(dir) > 0.999, "the jet is wired to the spout");
+    // every live drop is in front of his face plane or falling, none behind him
+    let mut ahead = 0;
+    for i in 0..crate::water::DROPS {
+        if let Some((p, _, _)) = r.jet.drop_state(i) {
+            assert!(p.is_finite());
+            ahead += (p.z > 0.05) as u32;
+        }
+    }
+    assert!(ahead > 60, "the water flies forward: {ahead}");
+    run(&mut r, 3.4);
+    let pu = r.jet.puddle_out;
+    assert!(pu[4] > 0.05 && pu[1] > 0.2, "a puddle on the floor in front of him: {pu:?}");
+    assert!(r.morphs()[morph::m::JAW_OPEN] < 0.05 && !r.is_playing());
+    let ev = r.drain_events();
+    assert!(ev.iter().any(|e| e == "flush") && ev.iter().any(|e| e == "splash"), "{ev:?}");
+}
+
+#[test]
+fn paper_streams_from_the_right_hand_and_tears() {
+    let mut r = rig::HumanRig::new(7);
+    run(&mut r, 0.3);
+    assert!(r.paper.length() < 0.05 && r.scalars()[rig::sc_h::ROLL] == 0.0);
+    r.play("paper");
+    run(&mut r, 2.0);
+    assert!(r.scalars()[rig::sc_h::ROLL] > 0.9, "the roll is in his hand");
+    assert!(r.paper.length() > 1.0, "the strip is out: {} m", r.paper.length());
+    let hand = r.world(body::node::HAND_R).translation;
+    assert!(hand.y > 1.0 && hand.z > 0.15, "right arm stretched forward: {hand:?}");
+    assert!((r.paper.pts[0].p - Vec3::from(hand)).length() < 0.25, "anchored at the hand");
+    let far = r.paper.pts.iter().map(|p| p.p.z).fold(f32::MIN, f32::max);
+    assert!(far > hand.z + 0.3, "it streams forward: {far}");
+    run(&mut r, 1.3); // t = 3.3: torn
+    assert!(r.drain_events().iter().any(|e| e == "rip"));
+    assert!(r.torn.pts.len() > 10 && r.torn.fade > 0.0, "the torn piece falls");
+    run(&mut r, 1.5);
+    assert!(!r.is_playing() && r.scalars()[rig::sc_h::ROLL] == 0.0 && r.paper.length() < 0.05);
+    assert!(r.world(body::node::HAND_R).translation.y < 0.95, "arm back down");
+    // spitting on the streaming paper wets it
+    let mut r = rig::HumanRig::new(8);
+    r.play("flush");
+    run(&mut r, 1.0);
+    r.play("paper");
+    let mut wet = 0.0f32;
+    for _ in 0..300 {
+        run(&mut r, 1.0 / 60.0);
+        wet = wet.max(r.paper.max_wet).max(r.torn.max_wet);
+    }
+    assert!(wet > 0.2, "the paper got wet: {wet}");
+}
+
+fn floor_prop(r: &mut rig::HumanRig, id: &str, json: &str, at: Vec3) -> usize {
+    let slot = r.props.register(id, crate::props::PropDef::from_json(json).unwrap(), glam::Mat4::from_translation(at));
+    assert!(slot >= 0);
+    slot as usize
+}
+
+#[test]
+fn props_are_knocked_by_his_body_and_by_the_water() {
+    // a tall box right where his thighs go when he sits down
+    let mut r = rig::HumanRig::new(9);
+    let k = floor_prop(&mut r, "box", "{\"kind\":\"box\",\"size\":[0.12,0.6,0.12],\"mass\":0.4,\"center\":[0,0.3,0]}", Vec3::new(0.10, 0.0, 0.33));
+    run(&mut r, 1.0);
+    assert_eq!(r.props.state(k), crate::props::REST, "standing still does not touch it");
+    r.set_seat_height(0.45);
+    r.set_sit(1.0);
+    run(&mut r, 1.5);
+    assert!(r.props.state(k) != crate::props::REST, "the thigh pushed it over");
+    assert!(r.drain_events().iter().any(|e| e.starts_with("prop_hit")) || r.props.com(k).is_some_and(|c| c.z > 0.36 || c.y < 0.28));
+    // a light cylinder in the path of the jet
+    let mut r = rig::HumanRig::new(10);
+    let k = floor_prop(&mut r, "can", "{\"kind\":\"cylinder\",\"size\":{\"r\":0.04,\"h\":0.22},\"mass\":0.12,\"center\":[0,0.11,0]}", Vec3::new(0.0, 0.0, 1.0));
+    r.play("flush");
+    run(&mut r, 4.5);
+    assert!(r.props.state(k) != crate::props::REST || r.props.com(k).is_some_and(|c| (c - Vec3::new(0.0, 0.11, 1.0)).length() > 0.02), "the water knocked the can");
+    // the 13 capsules follow the skeleton
+    let caps = r.capsules();
+    assert_eq!(caps.len(), 13);
+    assert!(caps[0].0.y > 1.5 && caps.iter().all(|c| c.0.is_finite() && c.1.y > -0.05 && c.2 > 0.03));
+}
+
+#[test]
+fn backflip_from_the_chair_kicks_it_away_and_he_sits_again() {
+    let mut r = rig::HumanRig::new(11);
+    r.props.configure("{\"resetAfter\":2}");
+    let k = floor_prop(&mut r, "chair", "{\"kind\":\"box\",\"size\":[0.5,0.45,0.5],\"mass\":3,\"center\":[0,0.225,0],\"seat\":true}", Vec3::ZERO);
+    r.set_seat_height(0.45);
+    assert!(r.play("sit"));
+    run(&mut r, 1.5);
+    assert!(r.is_sitting() && r.props.state(k) == crate::props::REST);
+    let seated = r.world(body::node::PELVIS).translation.y;
+    assert!((seated - 0.555).abs() < 0.03, "pelvis on the seat: {seated}");
+    r.play("backflip");
+    run(&mut r, 1.0);
+    assert!(r.props.state(k) != crate::props::REST, "the chair was kicked");
+    let far = r.props.com(k).unwrap();
+    assert!(Vec3::new(far.x, 0.0, far.z).length() > 0.3 || far.y > 0.4, "it flew away: {far:?}");
+    run(&mut r, 1.0);
+    assert!(!r.is_sitting(), "he landed on the floor");
+    assert!(r.world(body::node::PELVIS).translation.y > 0.8);
+    run(&mut r, 9.0);
+    assert!(r.props.state(k) == crate::props::REST && r.is_sitting(), "the chair came back and he sat down again");
+}
+
+#[test]
+fn actions_with_fx_are_deterministic() {
+    let sim = || {
+        let mut r = rig::HumanRig::new(12);
+        floor_prop(&mut r, "can", "{\"kind\":\"cylinder\",\"size\":{\"r\":0.04,\"h\":0.22},\"mass\":0.12,\"center\":[0,0.11,0]}", Vec3::new(0.1, 0.0, 0.9));
+        r.play("flush");
+        run(&mut r, 1.2);
+        r.play("paper");
+        run(&mut r, 3.0);
+        r.play("backflip");
+        run(&mut r, 2.0);
+        (r.pose().to_vec(), r.jet.live_count, r.paper.pts.len(), r.props.out[..12].to_vec(), r.drain_events())
+    };
+    let (a, b) = (sim(), sim());
+    assert_eq!(a.0, b.0);
+    assert_eq!((a.1, a.2), (b.1, b.2));
+    assert_eq!(a.3, b.3);
+    assert_eq!(a.4, b.4);
+    assert!(a.4.iter().any(|e| e == "whoosh") && a.4.iter().any(|e| e == "paper"));
 }

@@ -10,12 +10,16 @@
 //! | id | buffer | layout |
 //! |---|---|---|
 //! | 0 | pose | `node_order()` (25 nodes: root pelvis spine1 spine2 chest neck head jaw eye_L eye_R, clavicle / upperarm / forearm / hand L+R, thigh / shin / foot L+R, plug) x [px,py,pz, qx,qy,qz,qw, sx,sy,sz] local TRS (`plug`: root space) |
-//! | 1 | morphs | 24 weights, names in `morph_names()` |
-//! | 2 | cable positions | 20 rings x 6 vertices x 3 (root space), triangles = `human_cable_indices()` |
-//! | 3 | cable normals | same layout |
+//! | 1..13, 16..22 | water jet, paper strips, props | EXACTLY the toilet `Rig` buffers with the same ids (drops, foam, stream, ripples, puddle, paper / torn pos uv perf nrm colour, prop poses, prop rest) |
+//! | 14 | scalars | toilet `rig::sc` indices (STREAM_VISIBLE, PAPER_*, TORN_*, PUDDLE_VERSION, PAPER_WET, PROP_COUNT, TIME, DT ...) + 24 roll in hand 0..1, 25 seated 0..1, 26 roll spin (rad) |
+//! | 15 | morphs | 24 weights, names in `morph_names()` |
+//! | 30 / 31 | cable positions / normals | 20 rings x 6 vertices x 3 (root space), triangles = `human_cable_indices()` |
+//!
+//! Root space: floor at y = 0, metres, +z = his forward (same as the toilet rig).
 use crate::geo::MeshBuf;
 use privada_core::geo::Json;
 use privada_core::human::{self, morph, rig};
+use privada_core::props::{PropDef, PROP_STRIDE};
 use privada_core::rig::Mouth;
 use wasm_bindgen::prelude::*;
 
@@ -143,7 +147,54 @@ impl HumanRig {
         let i = (index as usize).min(rig::NODES - 1);
         privada_core::glam::Mat4::from(self.inner.world(i)).to_cols_array().to_vec()
     }
-    /// laugh | nod | no | surprise | wink | blink | jump | backflip | gargle | blargh (spit) | sit | stand
+    /* ---- props physics: same API as the toilet `Rig` (his body = 13 kinematic capsules) */
+    pub fn register_prop(&mut self, id: &str, shape_json: &str, rest: &[f32]) -> i32 {
+        let Ok(def) = PropDef::from_json(shape_json) else { return -1 };
+        let m = if rest.len() >= 16 { privada_core::glam::Mat4::from_cols_slice(&rest[..16]) } else { privada_core::glam::Mat4::IDENTITY };
+        self.inner.props.register(id, def, m)
+    }
+    pub fn unregister_prop(&mut self, id: &str) -> bool {
+        self.inner.props.unregister(id)
+    }
+    pub fn clear_props(&mut self) {
+        self.inner.props.clear()
+    }
+    pub fn prop_index(&self, id: &str) -> i32 {
+        self.inner.props.index(id).map_or(-1, |k| k as i32)
+    }
+    pub fn prop_count(&self) -> u32 {
+        self.inner.props.count() as u32
+    }
+    pub fn set_prop_rest_slot(&mut self, slot: u32, m: &[f32]) {
+        self.inner.props.set_rest(slot as usize, m);
+    }
+    pub fn prop_poses(&self) -> Vec<f32> {
+        self.inner.props.out[..self.inner.props.count() * PROP_STRIDE].to_vec()
+    }
+    /// `{"resetAfter": seconds (0 = never, default 8), "enabled": bool}`
+    pub fn set_props_config(&mut self, json: &str) {
+        self.inner.props.configure(json)
+    }
+    pub fn prop_kick(&mut self, id: &str, jx: f32, jy: f32, jz: f32) -> bool {
+        match self.inner.props.index(id) {
+            Some(k) => {
+                self.inner.props.kick(k, privada_core::glam::Vec3::new(jx, jy, jz), privada_core::glam::Vec3::ZERO);
+                true
+            }
+            None => false,
+        }
+    }
+    pub fn seat_height(&self) -> f32 {
+        self.inner.seat_height()
+    }
+    pub fn scalars(&self) -> Vec<f32> {
+        self.inner.scalars().to_vec()
+    }
+    /// the 13 body capsules in root space: 13 x [ax,ay,az, bx,by,bz, r]
+    pub fn capsules(&self) -> Vec<f32> {
+        self.inner.capsules().iter().flat_map(|c| [c.0.x, c.0.y, c.0.z, c.1.x, c.1.y, c.1.z, c.2]).collect()
+    }
+    /// flush (= spit / vomit) | paper | gargle | backflip | blink | jump | no | sit | stand | laugh | nod | surprise | wink | blargh
     pub fn play(&mut self, name: &str) -> bool {
         self.inner.play(name)
     }
@@ -186,11 +237,33 @@ impl HumanRig {
 
 impl HumanRig {
     fn slice(&self, id: u32) -> &[f32] {
+        let r = &self.inner;
         match id {
-            0 => self.inner.pose(),
-            1 => self.inner.morphs(),
-            2 => self.inner.cable_pos(),
-            3 => self.inner.cable_nrm(),
+            0 => r.pose(),
+            1 => r.jet.drops_matrices(),
+            2 => r.jet.foam_matrices(),
+            3 => &r.jet.stream_pos,
+            4 => &r.jet.stream_uv,
+            5 => &r.jet.ripples_out,
+            6 => &r.jet.puddle_out,
+            7 => &r.jet.puddle_radial,
+            8 => &r.paper.pos,
+            9 => &r.paper.uv,
+            10 => &r.paper.perf,
+            11 => &r.torn.pos,
+            12 => &r.torn.uv,
+            13 => &r.torn.perf,
+            14 => r.scalars(),
+            15 => r.morphs(),
+            16 => &r.jet.stream_nrm,
+            17 => &r.paper.nrm,
+            18 => &r.torn.nrm,
+            19 => &r.props.out,
+            20 => &r.props.rest_buf,
+            21 => &r.paper.col,
+            22 => &r.torn.col,
+            30 => r.cable_pos(),
+            31 => r.cable_nrm(),
             _ => &[],
         }
     }

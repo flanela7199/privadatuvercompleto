@@ -15,10 +15,15 @@ export const CHARACTERS: [string, string, string][] = [['privada', '🚽', 'Priv
 /** Chratos options (theme.chratos), mirrors web/src/characters/chratos/Chratos.js DEFAULTS */
 export const CHRATOS_DEFAULTS = { chair: true, headphones: true, cable: true, hoodie: null as string | null, hair: null as string | null, restSmile: 0.3, detail: 1 };
 export const CHRATOS_BASE_COLORS = { hoodie: '#1a1a1e', hair: '#322118' };
-export const CHRATOS_SOCKETS = ['head_top', 'eyes', 'mouth'];
+export const CHRATOS_SOCKETS = ['head_top', 'eyes', 'mouth', 'floor_under', 'floor_left', 'floor_right'];
+/** Chratos: everything the toilet does (flush = "vomitar água") + his own */
 export const CHRATOS_ANIMS: [string, string][] = [
-  ['laugh', '😂 Rir'], ['nod', '🙂 Acenar com a cabeça'], ['no', '↔ Não'], ['surprise', '😮 Surpresa'], ['wink', '😉 Piscadinha'], ['blink', '😑 Piscar'],
+  ['flush', '💧 Vomitar água'], ['paper', '🧻 Papel'], ['jump', '⤴ Pulo'], ['backflip', '🤸 Mortal'],
+  ['no', '↔ Não'], ['gargle', '🫧 Gargarejo'], ['blink', '😑 Piscar'],
+  ['laugh', '😂 Rir'], ['nod', '🙂 Acenar com a cabeça'], ['surprise', '😮 Surpresa'], ['wink', '😉 Piscadinha'],
 ];
+/** Chratos-only actions (for hotkey labels) */
+export const CHRATOS_OWN = ['laugh', 'nod', 'surprise', 'wink'];
 
 export const CATS = ['Todos', 'Chapéus', 'Olhos', 'Rosto', 'Bigodes', 'Corpo', 'Objetos', 'Móveis', 'Outros'];
 export const MAT_KEYS: [string, string][] = [

@@ -28,10 +28,10 @@ export function Visual({ active }: { active: boolean }) {
   const work = s.work;
   const base = s.themes.base;
   const chratos = s.cfg.character === 'chratos';
-  // Chratos (human) only wears things on the head, eyes and mouth; no toilet body/furniture
+  // Chratos (human) wears things on the head, eyes and mouth, and uses floor props/furniture
   const allowedSock = (sk: string) => !chratos || CHRATOS_SOCKETS.includes(sk);
   const sockOpts = SOCKET_OPTS.filter(([k]) => allowedSock(String(k)));
-  const cats = chratos ? CATS.filter((c) => c !== 'Móveis' && c !== 'Bigodes') : CATS;
+  const cats = chratos ? CATS.filter((c) => c !== 'Bigodes') : CATS;
   const cfgC = { ...CHRATOS_DEFAULTS, ...(work.chratos || {}) };
   const setC = (k: string, v: any) => update((d) => { d.work.chratos = { ...(d.work.chratos || {}), [k]: v }; }, { fork: true });
   const clearC = (k: string) => update((d) => { if (d.work.chratos) delete d.work.chratos[k]; }, { fork: true });
@@ -45,7 +45,7 @@ export function Visual({ active }: { active: boolean }) {
     const qq = q.trim().toLowerCase();
     return (listAccessories() as string[]).filter((id) => id !== 'glb').filter((id) => {
       const i = accInfo(id);
-      if (chratos && (!allowedSock(i.socket) || i.category === 'Móveis')) return false;
+      if (chratos && !allowedSock(i.socket)) return false;
       return (cat === 'Todos' || i.category === cat) && (!qq || i.name.toLowerCase().includes(qq) || id.includes(qq));
     }).sort((a, b) => accInfo(a).name.localeCompare(accInfo(b).name, 'pt'));
   }, [cat, q, chratos]);

@@ -57,7 +57,19 @@ const DBG_EXPR = { rest: {}, aa: { open: 1, lips: 1 }, smile: { cornerL: 1, corn
 // screenshot hook: render + read back in the same task (the drawing buffer is not preserved)
 window.__shot = () => { stage.render(0, !!config.render?.ao); return renderer.domElement.toDataURL('image/png'); };
 // change the debug view without reloading: __dbg('34', 'aa', 1.5)
-window.__dbg = (pose, expr, zoom) => { if (!DBG) return false; Object.assign(DBG, { pose: pose ?? DBG.pose, expr: expr ?? DBG.expr, zoom: zoom || 1 }); window.__dbgFrames = 0; return true; };
+window.__dbg = (pose, expr, zoom) => { if (!DBG) return false; Object.assign(DBG, { pose: pose ?? DBG.pose, expr: expr ?? DBG.expr, zoom: zoom || 1, freeze: false }); window.__dbgFrames = 0; return true; };
+// key frame of an action: play it, simulate `seconds` at 60 Hz right now, then freeze the character (until the next __dbg)
+window.__act = (name, seconds, pre = 0) => {
+  if (!DBG) return false;
+  const step = (n) => { for (let i = 0; i < n; i++) tuber.update(1 / 60, { look: { x: 0, y: 0 }, mouth: zeroMouth() }); };
+  step(Math.round(pre * 60));
+  const ok = tuber.play(name);
+  step(Math.round(seconds * 60));
+  DBG.freeze = true; window.__dbgFrames = 0;
+  return ok;
+};
+// wear accessories in debug mode: __wear({ head_top: [{ id: 'crown' }], ... }) (slots of the current outfit are replaced)
+window.__wear = (slots) => { tuber.setTheme({ ...currentTheme, slots }); window.__dbgFrames = 0; return (tuber.accessories || []).length; };
 function debugCamera() {
   if (!DBG.target) {
     DBG.target = tuber.head.getWorldPosition(new THREE.Vector3()).add(character === 'chratos' ? new THREE.Vector3(0, 0.075, 0.03) : new THREE.Vector3(0, 0, 0.1));
@@ -67,8 +79,8 @@ function debugCamera() {
   if (tuber.rig?.set_mouth_override) { tuber.rig.set_mouth_override(DBG.expr === 'blargh' ? 1 : -1); tuber.rig.set_sit(DBG.expr === 'sit' ? 1 : 0); }
   // poses: front | 34 | profile (head close-up), body | body34 (whole figure), or a yaw in degrees
   const whole = String(DBG.pose).startsWith('body');
-  const yaw = THREE.MathUtils.degToRad({ front: 0, 34: 38, profile: 90, body: 0, body34: 38 }[DBG.pose] ?? (+DBG.pose || 0));
-  const tgt = whole ? new THREE.Vector3(0, 0.92, 0) : DBG.target, d = (whole ? 6.2 : character === 'chratos' ? 1.15 : 3.3) / (DBG.zoom || 1);
+  const yaw = THREE.MathUtils.degToRad({ front: 0, 34: 38, profile: 90, body: 0, body34: 38, bodyside: 75 }[DBG.pose] ?? (+DBG.pose || 0));
+  const tgt = whole ? new THREE.Vector3(0, 0.92, DBG.pose === 'bodyside' ? 0.6 : 0) : DBG.target, d = (whole ? 6.2 : character === 'chratos' ? 1.15 : 3.3) / (DBG.zoom || 1);
   window.__dbgFrames = (window.__dbgFrames || 0) + 1;   // screenshot tools wait for this
   camera.clearViewOffset();
   camera.aspect = innerWidth / innerHeight;
@@ -659,7 +671,7 @@ function frame(now) {
 
   // the JS rig clamps look to [-1, 1]; extra range beyond it is added after the update
   const lx = clamp(look.x, -1, 1), ly = clamp(look.y, -1, 1);
-  tuber.update(dt, { look: { x: lx, y: ly }, mouth });
+  if (!DBG?.freeze) tuber.update(dt, { look: { x: lx, y: ly }, mouth });
   if (!rigHasLimits) {
     const L = lookCfg();
     const yaw = THREE.MathUtils.degToRad(L.maxYawDeg), pitch = THREE.MathUtils.degToRad(L.maxPitchDeg);

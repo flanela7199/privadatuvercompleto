@@ -174,6 +174,22 @@ pub struct Env {
     pub body_prev: Mat4,
     pub head_prev: Mat4,
     pub inv_dt: f32,
+    /// extra kinematic capsules in rig-root space (the human character's body): `caps[..ncaps]`
+    pub caps: [EnvCapsule; MAX_CAPS],
+    pub ncaps: usize,
+    /// world box around all capsules (set by [`Env::with_capsules`])
+    pub caps_box: (Vec3, Vec3),
+}
+
+pub const MAX_CAPS: usize = 16;
+/// a moving capsule: end points, radius and the velocity of each end (m/s)
+#[derive(Clone, Copy, Debug, Default)]
+pub struct EnvCapsule {
+    pub a: Vec3,
+    pub b: Vec3,
+    pub r: f32,
+    pub va: Vec3,
+    pub vb: Vec3,
 }
 
 /// a contact with the floor / the character: outward normal, depth, surface velocity
@@ -187,6 +203,7 @@ pub struct EnvHit {
 const BOWL: u8 = 1;
 const PIPE: u8 = 2;
 const TANK: u8 = 4;
+const CAPS: u8 = 8;
 
 /// world AABB of a local box under `m`
 fn world_box(m: Mat4, lo: Vec3, hi: Vec3) -> (Vec3, Vec3) {
@@ -214,7 +231,41 @@ impl Env {
             body_prev: Mat4::IDENTITY,
             head_prev: Mat4::IDENTITY,
             inv_dt: 0.0,
+            caps: [EnvCapsule { a: Vec3::ZERO, b: Vec3::ZERO, r: 0.0, va: Vec3::ZERO, vb: Vec3::ZERO }; MAX_CAPS],
+            ncaps: 0,
+            caps_box: (Vec3::ZERO, Vec3::ZERO),
         }
+    }
+    /// floor + a capsule body (the human): `caps` in rig-root space with their end velocities
+    pub fn with_capsules(caps: &[EnvCapsule], puddle: [f32; 5], inv_dt: f32) -> Self {
+        let mut e = Self::floor_only();
+        e.puddle = puddle;
+        e.inv_dt = inv_dt;
+        let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        for (i, c) in caps.iter().take(MAX_CAPS).enumerate() {
+            e.caps[i] = *c;
+            lo = lo.min(c.a.min(c.b) - Vec3::splat(c.r + 0.02));
+            hi = hi.max(c.a.max(c.b) + Vec3::splat(c.r + 0.02));
+            e.ncaps = i + 1;
+        }
+        e.caps_box = (lo, hi);
+        e
+    }
+    /// deepest contact with the capsules: (outward normal, depth, surface velocity)
+    fn cap_contact(&self, p: Vec3) -> Option<(Vec3, f32, Vec3)> {
+        let mut best: Option<(Vec3, f32, Vec3)> = None;
+        for c in &self.caps[..self.ncaps] {
+            let ab = c.b - c.a;
+            let t = ((p - c.a).dot(ab) / ab.length_squared().max(1e-9)).clamp(0.0, 1.0);
+            let off = p - (c.a + ab * t);
+            let l = off.length();
+            if l < c.r && l > 1e-6 && best.is_none_or(|b| c.r - l > b.1) {
+                let v = c.va.lerp(c.vb, t);
+                let sp = v.length();
+                best = Some((off / l, c.r - l, if sp > 8.0 { v * (8.0 / sp) } else { v }));
+            }
+        }
+        best
     }
     /// velocity of the character's surface at world point `p` (moving with matrix `m`, last frame `prev`)
     #[inline]
@@ -235,10 +286,13 @@ impl Env {
     /// which character colliders a world box can touch (bit mask)
     #[inline]
     fn mask(&self, lo: Vec3, hi: Vec3) -> u8 {
-        if !self.character {
-            return 0;
-        }
         let mut k = 0;
+        if self.ncaps > 0 && hi.cmpge(self.caps_box.0).all() && lo.cmple(self.caps_box.1).all() {
+            k |= CAPS;
+        }
+        if !self.character {
+            return k;
+        }
         for (i, (blo, bhi)) in self.bounds.iter().enumerate() {
             if hi.cmpge(*blo).all() && lo.cmple(*bhi).all() {
                 k |= 1 << i;
@@ -295,6 +349,13 @@ impl Env {
             let h = self.head_inv.transform_point3(p) - self.tank_c;
             if let Some((n, d)) = Shape::Box(self.tank_h).contact(h, 0.0) {
                 take((self.head.transform_vector3(n).normalize_or_zero(), d), true);
+            }
+        }
+        if mask & CAPS != 0 {
+            if let Some((cn, cd, cv)) = self.cap_contact(p) {
+                if best.is_none_or(|b| cd > b.1) {
+                    return Some(EnvHit { n: cn, d: cd, v: cv });
+                }
             }
         }
         let (n, d, head) = best?;
@@ -1022,7 +1083,7 @@ impl Props {
 
     /// the moving character bumps attached floor props (kinematic push from its surface velocity)
     fn bumps(&mut self, env: &Env) {
-        if !env.character || env.inv_dt <= 0.0 {
+        if !(env.character || env.ncaps > 0) || env.inv_dt <= 0.0 {
             return;
         }
         for k in 0..self.slots.len() {

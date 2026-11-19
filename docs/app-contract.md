@@ -419,17 +419,39 @@ without reloading, `window.__shot()` renders and returns a PNG data URL, `window
   `jaw_open = 1` is 36° (`jawMax`, the wide spit / "blargh" pose, dark throat, teeth, tongue, gums); speech `open = 1` uses 0.57 of it (~20°).
 * **`HumanRig`** (wasm): `new(seed)`, `set_input(lookX, lookY, open, round, wide, closed, sib)`, `set_input_ext(cornerL, cornerR,
   jawSide, jawFwd, upperRaise, lips)`, `set_look_limits(yaw, pitch)`, `set_blink_timer(s)` (> 1e8 = no auto blink), `set_rest_smile(v)`,
-  `set_seat_height(h)`, `set_sit(0..1)`, `is_sitting()`, `update(dt)`, `drain_events()` (`laugh gasp boing whoosh gargle blargh clack:<v>`),
-  `head_matrix()`, `node_matrix(i)`, `spout()`, buffers `buf_ptr(id)/buf_len(id)`: 0 pose = 25 nodes × 10 (local TRS; plug in root
-  space), 1 morph weights, 2 / 3 cable tube positions / normals (20 rings × 6).
-* **Actions** use the toilet's engine shape (`human::rig::Over`, reset every frame, each running action writes into it):
-  `mouth` (0..1 of the full jaw), `head_pitch / head_yaw / head_roll`, `lift`, `shake`, `squash`, `blink`, `look`, `flip` (backward
-  somersault around the pelvis), `flip_lift`, `spin`, `sit_to`, `impact`, plus `morph[24]`. `play(name)`: `laugh nod no surprise wink
-  blink jump backflip gargle blargh (= spit pose, no water yet) sit stand` (toilet durations where the action exists there). External
-  overrides for ported timelines: `set_body_override(lift, flip, spin, squash)`, `set_mouth_override(open | -1)`.
-  Not ported yet: water jet from `mouth_spout`, paper action, props registration, sitting on app furniture (`seatHeight()` is 0).
-* **`Chratos`** (JS): `await Chratos.preload(theme)` then `new Chratos(theme)`; `root body head fx sockets nodes update(dt, { look, mouth })
-  play(name) setTheme(theme) on(fn) blinkTimer setLookLimits isSitting sitHeight spout() bodyCollider forceMorphs dispose()`;
-  `theme.chratos = { chair (gaming-chair backrest, default off), headphones, cable, hoodie: '#rrggbb', hair: '#rrggbb', restSmile, detail }`.
+  `set_seat_height(h)` / `seat_height()` (furniture on `floor_under`; 0 = stand up), `set_sit(0..1)`, `is_sitting()`, `update(dt)`,
+  `drain_events()`, `head_matrix()`, `node_matrix(i)`, `spout()`, `capsules()` (13 x [a, b, r] in root space), `scalars()`.
+  **Root space = the toilet's: floor at y = 0, metres, +z forward.** Buffers `buf_ptr(id)/buf_len(id)`: 0 pose = 25 nodes x 10
+  (local TRS; plug in root space), 15 morph weights, 14 scalars, 30 / 31 cable tube positions / normals, and **1..13, 16..22 =
+  exactly the toilet `Rig` buffers** (drops, foam, stream pos / uv / nrm, ripples, puddle, puddle radial, paper + torn pos / uv / perf /
+  nrm / colour, prop poses, prop rest). Scalars use the toilet `SC` indices (`STREAM_VISIBLE PAPER_* TORN_* PUDDLE_VERSION PAPER_WET
+  TORN_WET PROP_COUNT PROPS_ACTIVE TIME DT ST_MOUTH ...`) plus 24 roll in hand (0..1), 25 seated (0..1), 26 roll spin (rad).
+  Props API = the toilet's: `register_prop(id, shapeJson, rest16)`, `unregister_prop`, `clear_props`, `prop_index`, `prop_count`,
+  `set_prop_rest_slot`, `prop_poses`, `set_props_config`, `prop_kick`.
+* **Actions** use the toilet's engine shape (`human::rig::Over`, reset every frame, each running action writes into it and may drive
+  the FX): `mouth` (0..1 of the full jaw), `head_pitch / head_yaw / head_roll`, `lift`, `shake`, `squash`, `blink`, `look`, `flip`
+  (backward somersault around the pelvis), `flip_lift`, `spin`, `sit_to`, `impact`, `tuck` (knees to the chest), `lean` (spine),
+  `reach` / `reach_shake` (right arm forward with the roll), `wipe` (hand to the mouth), `morph[24]`. `play(name)`, toilet names and
+  durations: **`flush`** (aliases `spit`, `vomit`; 5.2 s: gurgle with full cheeks and the head back, lean in, jaw to 36 deg, the toilet's
+  `WaterJet` leaves `mouth_spout` along `spout()` (column, spray, dribble, puddle and ripples on the floor), then he wipes his mouth),
+  **`paper`** (4.4 s: a roll appears in his right hand, he shakes the arm and the `PaperStrip` streams forward from the palm, a yank
+  tears it; it gets wet and tears by itself if he spits on it), **`gargle`**, **`backflip`** (crouch, jump, tuck, land with a squash),
+  **`jump`**, **`no`**, **`blink`**, **`sit`** / **`stand`**, plus `laugh nod surprise wink blargh` (the spit pose without water).
+  Events (same names as the toilet): `flush splash drip paper rip gargle boing whoosh clack:<v> prop_hit:<id>:<speed> prop_reset:<id>`
+  (+ `laugh gasp`). External overrides: `set_body_override(lift, flip, spin, squash)`, `set_mouth_override(open | -1)`.
+* **Props + furniture**: his 13 body capsules are the kinematic collider (`props::Env::with_capsules`, velocities from the last
+  frame), so floor props are pushed / knocked by his motion, the water and the paper like with the toilet. Sitting: `seatHeight()`
+  comes from `FURNITURE_INFO` of the `floor_under` entry (same rule as `ToiletTuber.seatHeight()`), synced to `set_seat_height`; the
+  avatar's auto sit / stand works unchanged. A backflip from the chair kicks it away, he lands on the floor and sits again when it
+  is back; landings nudge it, the spit recoil pushes it back.
+* **Accessories**: `theme.slots` of the toilet registry are built on his sockets through a per-character fit table (`FIT` in
+  Chratos.js: parent node, position, scale, yaw): `head_top` (hats, x0.56), `eyes` (glasses, x0.185), `mouth` / `mouth_corner`
+  (rose, cigar, pipe, x0.4), `face`, `body_front` / `tank_front` / `back` (chest), `floor_left` / `floor_right` / `floor_under`
+  (root, x1). `lip_upper` mustaches are skipped (he has his own) unless the entry sets `onHuman: true`.
+* **`Chratos`** (JS): `await Chratos.preload(theme)` then `new Chratos(theme)`; same surface as ToiletTuber where the avatar uses it:
+  `root body head fx sockets nodes accessories props update(dt, { look, mouth }) play(name) setTheme(theme) on(fn) blinkTimer
+  setLookLimits seatHeight() isSitting sitHeight setPropSettings(cfg) kickProp(id) spout() bodyCollider forceMorphs dispose()`;
+  `theme.chratos = { chair (gaming-chair backrest, default off), headphones, cable, hoodie: '#rrggbb', hair: '#rrggbb', restSmile, detail }`,
+  `theme.slots` = accessories. Debug: `window.__act(name, seconds, pre?)` (play, simulate, freeze), `window.__wear(slots)`.
 * Tests: `cargo test -p privada-core human`, `node --import ./.tmp/furn/register.mjs web/tests/chratos_smoke.mjs` (repo root);
   real-renderer screenshots: `sh .tmp/chratos/shots.sh front 34 eyes blink aa body` (headless Brave + SwiftShader → `.tmp/chratos/gpu_*.png`).

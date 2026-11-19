@@ -1,7 +1,7 @@
 import React from 'react';
 import { useStore, allOutfits } from '../state/config';
 import { ACTIONS, DEFAULT_CONFIG } from '../lib/legacy';
-import { VISEMES, STANDARD_VISEME_LIST, CHRATOS_ANIMS, accelFromEvent, clone, type Opt } from '../lib/catalog';
+import { VISEMES, STANDARD_VISEME_LIST, CHRATOS_ANIMS, CHRATOS_OWN, accelFromEvent, clone, type Opt } from '../lib/catalog';
 import { Section, Field } from '../components/Section';
 import { Button } from '../components/Button';
 import { Select } from '../components/Select';
@@ -63,7 +63,7 @@ export function Atalhos() {
   const opts: Opt[] = [
     ...ACTIONS.map((a: any) => [a.id, a.name] as Opt),
     ['character:privada', 'Personagem: 🚽 Privada'], ['character:chratos', 'Personagem: 🧔 Chratos'],
-    ...CHRATOS_ANIMS.filter(([id]) => !['no', 'blink'].includes(id)).map(([id, n]) => [`play:${id}`, `Chratos: ${n}`] as Opt),
+    ...CHRATOS_ANIMS.filter(([id]) => CHRATOS_OWN.includes(id)).map(([id, n]) => [`play:${id}`, `Chratos: ${n}`] as Opt),
     ...allOutfits(s).map(([id, n]) => [`outfit:${id}`, `Visual: ${n}`] as Opt),
     ...s.cfg.scenes.map((sc: any, i: number) => [`scene:${i}`, `Cena ${i + 1}: ${sc.name}`] as Opt),
     ...VISEMES.map((v) => [`viseme:${v}`, `Boca: ${v}`] as Opt),

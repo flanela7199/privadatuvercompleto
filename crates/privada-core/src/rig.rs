@@ -1449,6 +1449,7 @@ impl Rig {
                 body_prev: if self.prev_valid { self.prev_bm } else { bm },
                 head_prev: if self.prev_valid { self.prev_hm } else { hm },
                 inv_dt: 1.0 / dt.max(1e-4),
+                ..Env::floor_only()
             }
             .with_bounds();
             self.props.step(dt, &env, &mut self.jet, &mut self.drop_hash, [&mut self.paper, &mut self.torn]);
