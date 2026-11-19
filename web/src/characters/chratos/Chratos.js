@@ -1,11 +1,15 @@
-// "Chratos": the stylized human bust (head, beard, hair, headphones, hoodie).
+// "Chratos": the realistic human character (full body: head, beard, hair cards, headphones, hoodie, pants, shoes, hands).
 // THIN renderer: every mesh, blend shape, skin weight and all per-frame logic come from Rust
 // (crates/privada-core/src/human, via web/pkg). This file only turns the Rust buffers into
 // three.js objects and applies pose + morph weights each frame.
 //
 // Same public surface as ToiletTuber where the avatar uses it:
 //   root, body, head, fx, sockets, accessories, update(dt, { look, mouth }), play(name),
-//   setTheme(theme), on(fn), blinkTimer, setLookLimits(yaw, pitch), dispose()
+//   setTheme(theme), on(fn), blinkTimer, setLookLimits(yaw, pitch), isSitting, sitHeight, dispose()
+// Skeleton (INFO.nodes / parents / bind from Rust `human_rig_info()`): root > pelvis > spine1 > spine2 >
+// chest > neck > head > jaw / eye_L / eye_R; chest > clavicle > upperarm > forearm > hand (L, R);
+// pelvis > thigh > shin > foot (L, R); plug (root space). Sockets: head_top, eyes, mouth, mouth_spout
+// (+z = where a water jet leaves the mouth, see spout()), hand_L, hand_R, chest.
 //
 // Meshes go through the PRVM mesh cache (web/src/rig/geocache.js) with kinds `human_<part>`
 // and params { detail, v, attr?: 'color' | 'skin' | 'morph' | 'meta', morph? }.
@@ -21,11 +25,11 @@ const INFO = pkg ? JSON.parse(pkg.human_rig_info()) : null;
 const BUF = { POSE: 0, MORPHS: 1, CABLE_POS: 2, CABLE_NRM: 3 };
 const STRIDE = 10;
 // model space is metres with the origin between the ears; the avatar frames a 0..1.8 tall character
-const MODEL_BOTTOM = INFO?.bottom ?? -0.42, MODEL_TOP = INFO?.top ?? 0.165;
+const MODEL_BOTTOM = INFO?.bottom ?? -1.63, MODEL_TOP = INFO?.top ?? 0.165;   // bottom = the floor under his feet
 export const CHRATOS_SCALE = 1.75 / (MODEL_TOP - MODEL_BOTTOM);
-const DEFAULTS = { detail: 1, chair: true, headphones: true, cable: true, hoodie: null, hair: null, restSmile: 0.30 };
+const DEFAULTS = { detail: 1, chair: false, headphones: true, cable: true, hoodie: null, hair: null, restSmile: 0.30 };
 // default (linear) base colours the Rust vertex colours were authored with: tints are ratios to these
-const BASE = { hoodie: new THREE.Color().setRGB(26 / 255, 26 / 255, 30 / 255, THREE.SRGBColorSpace), hair: new THREE.Color().setRGB(50 / 255, 33 / 255, 24 / 255, THREE.SRGBColorSpace) };
+const BASE = { hoodie: new THREE.Color().setRGB(26 / 255, 26 / 255, 30 / 255, THREE.SRGBColorSpace), hair: new THREE.Color().setRGB(40 / 255, 27 / 255, 19 / 255, THREE.SRGBColorSpace) };
 
 const params = (detail, extra) => ({ detail, v: INFO.version, ...extra });
 const kindOf = (part) => 'human_' + part;
@@ -37,7 +41,7 @@ function meta(part, detail) {
 function partRequests(part, detail) {
   const mt = meta(part, detail);
   const out = [[kindOf(part), params(detail)], [kindOf(part), params(detail, { attr: 'color' })]];
-  if (mt.skinned) out.push([kindOf(part), params(detail, { attr: 'skin' })]);
+  if (mt.skinned) out.push([kindOf(part), params(detail, { attr: 'skin' })], [kindOf(part), params(detail, { attr: 'skin_index' })]);
   for (const name of mt.morphs) out.push([kindOf(part), params(detail, { attr: 'morph', morph: name })]);
   return out;
 }
@@ -49,11 +53,12 @@ function partGeometry(part, detail) {
   const attr = (extra) => getMesh(kindOf(part), params(detail, extra)).attributes.position.array;
   g.setAttribute('color', new THREE.BufferAttribute(attr({ attr: 'color' }), 3));
   if (mt.skinned) {
-    const w = attr({ attr: 'skin' }), n = w.length / 3;
+    // three weights + three skin-bone indices per vertex (INFO.skinBones order)
+    const w = attr({ attr: 'skin' }), ix = attr({ attr: 'skin_index' }), n = w.length / 3;
     const sw = new Float32Array(n * 4), si = new Uint16Array(n * 4);
     for (let i = 0; i < n; i++) {
       sw[i * 4] = w[i * 3]; sw[i * 4 + 1] = w[i * 3 + 1]; sw[i * 4 + 2] = w[i * 3 + 2];
-      si[i * 4] = 0; si[i * 4 + 1] = 1; si[i * 4 + 2] = 2;
+      si[i * 4] = ix[i * 3]; si[i * 4 + 1] = ix[i * 3 + 1]; si[i * 4 + 2] = ix[i * 3 + 2];
     }
     g.setAttribute('skinWeight', new THREE.BufferAttribute(sw, 4));
     g.setAttribute('skinIndex', new THREE.BufferAttribute(si, 4));
@@ -67,34 +72,56 @@ function partGeometry(part, detail) {
   return g;
 }
 
-let noiseTex = null;
-function skinNoise() {
-  if (noiseTex) return noiseTex;
-  const n = 128, d = new Uint8Array(n * n * 4);
+// Procedural textures. The eye and hair-card textures are generated in Rust (human_eye_texture /
+// human_hair_texture); the skin micro-detail (pores) is a small tiling bump map.
+const HAIR_GAIN = 1.25;
+let TEX = null;
+function textures() {
+  if (TEX) return TEX;
+  const data = (bytes, w, h, srgb) => {
+    const t = new THREE.DataTexture(bytes, w, h, THREE.RGBAFormat);
+    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+    t.generateMipmaps = true; t.minFilter = THREE.LinearMipmapLinearFilter; t.magFilter = THREE.LinearFilter;
+    t.anisotropy = 4; t.needsUpdate = true;
+    return t;
+  };
+  const eye = data(pkg.human_eye_texture(512), 512, 512, true);
+  const hair = data(pkg.human_hair_texture(256, 512), 256, 512, false);
+  hair.wrapS = THREE.RepeatWrapping;
+  // pores: two octaves of smoothed noise, tiling
+  const n = 128, src = new Float32Array(n * n), d = new Uint8Array(n * n * 4);
   let s = 1234567;
-  for (let i = 0; i < n * n; i++) {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    const v = 118 + ((s >>> 24) % 20);
-    d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = v; d[i * 4 + 3] = 255;
+  for (let i = 0; i < n * n; i++) { s = (s * 1664525 + 1013904223) >>> 0; src[i] = (s >>> 8) / 16777216; }
+  const at = (x, y) => src[((y + n) % n) * n + ((x + n) % n)];
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const fine = (at(x, y) * 2 + at(x + 1, y) + at(x - 1, y) + at(x, y + 1) + at(x, y - 1)) / 6;
+    const coarse = (at(x >> 2, y >> 2) + at((x >> 2) + 1, y >> 2) + at(x >> 2, (y >> 2) + 1)) / 3;
+    const pit = fine < 0.36 ? 0.55 : 1;                       // sparse darker pits = pores
+    const v = Math.round(255 * Math.min(1, (0.55 * fine + 0.45 * coarse) * pit));
+    const o = (y * n + x) * 4; d[o] = d[o + 1] = d[o + 2] = v; d[o + 3] = 255;
   }
-  noiseTex = new THREE.DataTexture(d, n, n, THREE.RGBAFormat);
-  noiseTex.wrapS = noiseTex.wrapT = THREE.RepeatWrapping;
-  noiseTex.repeat.set(14, 14);
-  noiseTex.needsUpdate = true;
-  return noiseTex;
+  const pores = data(d, n, n, false);
+  pores.wrapS = pores.wrapT = THREE.RepeatWrapping; pores.repeat.set(26, 22);
+  return (TEX = { eye, hair, pores });
 }
 
 function makeMaterials() {
+  const T = textures();
   const P = (o) => new THREE.MeshPhysicalMaterial({ vertexColors: true, ...o });
-  const hairSheen = new THREE.Color(0.36, 0.23, 0.15);
   return {
-    // skin: soft "subsurface-ish" look from sheen + a little clearcoat, fine bump noise
-    skin: P({ roughness: 0.55, sheen: 0.45, sheenRoughness: 0.45, sheenColor: new THREE.Color(0.9, 0.42, 0.3), clearcoat: 0.08, clearcoatRoughness: 0.6, bumpMap: skinNoise(), bumpScale: 0.35 }),
-    hair: P({ roughness: 0.48, sheen: 1, sheenRoughness: 0.35, sheenColor: hairSheen }),
-    beard: P({ roughness: 0.6, sheen: 0.8, sheenRoughness: 0.45, sheenColor: hairSheen }),
-    eye: P({ roughness: 0.22, clearcoat: 0.6, clearcoatRoughness: 0.1 }),
-    cornea: new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: 0.16, roughness: 0.02, clearcoat: 1, clearcoatRoughness: 0.02, depthWrite: false }),
+    // skin: no clearcoat (that reads as plastic); a warm sheen stands in for subsurface scattering, pores from the bump map
+    skin: P({ roughness: 0.56, sheen: 0.55, sheenRoughness: 0.5, sheenColor: new THREE.Color(0.55, 0.20, 0.14), specularIntensity: 0.6, bumpMap: T.pores, bumpScale: 0.6 }),
+    // hair cards: alpha-tested strands (alpha to coverage with MSAA: no sorting needed), anisotropic highlight across the strands
+    hair: P({ map: T.hair, color: new THREE.Color(HAIR_GAIN, HAIR_GAIN, HAIR_GAIN), alphaTest: 0.42, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 0.55, anisotropy: 0.6,
+      specularIntensity: 0.3 }),
+    // beard / brows / lashes: thousands of single-hair ribbons over a dark shell
+    beard: P({ side: THREE.DoubleSide, roughness: 0.6, specularIntensity: 0.35 }),
+    eye: P({ map: T.eye, roughness: 0.30, specularIntensity: 0.4 }),
+    // cornea: clear glossy bulge over the iris (blended, drawn after everything opaque, never writes depth)
+    cornea: new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: 0.10, roughness: 0.0, clearcoat: 1, clearcoatRoughness: 0.0, envMapIntensity: 1.6, depthWrite: false }),
     teeth: P({ roughness: 0.3, clearcoat: 0.4 }),
+    pants: P({ roughness: 0.9 }),
+    shoes: P({ roughness: 0.7 }),
     cloth: P({ roughness: 0.95, sheen: 0.35, sheenRoughness: 0.9, sheenColor: new THREE.Color(0.25, 0.25, 0.28) }),
     plastic: P({ roughness: 0.62 }),
     pad: P({ roughness: 0.86, sheen: 0.2, sheenRoughness: 0.8 }),
@@ -104,8 +131,8 @@ function makeMaterials() {
   };
 }
 const PART_MATERIAL = {
-  head: 'skin', beard: 'beard', brows: 'beard', hair: 'hair', eye: 'eye', cornea: 'cornea', mouth_upper: 'teeth', mouth_lower: 'teeth',
-  torso: 'cloth', hp_shell: 'plastic', hp_pad: 'pad', hp_metal: 'metal', plug: 'metal', chair: 'chair',
+  head: 'skin', beard: 'beard', brows: 'beard', hair: 'hair', hair_cap: 'beard', eye: 'eye', cornea: 'cornea', mouth_upper: 'teeth', mouth_lower: 'teeth',
+  torso: 'cloth', pants: 'pants', shoes: 'shoes', hands: 'skin', hp_shell: 'plastic', hp_pad: 'pad', hp_metal: 'metal', plug: 'metal', chair: 'chair',
 };
 
 export class Chratos {
@@ -129,7 +156,6 @@ export class Chratos {
     this.name = 'chratos';
     this.listeners = new Set();
     this.accessories = [];
-    this.isSitting = false;
     this.restOpen = 0;
     this.rig = new pkg.HumanRig(seed >>> 0);
     this.nodeOrder = this.rig.node_order().split(',');
@@ -155,30 +181,28 @@ export class Chratos {
     const cfg = { ...DEFAULTS, ...(theme?.chratos || {}) };
     this.cfg = cfg;
     if (this.body) { this.root.remove(this.body); this.disposeMeshes(); }
-    const B = INFO.bind, V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+    const V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+    const B = Object.fromEntries(INFO.nodes.map((n, i) => [n, INFO.bind[i]]));   // bind positions (model space)
     const body = this.body = new THREE.Group(); body.name = 'body';
     body.scale.setScalar(CHRATOS_SCALE);
-    body.position.y = -MODEL_BOTTOM * CHRATOS_SCALE;
+    body.position.y = -MODEL_BOTTOM * CHRATOS_SCALE;                 // his soles on y = 0
     this.root.add(body);
-    // node hierarchy (local TRS comes from the Rust pose buffer every frame)
+    // skeleton (local TRS comes from the Rust pose buffer every frame); built in the bind pose first
     const N = this.nodes = {};
-    N.root = new THREE.Group();
-    N.chest = new THREE.Bone(); N.neck = new THREE.Bone(); N.head = new THREE.Bone();
-    N.jaw = new THREE.Group(); N.eye_L = new THREE.Group(); N.eye_R = new THREE.Group(); N.plug = new THREE.Group();
-    for (const [k, o] of Object.entries(N)) o.name = k;
-    body.add(N.root); N.root.add(N.chest, N.plug); N.chest.add(N.neck); N.neck.add(N.head); N.head.add(N.jaw, N.eye_L, N.eye_R);
+    INFO.nodes.forEach((name, i) => {
+      const o = N[name] = new THREE.Bone(); o.name = name;
+      const par = INFO.parents[i];
+      (par < 0 ? body : N[INFO.nodes[par]]).add(o);
+      o.position.copy(V(INFO.bind[i]));
+      if (par >= 0) o.position.sub(V(INFO.bind[par]));
+    });
     this.head = N.head;
-    this.applyPose();                       // bind pose = the rig's first pose is not neutral: use the bind positions
-    N.root.position.set(0, 0, 0); N.root.quaternion.identity();
-    N.chest.position.copy(V(B.chest)); N.neck.position.copy(V(B.neck).sub(V(B.chest))); N.head.position.copy(V(B.head).sub(V(B.neck)));
-    for (const b of [N.chest, N.neck, N.head]) { b.quaternion.identity(); b.scale.setScalar(1); }
-    // model-space containers under the bones
-    const space = (parent, bind, name) => { const g = new THREE.Group(); g.name = name; g.position.copy(V(bind)).negate(); parent.add(g); return g; };
-    const headSpace = this.headSpace = space(N.head, B.head, 'head_space');
-    const chestSpace = space(N.chest, B.chest, 'chest_space');
-    const jawSpace = space(N.jaw, B.jaw, 'jaw_space');
+    // model-space containers under the bones (rigid parts are authored in model space)
+    const space = (node, name) => { const g = new THREE.Group(); g.name = name; g.position.copy(V(B[node])).negate(); N[node].add(g); return g; };
+    const headSpace = this.headSpace = space('head', 'head_space');
+    const jawSpace = space('jaw', 'jaw_space');
     body.updateMatrixWorld(true);
-    const skeleton = this.skeleton = new THREE.Skeleton([N.chest, N.neck, N.head]);
+    const skeleton = this.skeleton = new THREE.Skeleton(INFO.skinBones.map((n) => N[n]));
 
     this.meshes = {}; this.morphMeshes = [];
     const add = (part, parent) => {
@@ -198,20 +222,20 @@ export class Chratos {
       if (mt.morphs.length) {
         mesh.morphTargetInfluences = new Array(mt.morphs.length).fill(0);
         mesh.morphTargetDictionary = Object.fromEntries(mt.morphs.map((n, i) => [n, i]));
-        this.morphMeshes.push({ mesh, idx: mt.morphs.map((n) => this.morphNames.indexOf(n)) });
+        this.morphMeshes.push({ mesh, names: mt.morphs, idx: mt.morphs.map((n) => this.morphNames.indexOf(n)) });
         mesh.frustumCulled = false;
       }
       mesh.castShadow = true; mesh.receiveShadow = part !== 'cornea';
       this.meshes[part] = mesh;
       return mesh;
     };
-    add('head'); add('beard');
-    add('brows', headSpace); add('hair', headSpace); add('mouth_upper', headSpace);
+    add('head'); add('beard'); add('brows');
+    add('hair_cap', headSpace); add('hair', headSpace); add('mouth_upper', headSpace);
     add('mouth_lower', jawSpace);
-    add('torso', chestSpace);
+    add('torso'); add('pants'); add('shoes'); add('hands');
     this.headphones = new THREE.Group(); this.headphones.name = 'headphones'; headSpace.add(this.headphones);
     add('hp_shell', this.headphones); add('hp_pad', this.headphones); add('hp_metal', this.headphones);
-    add('chair', body);
+    if (cfg.chair) add('chair', body);   // optional gaming-chair backrest (off by default: furniture comes from the app)
     // eyes: one geometry, two nodes
     const eyeGeo = partGeometry('eye', cfg.detail), corneaGeo = partGeometry('cornea', cfg.detail);
     for (const n of [N.eye_L, N.eye_R]) {
@@ -229,8 +253,9 @@ export class Chratos {
     N.root.add(this.cable);
     // sockets for accessories (hats on head_top, glasses on eyes): model space, metres
     this.sockets = {};
-    for (const [k, p] of Object.entries(INFO.sockets)) {
-      const s = this.sockets[k] = new THREE.Group(); s.name = 'socket_' + k; s.position.copy(V(p)); headSpace.add(s);
+    for (const [k, d] of Object.entries(INFO.sockets)) {
+      const s = this.sockets[k] = new THREE.Group(); s.name = 'socket_' + k;
+      s.position.copy(V(d.pos)).sub(V(B[d.node])); N[d.node].add(s);
     }
     pkg.human_free();
     this.applyTheme(cfg);
@@ -239,7 +264,8 @@ export class Chratos {
   }
 
   applyTheme(cfg) {
-    this.meshes.chair.visible = cfg.chair !== false;
+    if (cfg.chair && !this.meshes.chair) return this.build({ chratos: cfg });
+    if (this.meshes.chair) this.meshes.chair.visible = !!cfg.chair;
     this.headphones.visible = cfg.headphones !== false;
     this.cable.visible = this.meshes.plug.visible = cfg.headphones !== false && cfg.cable !== false;
     const tint = (mat, col, base) => {
@@ -249,6 +275,7 @@ export class Chratos {
     };
     tint(this.materials.cloth, cfg.hoodie, BASE.hoodie);
     tint(this.materials.hair, cfg.hair, BASE.hair);
+    this.materials.hair.color.multiplyScalar(HAIR_GAIN);   // the card texture stores brightness / 1.6
     tint(this.materials.beard, cfg.hair, BASE.hair);
     this.rig.set_rest_smile(cfg.restSmile ?? DEFAULTS.restSmile);
   }
@@ -261,13 +288,24 @@ export class Chratos {
     this.applyTheme(cfg);
   }
 
-  /** laugh | nod | no | surprise | wink | blink (other names are ignored: returns false) */
+  /** laugh nod no surprise wink blink jump backflip gargle blargh (spit) sit stand (other names: returns false) */
   play(name) { return this.rig.play(String(name)); }
   get isPlaying() { return this.rig.is_playing(); }
   get blinkTimer() { return this.rig.blink_timer(); }
   set blinkTimer(v) { this.rig.set_blink_timer(+v); }
   setLookLimits(yaw, pitch) { this.rig.set_look_limits(yaw, pitch); }
   seatHeight() { return 0; }
+  /** sitting: rig.set_seat_height(h) + play('sit') / play('stand'), or sit directly */
+  get isSitting() { return this.rig.is_sitting(); }
+  set isSitting(_) {}
+  set sitHeight(h) { this.rig.set_seat_height(+h || 0); this.rig.set_sit(h > 0 ? 1 : 0); }
+  /** { position, direction } (THREE.Vector3, world space) where a water jet leaves the mouth */
+  spout() {
+    const s = this.rig.spout(), m = this.nodes.root.parent.matrixWorld;
+    return { position: new THREE.Vector3(s[0], s[1], s[2]).applyMatrix4(m), direction: new THREE.Vector3(s[3], s[4], s[5]).transformDirection(m) };
+  }
+  /** capsules for props physics: [{ node, a, b, r }] (model space at bind), from Rust */
+  get bodyCollider() { return INFO.colliders; }
   setPropSettings() {}
 
   update(dt, input = {}) {
@@ -278,7 +316,11 @@ export class Chratos {
     r.update(dt);
     this.applyPose();
     this.applyCable();
-    if (r.pending_events()) for (const e of r.drain_events().split('\n')) if (e) this.emit('sfx', e);
+    if (r.pending_events()) for (const e of r.drain_events().split('\n')) {
+      if (!e) continue;
+      if (e.startsWith('clack:')) this.emit('sfx', { type: 'clack', v: parseFloat(e.slice(6)) });
+      else this.emit('sfx', e);
+    }
   }
 
   applyPose() {
@@ -290,10 +332,10 @@ export class Chratos {
       o.quaternion.set(P[k + 3], P[k + 4], P[k + 5], P[k + 6]);
       o.scale.set(P[k + 7], P[k + 8], P[k + 9]);
     }
-    const Wt = this.view(BUF.MORPHS);
-    for (const { mesh, idx } of this.morphMeshes || []) {
+    const Wt = this.view(BUF.MORPHS), F = this.forceMorphs;   // forceMorphs: { name: weight } debug override
+    for (const { mesh, idx, names } of this.morphMeshes || []) {
       const inf = mesh.morphTargetInfluences;
-      for (let j = 0; j < idx.length; j++) inf[j] = Wt[idx[j]];
+      for (let j = 0; j < idx.length; j++) inf[j] = F && names[j] in F ? F[names[j]] : Wt[idx[j]];
     }
   }
 
@@ -308,7 +350,7 @@ export class Chratos {
   /** triangle count per part (debug / report) */
   stats() {
     const out = {};
-    this.body.traverse((o) => { if (o.isMesh) out[o.name] = (out[o.name] || 0) + (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
+    this.body.traverse((o) => { if (o.isMesh && o.visible) out[o.name] = (out[o.name] || 0) + (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; });
     out.total = Object.values(out).reduce((a, b) => a + b, 0);
     return out;
   }

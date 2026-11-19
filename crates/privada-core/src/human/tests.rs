@@ -97,7 +97,7 @@ fn morph_deltas_are_bounded_and_local() {
         let name = morph::MORPH_NAMES[*i];
         let max = d.iter().map(|x| x.length()).fold(0.0, f32::max);
         assert!(d.iter().all(|x| x.is_finite()), "{name}");
-        let limit = if name == "jaw_open" { 0.06 } else { 0.02 };
+        let limit = if name == "jaw_open" { 0.10 } else { 0.02 };
         assert!(max > 0.0005 && max < limit, "{name}: max delta {max}");
         // nothing moves the back of the skull or the neck base
         for (p, x) in h.pos.iter().zip(d.iter()) {
@@ -168,7 +168,7 @@ fn visemes_map_to_distinct_mouth_shapes() {
     use morph::m::*;
     let w = |n: &str| morph::viseme_weights(n).unwrap();
     assert!(w("rest").iter().all(|x| *x == 0.0));
-    assert!(w("AA")[JAW_OPEN] > 0.9);
+    assert!(w("AA")[JAW_OPEN] > 0.5 && w("AA")[JAW_OPEN] < 0.65, "speech opens ~20 deg, not the 36 deg spit pose");
     assert!(w("M_P_B")[PRESS] > 0.9 && w("M_P_B")[JAW_OPEN] < 0.05);
     assert!(w("FV")[TUCK] > 0.7 && w("FV")[PRESS] < 0.2);
     assert!(w("OY_UH_UW")[PUCKER] > 0.9 && w("W")[PUCKER] > 0.9);
@@ -190,13 +190,13 @@ fn visemes_map_to_distinct_mouth_shapes() {
     let c = morph::mouth_to_morphs(&Mouth { corner_l: 1.0, corner_r: -1.0, jaw_side: -1.0, ..Default::default() });
     assert!(c[SMILE_L] > 0.9 && c[FROWN_R] > 0.9 && c[SMILE_R] == 0.0 && c[JAW_LEFT] > 0.9);
     assert!(visemes_json().contains("\"M_P_B\":{\"press\":1}"));
-    assert!(rig_info().contains("\"nodes\":[\"root\",\"chest\""));
+    assert!(rig_info().contains("\"nodes\":[\"root\",\"pelvis\"") && rig_info().contains("mouth_spout") && rig_info().contains("colliders"));
 }
 
 #[test]
 fn rig_is_stable_for_10k_frames() {
     let mut r = rig::HumanRig::new(3);
-    let acts = ["laugh", "nod", "no", "surprise", "wink", "blink"];
+    let acts = ["laugh", "nod", "no", "surprise", "wink", "blink", "jump", "backflip", "gargle", "blargh", "sit", "stand"];
     assert!(!r.play("flush"));
     let mut blinked = false;
     for i in 0..10_000 {
@@ -214,7 +214,7 @@ fn rig_is_stable_for_10k_frames() {
         assert!(r.cable_pos().iter().chain(r.cable_nrm()).all(|x| x.is_finite() && x.abs() < 2.0), "frame {i}");
         let (y, p, ro) = r.head_angles();
         assert!(y.abs() < 1.7 && p.abs() < 1.0 && ro.abs() < 0.5, "frame {i}: {y} {p} {ro}");
-        for n in 0..rig::NODES.len() {
+        for n in 0..rig::NODES {
             let q = &r.pose()[n * rig::STRIDE + 3..n * rig::STRIDE + 7];
             let l = q.iter().map(|x| x * x).sum::<f32>().sqrt();
             assert!((l - 1.0).abs() < 1e-3, "unit quaternion, node {n}");
@@ -241,7 +241,7 @@ fn rig_follows_the_look_and_is_deterministic() {
     let (yaw, pitch, _) = a.head_angles();
     assert!(yaw > 0.8 && yaw < 1.3, "turns toward +x: {yaw}");
     assert!(pitch < -0.1, "looks up: {pitch}");
-    assert!(a.morphs()[morph::m::JAW_OPEN] > 0.9);
+    assert!(a.morphs()[morph::m::JAW_OPEN] > 0.5);
     // rest: closed mouth, friendly smile, eyes open
     let mut r = rig::HumanRig::new(1);
     r.blink_timer = 1e9;
@@ -250,4 +250,155 @@ fn rig_follows_the_look_and_is_deterministic() {
     }
     assert!(r.morphs()[morph::m::JAW_OPEN] < 0.01 && r.morphs()[morph::m::BLINK_L] < 0.05);
     assert!(r.morphs()[morph::m::SMILE_L] > 0.1);
+}
+
+#[test]
+fn faces_wind_counter_clockwise_seen_from_outside() {
+    // back-face culling on the GPU: the triangle winding must agree with the vertex normals
+    // (lathes, tubes and isosurfaces; ribbons are double sided but still consistent)
+    for name in ["eye", "cornea", "torso", "pants", "hands", "hp_shell", "plug", "mouth_upper", "hair_cap", "chair"] {
+        let p = part(name, D).unwrap();
+        let (mut ok, mut n) = (0usize, 0usize);
+        for t in p.idx.chunks_exact(3) {
+            let (a, b, c) = (t[0] as usize, t[1] as usize, t[2] as usize);
+            let f = (p.pos[b] - p.pos[a]).cross(p.pos[c] - p.pos[a]);
+            if f.length() < 1e-12 {
+                continue;
+            }
+            n += 1;
+            ok += (f.dot(p.nrm[a] + p.nrm[b] + p.nrm[c]) > 0.0) as usize;
+        }
+        assert!(ok as f32 > 0.97 * n as f32, "{name}: {ok} of {n} faces agree with their normals");
+    }
+    assert_eq!(rig::cable_indices().len() % 3, 0);
+}
+
+#[test]
+fn procedural_textures() {
+    let e = parts::eye_texture(64);
+    assert_eq!(e.len(), 64 * 64 * 4);
+    let px = |x: usize, y: usize| &e[(y * 64 + x) * 4..(y * 64 + x) * 4 + 4];
+    assert!(px(32, 32)[0] < 12, "pupil is black: {:?}", px(32, 32));
+    assert!(px(2, 32)[0] > 190 && px(2, 32)[3] == 255, "sclera is light: {:?}", px(2, 32));
+    let iris = px(32 + 10, 32);
+    assert!(iris[0] > iris[2] + 15 && iris[0] < 200, "iris is brown: {iris:?}");
+    let h = parts::hair_texture(64, 128);
+    assert_eq!(h.len(), 64 * 128 * 4);
+    let alpha = |y: usize| (0..64).map(|x| h[(y * 64 + x) * 4 + 3] as u32).sum::<u32>() / 64;
+    assert!(alpha(120) < alpha(4) && alpha(4) > 60 && alpha(4) < 250, "strands with gaps, thinning out toward the tip: {} {}", alpha(4), alpha(120));
+    // the hair part carries card UVs for every vertex
+    let hair = part("hair", D).unwrap();
+    assert_eq!(hair.uv.len(), hair.pos.len());
+}
+
+#[test]
+fn skeleton_and_body_are_consistent() {
+    use body::{node, SKELETON, SKIN_BONES};
+    // parents come before children; names are unique
+    for (i, (name, parent, _)) in SKELETON.iter().enumerate() {
+        assert!(*parent < i as i32, "{name}");
+        assert_eq!(SKELETON.iter().filter(|b| b.0 == *name).count(), 1);
+    }
+    assert_eq!(SKELETON[node::HEAD].0, "head");
+    assert_eq!(SKELETON[node::FOOT_R].0, "foot_R");
+    assert_eq!(SKELETON[SKIN_BONES[body::SKIN_CHEST_NECK_HEAD[2] as usize]].0, "head");
+    // every clothed part is skinned with normalized weights on existing bones
+    for name in ["torso", "pants", "shoes", "hands"] {
+        let p = part(name, D).unwrap();
+        assert!(p.tri_count() > 300, "{name}");
+        assert_eq!(p.skin.len(), p.pos.len(), "{name}");
+        assert_eq!(p.skin_idx.len(), p.pos.len(), "{name}");
+        for (w, i) in p.skin.iter().zip(&p.skin_idx) {
+            assert!((w[0] + w[1] + w[2] - 1.0).abs() < 1e-4 && w.iter().all(|x| *x >= 0.0));
+            assert!(i.iter().all(|&b| (b as usize) < SKIN_BONES.len()));
+        }
+        assert!(build(&format!("human_{name}"), "{\"detail\":0.5,\"attr\":\"skin_index\"}").is_ok());
+    }
+    // a hand vertex belongs to the hand bone of that side, a sole to the foot
+    let (idx, w) = body::auto_skin(Vec3::new(-0.262, -0.90, 0.0));
+    assert_eq!(SKELETON[SKIN_BONES[idx[0] as usize]].0, "hand_L");
+    assert!(w[0] > 0.6);
+    let (idx, _) = body::auto_skin(Vec3::new(0.10, -1.61, 0.08));
+    assert_eq!(SKELETON[SKIN_BONES[idx[0] as usize]].0, "foot_R");
+    // the feet stand on the floor
+    let shoes = part("shoes", D).unwrap();
+    let low = shoes.pos.iter().map(|p| p.y).fold(f32::MAX, f32::min);
+    assert!((low - body::FLOOR).abs() < 0.006, "soles at the floor: {low}");
+}
+
+#[test]
+fn actions_use_the_override_engine() {
+    use body::node;
+    let step = |r: &mut rig::HumanRig, n: usize| {
+        for _ in 0..n {
+            r.update(1.0 / 60.0, (0.0, 0.0), Mouth::default());
+        }
+    };
+    let y = |r: &rig::HumanRig, n: usize| r.world(n).translation.y;
+    // jump: the whole skeleton leaves the floor and comes back
+    let mut r = rig::HumanRig::new(2);
+    r.blink_timer = 1e9;
+    step(&mut r, 30);
+    let foot0 = y(&r, node::FOOT_L);
+    r.play("jump");
+    let mut peak = foot0;
+    for _ in 0..70 {
+        step(&mut r, 1);
+        peak = peak.max(y(&r, node::FOOT_L));
+    }
+    assert!(peak - foot0 > 0.25, "feet rise {}", peak - foot0);
+    step(&mut r, 30);
+    assert!((y(&r, node::FOOT_L) - foot0).abs() < 0.01 && !r.is_playing());
+    // backflip: the head passes below the pelvis
+    r.play("backflip");
+    let mut inverted = false;
+    for _ in 0..100 {
+        step(&mut r, 1);
+        inverted |= y(&r, node::HEAD) < y(&r, node::PELVIS);
+    }
+    assert!(inverted, "upside down during the flip");
+    step(&mut r, 20);
+    assert!(y(&r, node::HEAD) > y(&r, node::PELVIS) + 0.5);
+    // blargh: the jaw opens to the full range and the spout points forward / down
+    r.play("blargh");
+    step(&mut r, 70);
+    assert!(r.morphs()[morph::m::JAW_OPEN] > 0.9, "wide open: {}", r.morphs()[morph::m::JAW_OPEN]);
+    assert!(morph::JAW_MAX.to_degrees() >= 35.0);
+    let s = r.spout();
+    assert!(s[5] > 0.7 && s[4] < 0.0, "jet leaves forward and a bit down: {s:?}");
+    step(&mut r, 120);
+    assert!(r.morphs()[morph::m::JAW_OPEN] < 0.05);
+    // sit: pelvis drops to the seat, knees fold, feet stay near the floor; stand undoes it
+    let pelvis0 = y(&r, node::PELVIS);
+    r.set_seat_height(0.45);
+    r.play("sit");
+    step(&mut r, 150);
+    assert!(r.is_sitting());
+    assert!(pelvis0 - y(&r, node::PELVIS) > 0.25, "pelvis drops {}", pelvis0 - y(&r, node::PELVIS));
+    assert!((y(&r, node::PELVIS) - (body::FLOOR + 0.45 + 0.105)).abs() < 0.02);
+    assert!(y(&r, node::FOOT_L) < body::FLOOR + 0.16, "feet near the floor: {}", y(&r, node::FOOT_L) - body::FLOOR);
+    r.play("stand");
+    step(&mut r, 150);
+    assert!((y(&r, node::PELVIS) - pelvis0).abs() < 0.01 && !r.is_sitting());
+    // external overrides (for ported timelines)
+    r.ext.lift = 0.3;
+    step(&mut r, 2);
+    assert!((y(&r, node::PELVIS) - pelvis0 - 0.3).abs() < 0.01);
+}
+
+#[test]
+fn rig_is_stable_at_very_low_frame_rates() {
+    // 20 fps and below (dt clamps to 0.05 s): the stiff eye springs must not blow up
+    let mut r = rig::HumanRig::new(4);
+    for i in 0..1200 {
+        let t = i as f32 * 0.05;
+        r.update(0.05, ((t * 2.0).sin(), (t * 1.3).cos()), Mouth { open: (t * 5.0).sin().abs(), ..Default::default() });
+        let p = r.pose();
+        for n in [body::node::EYE_L, body::node::EYE_R] {
+            let q = glam::Quat::from_xyzw(p[n * 10 + 3], p[n * 10 + 4], p[n * 10 + 5], p[n * 10 + 6]);
+            let gaze = q * Vec3::Z;
+            assert!(gaze.z > 0.75, "frame {i}: the eye looks {gaze:?} (iris must stay in the opening)");
+        }
+        assert!(r.pose().iter().all(|x| x.is_finite() && x.abs() < 10.0));
+    }
 }

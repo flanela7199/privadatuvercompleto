@@ -41,8 +41,10 @@ pub mod m {
     pub const JAW_RIGHT: usize = 22;
     pub const JAW_FWD: usize = 23;
 }
-/// jaw rotation (rad) at jaw_open = 1 (the `jaw` bone turns by weight * this)
-pub const JAW_MAX: f32 = 0.36;
+/// jaw rotation (rad) at jaw_open = 1 = 36 deg, the wide "blargh" / spit pose (the `jaw` bone turns by weight * this)
+pub const JAW_MAX: f32 = 0.63;
+/// jaw_open weight of a fully open SPEECH mouth (`open` = 1 -> ~20 deg)
+pub const SPEECH_JAW: f32 = 0.57;
 
 /// how much a point belongs to the mandible (0..1)
 pub fn jaw_weight(p0: Vec3) -> f32 {
@@ -87,18 +89,19 @@ fn blink(p0: Vec3, side: f32, amount: f32, lower: f32) -> Vec3 {
     }
     let (lx, _) = eye_local(q);
     // slightly wider than the sculpted opening, so the corners close too
-    let (yu, yl) = lid_curves(lx * (LID_W / (LID_W + 0.0018)));
+    let (yu, yl) = lid_curves(lx * (LID_W / (LID_W + 0.0035)));
     if yu - yl < 1e-5 {
         return Vec3::ZERO;
     }
-    let rs = EYE_R + 0.002;
+    let rs = EYE_R + 0.0020;
     let off = LID_DY + LID_SHEAR * lx;
     let ang = |y: f32| ((y + off) / rs).clamp(-1.0, 1.0).asin();
     let (au, al) = (ang(yu), ang(yl));
     let phi = rel.y.atan2(rel.z);
     // upper lid comes down to `closed`; the lower lid rises a little (`lower`)
     let al2 = al + lower * (au - al);
-    let closed = mix(au, al2 + 0.02, amount);
+    // the upper lid ends a little PAST the lower lid margin and slides over it (no white sliver)
+    let closed = mix(au, al2 - 0.09, amount);
     let (top, bot) = (au + 0.50, al - 0.35);
     let np = if phi >= top || phi <= bot {
         phi
@@ -110,7 +113,8 @@ fn blink(p0: Vec3, side: f32, amount: f32, lower: f32) -> Vec3 {
         bot + (phi - bot) * (al2 - bot) / (al - bot)
     };
     let d = (np - phi) * wr;
-    let rho = (rel.y * rel.y + rel.z * rel.z).sqrt();
+    let over = if phi > al { 0.0008 * amount * wr * sstep(0.0, 0.25, (phi - np).max(0.0)) } else { 0.0 };
+    let rho = (rel.y * rel.y + rel.z * rel.z).sqrt() + over;
     let (s, c) = (phi + d).sin_cos();
     v(0.0, rho * s - rel.y, rho * c - rel.z)
 }
@@ -207,7 +211,7 @@ pub fn mouth_to_morphs(mo: &Mouth) -> [f32; N] {
     let tuck = (c.closed.min(c.upper_raise * 2.0) * 1.4).min(1.0);
     w[m::TUCK] = tuck;
     w[m::PRESS] = c.closed * (1.0 - tuck);
-    w[m::JAW_OPEN] = c.open * (1.0 - 0.85 * c.closed) + 0.05 * c.sib;
+    w[m::JAW_OPEN] = SPEECH_JAW * c.open * (1.0 - 0.85 * c.closed) + 0.03 * c.sib;
     w[m::PUCKER] = c.round;
     let wide = 0.75 * c.wide + 0.30 * c.sib;
     w[m::WIDE_L] = wide;

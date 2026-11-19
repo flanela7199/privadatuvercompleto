@@ -44,6 +44,39 @@ const outCfg = () => ({ ...OUTPUT_DEFAULTS, ...(config.output || {}) });
 const lookCfg = () => ({ ...LOOK_DEFAULTS, ...(config.look || {}) });
 const settings = () => config.settings || {};
 loading(0.1, 'lendo configuração…');
+// Debug / screenshot mode (browser or headless): avatar.html?character=chratos&pose=front|34|profile&expr=rest|aa|smile|blink|oo&bg=%23202020&zoom=1
+// fixed close-up camera on the head, fixed expression, no cursor follow, solid background.
+const DBG = (() => {
+  const q = new URLSearchParams(location.search);
+  if (q.get('character')) config.character = q.get('character');
+  if (q.has('pose') || q.has('expr')) config.render = { ...(config.render || {}), pixelRatio: +(q.get('dpr') || 1) };
+  return q.has('pose') || q.has('expr') ? { pose: q.get('pose') || 'front', expr: q.get('expr') || 'rest', bg: q.get('bg'), zoom: +(q.get('zoom') || 1), target: null } : null;
+})();
+const DBG_EXPR = { rest: {}, aa: { open: 1, lips: 1 }, smile: { cornerL: 1, cornerR: 1, wide: 0.6, open: 0.25 }, oo: { round: 1, open: 0.3 }, blink: {} };
+// expr may also be an action held at its peak: blargh (wide-open spit pose), sit
+// screenshot hook: render + read back in the same task (the drawing buffer is not preserved)
+window.__shot = () => { stage.render(0, !!config.render?.ao); return renderer.domElement.toDataURL('image/png'); };
+// change the debug view without reloading: __dbg('34', 'aa', 1.5)
+window.__dbg = (pose, expr, zoom) => { if (!DBG) return false; Object.assign(DBG, { pose: pose ?? DBG.pose, expr: expr ?? DBG.expr, zoom: zoom || 1 }); window.__dbgFrames = 0; return true; };
+function debugCamera() {
+  if (!DBG.target) {
+    DBG.target = tuber.head.getWorldPosition(new THREE.Vector3()).add(character === 'chratos' ? new THREE.Vector3(0, 0.075, 0.03) : new THREE.Vector3(0, 0, 0.1));
+    tuber.blinkTimer = 1e9;
+  }
+  tuber.forceMorphs = DBG.expr === 'blink' ? { blink_L: 1, blink_R: 1 } : DBG.expr === 'wink' ? { blink_L: 1 } : null;
+  if (tuber.rig?.set_mouth_override) { tuber.rig.set_mouth_override(DBG.expr === 'blargh' ? 1 : -1); tuber.rig.set_sit(DBG.expr === 'sit' ? 1 : 0); }
+  // poses: front | 34 | profile (head close-up), body | body34 (whole figure), or a yaw in degrees
+  const whole = String(DBG.pose).startsWith('body');
+  const yaw = THREE.MathUtils.degToRad({ front: 0, 34: 38, profile: 90, body: 0, body34: 38 }[DBG.pose] ?? (+DBG.pose || 0));
+  const tgt = whole ? new THREE.Vector3(0, 0.92, 0) : DBG.target, d = (whole ? 6.2 : character === 'chratos' ? 1.15 : 3.3) / (DBG.zoom || 1);
+  window.__dbgFrames = (window.__dbgFrames || 0) + 1;   // screenshot tools wait for this
+  camera.clearViewOffset();
+  camera.aspect = innerWidth / innerHeight;
+  camera.position.set(tgt.x + d * Math.sin(yaw), tgt.y + 0.02 * d, tgt.z + d * Math.cos(yaw));
+  camera.lookAt(tgt);
+  camera.updateProjectionMatrix();
+  if (DBG.bg) { renderer.setClearColor(new THREE.Color(DBG.bg), 1); document.documentElement.style.background = document.body.style.background = DBG.bg; }
+}
 
 /* ---------------------------------------------------------------- stage */
 const stage = createStage({
@@ -607,10 +640,11 @@ function frame(now) {
 
   const [sx, sy] = restPoint();
   placeCamera(sx, sy);
+  if (DBG) debugCamera();
 
   let look = { x: 0, y: 0 };
   if (OUTPUT && remoteLook && now - remoteT < 500) look = follow ? remoteLook : look;
-  else if (follow && cursor.seen) look = computeLook();
+  else if (follow && cursor.seen && !DBG) look = computeLook();
 
   let mic = null;
   if (isTauri) { if (micOn && now - rustMouthT < 500) mic = rustMouth; }
@@ -618,9 +652,9 @@ function frame(now) {
   else if (OUTPUT && remoteMouth && now - remoteT < 500) mic = remoteMouth;
   const test = mouthTest && now - mouthTestT < 2000 && (mouthTest.cornerL || mouthTest.cornerR) ? mouthTest : null;
   const rawMouth = maxMouth(mic, fake.update(dt), test);   // maxMouth keeps the signed corner channels
-  const mouth = shapeMouth(rawMouth);
+  const mouth = DBG ? { ...zeroMouth(), ...(DBG_EXPR[DBG.expr] || {}) } : shapeMouth(rawMouth);
 
-  if (settings().autoBlink === false) tuber.blinkTimer = 1e9;
+  if (settings().autoBlink === false || DBG) tuber.blinkTimer = 1e9;
   else if (tuber.blinkTimer > 1e8) tuber.blinkTimer = 2;
 
   // the JS rig clamps look to [-1, 1]; extra range beyond it is added after the update
@@ -659,7 +693,7 @@ function frame(now) {
   if (!firstFrame) {
     firstFrame = true;
     // first real frame is on the (hidden) window: generate missing thumbnails, then show it
-    th.phase = true; th.phaseT0 = now;
+    th.phase = !DBG; th.phaseT0 = now;
     queueMissing(allOutfits()).then((n) => { th.total = n; th.done = 0; th.phaseT0 = performance.now(); if (!n) th.queue.length = 0; })
       .catch(() => { th.queue.length = 0; });
   }

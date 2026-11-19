@@ -9,7 +9,7 @@
 //!
 //! | id | buffer | layout |
 //! |---|---|---|
-//! | 0 | pose | `node_order()` (root chest neck head jaw eye_L eye_R plug) x [px,py,pz, qx,qy,qz,qw, sx,sy,sz] local TRS (`plug`: root space) |
+//! | 0 | pose | `node_order()` (25 nodes: root pelvis spine1 spine2 chest neck head jaw eye_L eye_R, clavicle / upperarm / forearm / hand L+R, thigh / shin / foot L+R, plug) x [px,py,pz, qx,qy,qz,qw, sx,sy,sz] local TRS (`plug`: root space) |
 //! | 1 | morphs | 24 weights, names in `morph_names()` |
 //! | 2 | cable positions | 20 rings x 6 vertices x 3 (root space), triangles = `human_cable_indices()` |
 //! | 3 | cable normals | same layout |
@@ -42,6 +42,18 @@ pub fn human_rig_info() -> String {
 #[wasm_bindgen]
 pub fn human_visemes() -> String {
     human::visemes_json()
+}
+
+/// procedural RGBA eye texture (sRGB bytes, `size` x `size`) for the planar UVs of the `eye` part
+#[wasm_bindgen]
+pub fn human_eye_texture(size: u32) -> Vec<u8> {
+    human::parts::eye_texture(size.clamp(16, 2048) as usize)
+}
+
+/// procedural RGBA hair-card texture (`w` across, `h` along; alpha = strands, rgb = strand brightness)
+#[wasm_bindgen]
+pub fn human_hair_texture(w: u32, h: u32) -> Vec<u8> {
+    human::parts::hair_texture(w.clamp(8, 2048) as usize, h.clamp(8, 4096) as usize)
 }
 
 #[wasm_bindgen]
@@ -99,7 +111,39 @@ impl HumanRig {
     pub fn set_rest_smile(&mut self, v: f32) {
         self.inner.rest_smile = v.clamp(0.0, 1.0);
     }
-    /// laugh | nod | no | surprise | wink | blink
+    /// seat height above the floor (m) used by the `sit` action / `set_sit` (default 0.45)
+    pub fn set_seat_height(&mut self, h: f32) {
+        self.inner.set_seat_height(h)
+    }
+    /// 0 = standing .. 1 = seated (persistent)
+    pub fn set_sit(&mut self, v: f32) {
+        self.inner.set_sit(v)
+    }
+    pub fn is_sitting(&self) -> bool {
+        self.inner.is_sitting()
+    }
+    /// external body overrides added to the running actions (same meaning as the toilet `o.*`):
+    /// lift (m), flip (rad, backward somersault), spin (rad), squash (0..1)
+    pub fn set_body_override(&mut self, lift: f32, flip: f32, spin: f32, squash: f32) {
+        self.inner.ext.lift = lift;
+        self.inner.ext.flip = flip;
+        self.inner.ext.spin = spin;
+        self.inner.ext.squash = squash;
+    }
+    /// external mouth override: opening 0..1 of the FULL jaw range (1 = 36 deg spit pose); negative = none
+    pub fn set_mouth_override(&mut self, open: f32) {
+        self.inner.ext.mouth = if open >= 0.0 { Some(open.min(1.0)) } else { None };
+    }
+    /// where a water jet leaves the mouth: [px, py, pz, dx, dy, dz] in rig-root space
+    pub fn spout(&self) -> Vec<f32> {
+        self.inner.spout().to_vec()
+    }
+    /// rig-root matrix of a skeleton node by index in `node_order()` (16 floats, column-major)
+    pub fn node_matrix(&self, index: u32) -> Vec<f32> {
+        let i = (index as usize).min(rig::NODES - 1);
+        privada_core::glam::Mat4::from(self.inner.world(i)).to_cols_array().to_vec()
+    }
+    /// laugh | nod | no | surprise | wink | blink | jump | backflip | gargle | blargh (spit) | sit | stand
     pub fn play(&mut self, name: &str) -> bool {
         self.inner.play(name)
     }
@@ -110,7 +154,7 @@ impl HumanRig {
         self.inner.update(dt, self.look, self.mouth);
     }
     pub fn node_order(&self) -> String {
-        rig::NODES.join(",")
+        human::body::SKELETON.iter().map(|b| b.0).collect::<Vec<_>>().join(",")
     }
     pub fn morph_names(&self) -> String {
         morph::MORPH_NAMES.join(",")

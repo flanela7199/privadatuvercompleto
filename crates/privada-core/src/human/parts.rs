@@ -11,9 +11,13 @@ pub struct Part {
     pub pos: Vec<Vec3>,
     pub nrm: Vec<Vec3>,
     pub col: Vec<Vec3>,
+    /// texture coordinates; empty = the generic cylindrical mapping
+    pub uv: Vec<[f32; 2]>,
     pub idx: Vec<u32>,
-    /// (chest, neck, head) weights per vertex; empty = rigid
+    /// up to three bone weights per vertex; empty = rigid
     pub skin: Vec<[f32; 3]>,
+    /// skin-bone indices of those weights (`body::SKIN_BONES` order); empty = (chest, neck, head)
+    pub skin_idx: Vec<[u8; 3]>,
     /// (morph index, per-vertex deltas): only the morphs that move this part
     pub morphs: Vec<(usize, Vec<Vec3>)>,
 }
@@ -64,19 +68,42 @@ impl Part {
                 let b = (base + i * sides + (k + 1) % sides) as u32;
                 let c = (base + (i + 1) * sides + k) as u32;
                 let d = (base + (i + 1) * sides + (k + 1) % sides) as u32;
-                self.idx.extend_from_slice(&[a, b, d, a, d, c]);
+                self.idx.extend_from_slice(&[a, d, b, a, c, d]);
             }
+        }
+        base
+    }
+    /// Flat strip along `pts` (a hair card / a single hair): `side[i]` = direction across the strip,
+    /// `nrm[i]` = shading normal, `half(t)` = half width, `uv` = (u0, u1) across; v runs 0 (root) .. 1 (tip).
+    /// Render double sided.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ribbon(&mut self, pts: &[Vec3], side: &[Vec3], nrm: &[Vec3], half: impl Fn(f32) -> f32, color: impl Fn(f32) -> Vec3, uv: Option<(f32, f32)>, round: f32) -> usize {
+        let n = pts.len();
+        let base = self.pos.len();
+        for i in 0..n {
+            let t = i as f32 / (n - 1) as f32;
+            let h = half(t);
+            let c = color(t);
+            for (k, sg) in [-1.0f32, 1.0].into_iter().enumerate() {
+                self.pos.push(pts[i] + side[i] * (sg * h));
+                self.nrm.push((nrm[i] + side[i] * (sg * round)).normalize_or(nrm[i]));
+                self.col.push(c);
+                if let Some((u0, u1)) = uv {
+                    self.uv.push([if k == 0 { u0 } else { u1 }, t]);
+                }
+            }
+        }
+        for i in 0..n - 1 {
+            let a = (base + i * 2) as u32;
+            self.idx.extend_from_slice(&[a, a + 1, a + 3, a, a + 3, a + 2]);
         }
         base
     }
 }
 
-/// where the bust is cut (model space y)
-pub const BUST_BOTTOM: f32 = -0.420;
-
 /* ------------------------------------------------------------------ eyes */
-pub const IRIS_R: f32 = 0.0088;
-pub const PUPIL_R: f32 = 0.0033;
+pub const IRIS_R: f32 = 0.0060;
+pub const PUPIL_R: f32 = 0.0024;
 
 fn lathe_z(profile: &[(f32, f32, Vec3, Vec3)], seg: usize) -> Part {
     // profile: (radius, z, colour, normal as (radial, _, z))
@@ -95,43 +122,141 @@ fn lathe_z(profile: &[(f32, f32, Vec3, Vec3)], seg: usize) -> Part {
         for k in 0..seg as u32 {
             let (a, b, c, d) = (i * w + k, i * w + k + 1, (i + 1) * w + k, (i + 1) * w + k + 1);
             // rings run from the back pole to the front: keep the outside CCW
-            p.idx.extend_from_slice(&[a, c, d, a, d, b]);
+            p.idx.extend_from_slice(&[a, d, c, a, b, d]);
         }
     }
     p
 }
 
-/// eyeball in eye-local space (origin = centre, +z = gaze): sclera + concave iris + pupil
+/// eyeball in eye-local space (origin = centre, +z = gaze): sclera + slightly concave iris.
+/// Colour comes from [`eye_texture`] through planar UVs (u, v = x, y over the diameter).
 pub fn eye() -> Part {
     let r = EYE_R;
-    let white = srgb(238, 232, 226);
     let mut prof = Vec::new();
     let tl = (IRIS_R / r).asin();
-    let steps = 22;
+    let steps = 24;
     for i in 0..=steps {
         let th = std::f32::consts::PI + (tl - std::f32::consts::PI) * i as f32 / steps as f32;
         let (s, c) = th.sin_cos();
-        // a little pink toward the back / corners
-        let col = white.lerp(srgb(226, 178, 168), 0.5 * sstep(0.45, 1.0, th / std::f32::consts::PI));
-        prof.push((r * s, r * c, col, v(s, 0.0, c)));
+        prof.push((r * s, r * c, Vec3::ONE, v(s, 0.0, c)));
     }
     let zl = r * tl.cos();
-    let depth = 0.0017;
-    let limbal = srgb(38, 24, 16);
-    let outer = srgb(92, 56, 30);
-    let inner = srgb(150, 96, 48);
-    let iris_n = v(-0.30, 0.0, 1.0);
-    let ring = |f: f32, c: Vec3| (IRIS_R * f, zl - depth * (1.0 - f), c, iris_n);
-    prof.push(ring(1.0, limbal));
-    prof.push(ring(0.90, limbal.lerp(outer, 0.7)));
-    prof.push(ring(0.74, outer));
-    prof.push(ring(0.52, inner));
-    let pf = PUPIL_R / IRIS_R;
-    prof.push(ring(pf + 0.04, inner.lerp(limbal, 0.4)));
-    let black = v(0.004, 0.003, 0.003);
-    prof.push(ring(pf, black));
-    prof.push(ring(0.0, black));
-    lathe_z(&prof, 40)
+    let depth = 0.0008;
+    for f in [1.0f32, 0.8, 0.55, 0.3, 0.0] {
+        prof.push((IRIS_R * f, zl - depth * (1.0 - f), Vec3::ONE, v(-0.22, 0.0, 1.0)));
+    }
+    let mut p = lathe_z(&prof, 48);
+    p.uv = p.pos.iter().map(|q| [q.x / (2.0 * r) + 0.5, q.y / (2.0 * r) + 0.5]).collect();
+    p
+}
+
+/// RGBA texture of the eye for the planar UVs of [`eye`]: warm sclera with faint veins, limbal ring,
+/// brown iris with radial fibres + collarette, soft pupil edge. `size` x `size`, row 0 = v 0.
+pub fn eye_texture(size: usize) -> Vec<u8> {
+    let mut out = vec![0u8; size * size * 4];
+    let ir = IRIS_R / (2.0 * EYE_R); // iris radius in uv units
+    let veins: Vec<(f32, f32, f32, f32)> = (0..22).map(|k| (hash(k * 5 + 1) * std::f32::consts::TAU, 0.6 + 0.8 * hash(k * 5 + 2), hash(k * 5 + 3) * 6.28, 1.9 + 1.4 * hash(k * 5 + 4))).collect();
+    let noise = |a: f32, r: f32, seed: u32| -> f32 {
+        // periodic value noise over the angle, stretched along the radius = iris fibres
+        let x = a / std::f32::consts::TAU * 96.0;
+        let (i, f) = (x.floor(), x.fract());
+        let h = |j: f32| hash(((j as i32).rem_euclid(96)) as u32 * 31 + seed + (r * 3.0) as u32 * 977);
+        mix(h(i), h(i + 1.0), f * f * (3.0 - 2.0 * f))
+    };
+    for y in 0..size {
+        for x in 0..size {
+            let (u, vv) = ((x as f32 + 0.5) / size as f32 - 0.5, (y as f32 + 0.5) / size as f32 - 0.5);
+            let d = (u * u + vv * vv).sqrt();
+            let rr = d / ir; // 1 = limbus
+            let a = vv.atan2(u) + std::f32::consts::PI;
+            // sclera
+            let mut c = srgb(226, 218, 210).lerp(srgb(214, 180, 168), sstep(1.5, 3.6, rr));
+            let mut vein = 0.0f32;
+            for &(va, wig, ph, reach) in veins.iter().filter(|_| rr > 1.3) {
+                let ang = va + 0.10 * wig * (rr * 4.0 + ph).sin() + 0.04 * (rr * 11.0 + ph * 2.0).sin();
+                let mut da = (a - ang).abs();
+                if da > std::f32::consts::PI {
+                    da = std::f32::consts::TAU - da;
+                }
+                let w = 0.0045 * (0.5 + 0.5 * sstep(reach, 4.0, rr));
+                vein = vein.max((-(da * d / w).powi(2)).exp() * sstep(reach - 0.5, reach + 0.6, rr));
+            }
+            c = c.lerp(srgb(196, 92, 84), 0.55 * vein);
+            // iris
+            if rr < 1.12 {
+                let fib = noise(a, rr, 7) * 0.6 + noise(a * 2.0, rr, 91) * 0.4;
+                let outer = srgb(52, 31, 17);
+                let inner = srgb(104, 62, 28);
+                let t = sstep(0.30, 0.95, rr);
+                let mut ic = inner.lerp(outer, t) * (0.62 + 0.85 * fib);
+                // collarette: a lighter wavy ring around the pupil
+                ic = ic.lerp(srgb(128, 84, 40), 0.40 * (-((rr - 0.50 - 0.05 * (fib - 0.5)) / 0.07).powi(2)).exp());
+                // limbal ring
+                ic = ic.lerp(srgb(26, 17, 12), sstep(0.80, 1.0, rr) * 0.9);
+                // pupil
+                let pr = PUPIL_R / IRIS_R;
+                ic = ic.lerp(v(0.002, 0.002, 0.002), sstep(pr + 0.05, pr - 0.02, rr));
+                c = ic.lerp(c, sstep(0.97, 1.10, rr));
+            }
+            let o = (y * size + x) * 4;
+            // store sRGB bytes
+            for k in 0..3 {
+                let l = c[k].clamp(0.0, 1.0);
+                let sv = if l <= 0.0031308 { l * 12.92 } else { 1.055 * l.powf(1.0 / 2.4) - 0.055 };
+                out[o + k] = (sv * 255.0 + 0.5) as u8;
+            }
+            out[o + 3] = 255;
+        }
+    }
+    out
+}
+
+/// RGBA hair-card texture (`w` across the card, `h` along it, row 0 = root): alpha = individual
+/// strands that thin out toward the tip, rgb = per-strand brightness (tinted by vertex colours).
+pub fn hair_texture(w: usize, h: usize) -> Vec<u8> {
+    const NS: u32 = 54;
+    let strands: Vec<[f32; 6]> = (0..NS)
+        .map(|k| {
+            [
+                ((k / 6) as f32 + 0.5 + 0.62 * (hash(k * 7 + 1) - 0.5)) / (NS / 6) as f32, // centre u: 6 strands per clump
+                0.0040 + 0.0050 * hash(k * 7 + 2),                      // half width (u)
+                0.55 + 0.45 * hash(k * 7 + 3),                          // length (v)
+                (0.45 + 0.55 * hash((k / 6) * 7 + 4)) * (0.8 + 0.5 * hash(k * 7 + 4)), // brightness (clump x strand)
+                hash((k / 6) * 7 + 5) * 6.28 + 0.5 * hash(k * 7 + 5),   // wiggle phase (shared by the clump)
+                0.010 + 0.012 * hash((k / 6) * 7 + 6),                  // wiggle amplitude
+            ]
+        })
+        .collect();
+    let mut out = vec![0u8; w * h * 4];
+    for y in 0..h {
+        let vv = (y as f32 + 0.5) / h as f32;
+        for x in 0..w {
+            let u = (x as f32 + 0.5) / w as f32;
+            let (mut alpha, mut lum, mut wsum) = (0.0f32, 0.0f32, 0.0f32);
+            for st in &strands {
+                let cu = st[0] + st[5] * (vv * 7.0 + st[4]).sin() + 0.35 * st[5] * (vv * 19.0 + 2.0 * st[4]).sin();
+                let mut du = (u - cu).abs();
+                du = du.min(1.0 - du); // tile across
+                let hw = st[1] * (1.0 - 0.75 * sstep(st[2] * 0.55, st[2], vv));
+                let a = sstep(hw * 1.35, hw * 0.55, du) * sstep(st[2], st[2] - 0.06, vv);
+                alpha = alpha.max(a);
+                lum += a * st[3];
+                wsum += a;
+            }
+            let solid = 0.0f32; // (the opaque hair mass is its own mesh: `hair_cap`)
+            let base = 0.62 + 0.35 * hash((x as u32 / 2) * 13 + 5);
+            let l = if wsum > 1e-4 { mix(lum / wsum, base, solid * 0.6) } else { base };
+            // a soft specular band across the card
+            let band = 1.0 + 0.35 * (-((vv - 0.38) / 0.16).powi(2)).exp();
+            let g = ((l * band).clamp(0.0, 1.6) / 1.6 * 255.0) as u8;
+            let o = (y * w + x) * 4;
+            out[o] = g;
+            out[o + 1] = g;
+            out[o + 2] = g;
+            out[o + 3] = (alpha.max(solid).clamp(0.0, 1.0) * 255.0) as u8;
+        }
+    }
+    out
 }
 
 /// transparent cornea dome over the iris (eye-local)
@@ -195,16 +320,16 @@ pub fn mouth_upper() -> Part {
     Part::from_iso(m, |p, _| tooth_color(p, true))
 }
 pub fn mouth_lower() -> Part {
-    let c = 0.0012;
+    let c = 0.0015;
     let m = iso::surface_nets(&lower_teeth_sdf, &iso::uniform(-0.026, 0.026, c), &iso::uniform(M - 0.023, M + 0.001, c), &iso::uniform(0.018, 0.080, c), 1.6);
     Part::from_iso(m, |p, _| tooth_color(p, false))
 }
 
 /* ------------------------------------------------------------------ hoodie torso */
-const TORSO_UP: f32 = 0.058;
-const TORSO_SX: f32 = 0.86;
+const TORSO_UP: f32 = 0.045;
+const TORSO_SX: f32 = 0.98;
 fn collar_sdf(p: Vec3) -> f32 {
-    torus(p, v(0.0, -0.224, -0.030), v(0.0, 1.0, 0.30).normalize(), 0.0690, 0.0135)
+    torus(p, v(0.0, -0.224, -0.030), v(0.0, 1.0, 0.30).normalize(), 0.0600, 0.0135)
 }
 /// the hoodie in its own proportions (before it is raised / narrowed to fit the stylized head)
 fn hoodie(p: Vec3) -> f32 {
@@ -212,7 +337,6 @@ fn hoodie(p: Vec3) -> f32 {
     let mut d = ellipsoid(q, v(0.0, -0.430, -0.030), v(0.168, 0.200, 0.108));
     d = smin(d, capsule(q, v(0.0, -0.292, -0.038), v(0.150, -0.300, -0.040), 0.060), 0.050);
     d = smin(d, sphere(q, v(0.186, -0.325, -0.040), 0.068), 0.040);
-    d = smin(d, capsule(q, v(0.196, -0.330, -0.040), v(0.216, -0.620, -0.020), 0.059), 0.030);
     d = smin(d, capsule(q, v(0.035, -0.238, -0.050), v(0.130, -0.276, -0.045), 0.036), 0.040);
     // hood bunched behind the neck + its sides coming forward
     d = smin(d, ellipsoid(q, v(0.0, -0.232, -0.108), v(0.088, 0.046, 0.046)), 0.030);
@@ -225,15 +349,20 @@ fn hoodie(p: Vec3) -> f32 {
     d += 0.0020 * (60.0 * q.x + 30.0 * p.z).sin() * sstep(0.02, 0.0, (p.y + 0.235).abs() - 0.02) * sstep(-0.05, -0.08, p.z);
     d
 }
+/// the whole hoodie: body down to the hips, kangaroo pocket, sleeves with cuffs (model space)
 pub fn torso_sdf(p: Vec3) -> f32 {
-    let d = hoodie(v(p.x / TORSO_SX, p.y - TORSO_UP, p.z)) * TORSO_SX;
-    // neck hole, soft bottom cut
-    let d = smax(d, -capsule(p, v(0.0, -0.090, -0.026), v(0.0, NECK_CUT - 0.004, -0.040), 0.0615), 0.006);
-    smax(d, -(p.y - BUST_BOTTOM), 0.012)
+    let q = v(p.x.abs(), p.y, p.z);
+    let mut d = hoodie(v(p.x / TORSO_SX, p.y - TORSO_UP, p.z)) * TORSO_SX;
+    d = smin(d, ellipsoid(q, v(0.0, -0.590, -0.030), v(0.154, 0.175, 0.108)), 0.050);
+    d = smin(d, ellipsoid(q, v(0.0, -0.640, 0.064), v(0.088, 0.050, 0.022)), 0.020);
+    d = smin(d, super::body::sleeves_sdf(q), 0.030);
+    // neck hole, hem
+    let d = smax(d, -capsule(p, v(0.0, -0.090, -0.026), v(0.0, NECK_CUT - 0.004, -0.040), 0.0575), 0.006);
+    smax(d, -(p.y + 0.752), 0.010)
 }
 pub fn torso(detail: f32) -> Part {
-    let c = 0.0056 / detail.clamp(0.25, 2.0);
-    let m = iso::surface_nets(&torso_sdf, &iso::uniform(-0.270, 0.270, c), &iso::uniform(-0.520, -0.110, c), &iso::uniform(-0.175, 0.115, c), 1.7);
+    let c = 0.0078 / detail.clamp(0.25, 2.0);
+    let m = iso::surface_nets(&torso_sdf, &iso::uniform(-0.320, 0.320, c), &iso::uniform(-0.775, -0.110, c), &iso::uniform(-0.175, 0.125, c), 1.7);
     let cloth = srgb(26, 26, 30);
     let mut part = Part::from_iso(m, |p, _| {
         let rib = sstep(0.004, 0.0, collar_sdf(v(p.x / TORSO_SX, p.y - TORSO_UP, p.z)));
@@ -251,6 +380,7 @@ pub fn torso(detail: f32) -> Part {
         let frame = vec![Vec3::Z; pts.len()];
         part.tube(&pts, &frame, 6, |t| if t > 0.93 { (0.0030, 0.0030) } else { (0.0022, 0.0022) }, |t| if t > 0.9 { srgb(150, 150, 155) } else { srgb(64, 64, 70) });
     }
+    super::body::skin_part(&mut part);
     part
 }
 
@@ -274,7 +404,7 @@ const BAND_TILT: f32 = 0.14;
 /// where the cable leaves the -x cup (head space)
 pub const CABLE_TOP: Vec3 = Vec3::new(-0.0940, -0.0600, -0.006);
 /// where the cable disappears at the bottom of the bust (chest space = model space at rest)
-pub const CABLE_END: Vec3 = Vec3::new(-0.052, BUST_BOTTOM + 0.004, 0.074);
+pub const CABLE_END: Vec3 = Vec3::new(-0.060, -0.640, 0.088);
 
 /// headband coordinates: (radial offset from the arc, across the band, height in the band plane, arc angle)
 fn band_coords(p: Vec3) -> (f32, f32, f32, f32) {
@@ -331,7 +461,7 @@ pub fn hp_metal_sdf(p: Vec3) -> f32 {
     stem.min(disc)
 }
 fn hp_grid(detail: f32) -> (Vec<f32>, Vec<f32>, Vec<f32>) {
-    let c = 0.0024 / detail.clamp(0.25, 2.0);
+    let c = 0.0028 / detail.clamp(0.25, 2.0);
     (iso::uniform(-0.126, 0.126, c), iso::uniform(-0.072, 0.158, c), iso::uniform(-0.068, 0.050, c))
 }
 pub fn hp_shell(detail: f32) -> Part {
@@ -343,7 +473,7 @@ pub fn hp_pad(detail: f32) -> Part {
     Part::from_iso(iso::surface_nets(&hp_pad_sdf, &xs, &ys, &zs, 1.8), |_, _| srgb(34, 34, 38))
 }
 pub fn hp_metal(detail: f32) -> Part {
-    let (xs, ys, zs) = hp_grid(detail * 1.3);
+    let (xs, ys, zs) = hp_grid(detail * 1.8);
     Part::from_iso(iso::surface_nets(&hp_metal_sdf, &xs, &ys, &zs, 1.8), |p, _| {
         if (p.x.abs() - (CUP.x + 0.0182)).abs() < 0.004 && (p.y - CUP.y).abs() < 0.03 { srgb(74, 76, 84) } else { srgb(150, 152, 158) }
     })
@@ -373,11 +503,11 @@ pub fn chair_sdf(p: Vec3) -> f32 {
     // side wings + headrest pillow
     d = smin(d, round_box(q, v(0.142, -0.250, -0.180), v(0.048, 0.200, 0.050), 0.035), 0.030);
     d = smin(d, round_box(q, v(0.0, 0.070, -0.170), v(0.105, 0.060, 0.030), 0.028), 0.012);
-    d.max(-(p.y - BUST_BOTTOM))
+    d.max(-(p.y + 0.760))
 }
 pub fn chair(detail: f32) -> Part {
     let c = 0.0085 / detail.clamp(0.25, 2.0);
-    let m = iso::surface_nets(&chair_sdf, &iso::uniform(-0.230, 0.230, c), &iso::uniform(-0.520, 0.215, c), &iso::uniform(-0.260, -0.110, c), 1.7);
+    let m = iso::surface_nets(&chair_sdf, &iso::uniform(-0.230, 0.230, c), &iso::uniform(-0.780, 0.215, c), &iso::uniform(-0.260, -0.110, c), 1.7);
     Part::from_iso(m, |p, _| {
         let stripe = sstep(0.006, 0.003, (p.x.abs() - 0.100).abs()) * sstep(-0.19, -0.18, p.z);
         srgb(30, 30, 34).lerp(srgb(120, 24, 28), stripe)

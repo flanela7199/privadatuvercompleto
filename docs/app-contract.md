@@ -383,27 +383,53 @@ Measured (unit tests, synthetic speech): −6 dBFS loud speech → mean open 0.5
 
 ## Characters: `config.character = 'privada' | 'chratos'` (worker chratos, 2026-11-19)
 
-`privada` (default) = the toilet (`ToiletTuber`). `chratos` = a stylized human bust (head, beard, wavy hair, headphones,
-hoodie, chair headrest), fully procedural: sculpt, blend shapes, visemes and rig are Rust
+`privada` (default) = the toilet (`ToiletTuber`). `chratos` = a realistic full-body human (head, beard, hair cards, headphones,
+hoodie, pants, shoes, hands), fully procedural: sculpt, textures, blend shapes, visemes, skeleton and rig are Rust
 (`crates/privada-core/src/human`, bindings `crates/privada-wasm/src/human.rs`); JS is `web/src/characters/chratos/Chratos.js`.
 The avatar rebuilds on a `state` whose `character` changed and on `command` / hotkey `{ action: 'character', arg: 'chratos' | 'privada' }`
 (also `window.avatar.setCharacter(kind)`); `avatar-status` carries `character`. Without the wasm build the toilet stays.
+He is 1.76 m tall, soles on y = 0 of `root` (same 0..1.8 frame as the toilet).
+
+**Debug / screenshot mode** (browser or headless): `avatar.html?character=chratos&pose=front|34|profile|body|body34|<yaw deg>&expr=rest|aa|smile|oo|blink|wink|blargh|sit&bg=%23202020&zoom=1`
+fixes the camera (head close-up or whole figure), the expression and the background; `window.__dbg(pose, expr, zoom)` switches
+without reloading, `window.__shot()` renders and returns a PNG data URL, `window.__dbgFrames` counts frames.
 
 * **Meshes** go through the PRVM mesh cache with kinds `human_<part>` (`build_mesh_prvm` routes them to `human::build`), parts
-  `head beard brows hair eye cornea mouth_upper mouth_lower torso hp_shell hp_pad hp_metal plug chair`, params
-  `{ detail: 1, v: human_version(), attr?: 'color' | 'skin' | 'morph' | 'meta', morph?: name }`. With `attr` the mesh's
-  *positions* carry that attribute (linear rgb / chest-neck-head weights / morph deltas / `[skinned, tris, verts, hasMorph×24]`).
-  Also `human_build(paramsJson with part)` → `MeshBuf`, `human_part_info`, `human_rig_info()` (bind positions, sockets, names),
-  `human_visemes()` (rest + 16 standard visemes → morph weights), `human_cable_indices()`, `human_free()`.
-  Space: metres, y up, +z forward, origin between the ears, **L = −x**. Bump `HUMAN_VERSION` when a mesh changes.
+  `head beard brows hair eye cornea mouth_upper mouth_lower torso pants shoes hands hp_shell hp_pad hp_metal plug chair`, params
+  `{ detail: 1, v: human_version(), attr?: 'color' | 'skin' | 'skin_index' | 'morph' | 'meta', morph?: name }`. With `attr` the mesh's
+  *positions* carry that attribute (linear rgb / 3 bone weights / 3 skin-bone indices / morph deltas / `[skinned, tris, verts, hasMorph×24]`).
+  `brows` also holds the eyelashes; `hair` = dark scalp mass + alpha-textured hair cards (UVs into `human_hair_texture`); beard / brows /
+  lashes = thousands of single-hair ribbons (render double sided). Textures (RGBA bytes, generated in Rust): `human_eye_texture(size)`
+  (sclera with veins, iris fibres, limbal ring, pupil; planar UVs of `eye`), `human_hair_texture(w, h)` (strand alpha + brightness).
+  Also `human_build(paramsJson with part)` → `MeshBuf`, `human_part_info`, `human_rig_info()`, `human_visemes()` (rest + 16 standard
+  visemes → morph weights), `human_cable_indices()`, `human_free()`.
+  Space: metres, y up, +z forward, origin between the ears, floor at y = −1.63, **L = −x**. Bump `HUMAN_VERSION` when a mesh changes.
+* **Skeleton** (`human_rig_info()`: `nodes`, `parents`, `bind` (model space), `skinBones`; pose buffer order):
+  `root > pelvis > spine1 > spine2 > chest > neck > head > jaw | eye_L | eye_R`; `chest > clavicle_L > upperarm_L > forearm_L > hand_L`
+  (and `_R`); `pelvis > thigh_L > shin_L > foot_L` (and `_R`); `plug` (root space). Skin bones (index order of `skin_index`): pelvis,
+  spine1, spine2, chest, neck, head, clavicle / upperarm / forearm / hand L then R, thigh / shin / foot L then R. Head, beard and brows
+  are weighted on chest / neck / head; hoodie, pants, shoes and hands get automatic weights (nearest bone capsules, 3 influences).
+* **Sockets** (`rig_info().sockets`: parent node + model-space position; `Chratos.sockets`): `head_top`, `eyes`, `mouth`,
+  `mouth_spout` (inside the lips, +z out: where a water jet leaves; `HumanRig.spout()` = `[px,py,pz, dx,dy,dz]` in root space, tilted
+  down with half the jaw angle; `Chratos.spout()` in world space), `hand_L`, `hand_R` (palms), `chest`.
+* **Body collider** for props physics: `rig_info().colliders` = `[{ node, a, b, r }]` capsules in model space at bind (head, neck,
+  chest, belly, pelvis, upper arms, forearms + hands, thighs, shins); `HumanRig.node_matrix(i)` gives each node's root-space matrix.
 * **Morphs (24)**: `jaw_open pucker wide_L wide_R smile_L smile_R frown_L frown_R upper_raise lower_down press tuck cheek_puff
   brow_up_L brow_up_R brow_down_L brow_down_R blink_L blink_R squint_L squint_R jaw_left jaw_right jaw_fwd`.
+  `jaw_open = 1` is 36° (`jawMax`, the wide spit / "blargh" pose, dark throat, teeth, tongue, gums); speech `open = 1` uses 0.57 of it (~20°).
 * **`HumanRig`** (wasm): `new(seed)`, `set_input(lookX, lookY, open, round, wide, closed, sib)`, `set_input_ext(cornerL, cornerR,
-  jawSide, jawFwd, upperRaise, lips)`, `set_look_limits(yaw, pitch)`, `set_blink_timer(s)` (> 1e8 = no auto blink),
-  `set_rest_smile(v)`, `play('laugh' | 'nod' | 'no' | 'surprise' | 'wink' | 'blink')`, `update(dt)`, `drain_events()` (`laugh`, `gasp`),
-  `head_matrix()`, buffers `buf_ptr(id)/buf_len(id)`: 0 pose = `root chest neck head jaw eye_L eye_R plug` × 10 (local TRS; plug in
-  root space), 1 morph weights, 2 / 3 cable tube positions / normals (20 rings × 6).
-* **`Chratos`** (JS): `await Chratos.preload(theme)` then `new Chratos(theme)`; `root body head fx sockets{head_top, eyes, mouth}
-  update(dt, { look, mouth }) play(name) setTheme(theme) on(fn) blinkTimer setLookLimits dispose()`; `theme.chratos =
-  { chair, headphones, cable, hoodie: '#rrggbb', hair: '#rrggbb', restSmile, detail }` (all optional).
-* Tests: `cargo test -p privada-core human`, `node --import ./.tmp/furn/register.mjs web/tests/chratos_smoke.mjs` (repo root).
+  jawSide, jawFwd, upperRaise, lips)`, `set_look_limits(yaw, pitch)`, `set_blink_timer(s)` (> 1e8 = no auto blink), `set_rest_smile(v)`,
+  `set_seat_height(h)`, `set_sit(0..1)`, `is_sitting()`, `update(dt)`, `drain_events()` (`laugh gasp boing whoosh gargle blargh clack:<v>`),
+  `head_matrix()`, `node_matrix(i)`, `spout()`, buffers `buf_ptr(id)/buf_len(id)`: 0 pose = 25 nodes × 10 (local TRS; plug in root
+  space), 1 morph weights, 2 / 3 cable tube positions / normals (20 rings × 6).
+* **Actions** use the toilet's engine shape (`human::rig::Over`, reset every frame, each running action writes into it):
+  `mouth` (0..1 of the full jaw), `head_pitch / head_yaw / head_roll`, `lift`, `shake`, `squash`, `blink`, `look`, `flip` (backward
+  somersault around the pelvis), `flip_lift`, `spin`, `sit_to`, `impact`, plus `morph[24]`. `play(name)`: `laugh nod no surprise wink
+  blink jump backflip gargle blargh (= spit pose, no water yet) sit stand` (toilet durations where the action exists there). External
+  overrides for ported timelines: `set_body_override(lift, flip, spin, squash)`, `set_mouth_override(open | -1)`.
+  Not ported yet: water jet from `mouth_spout`, paper action, props registration, sitting on app furniture (`seatHeight()` is 0).
+* **`Chratos`** (JS): `await Chratos.preload(theme)` then `new Chratos(theme)`; `root body head fx sockets nodes update(dt, { look, mouth })
+  play(name) setTheme(theme) on(fn) blinkTimer setLookLimits isSitting sitHeight spout() bodyCollider forceMorphs dispose()`;
+  `theme.chratos = { chair (gaming-chair backrest, default off), headphones, cable, hoodie: '#rrggbb', hair: '#rrggbb', restSmile, detail }`.
+* Tests: `cargo test -p privada-core human`, `node --import ./.tmp/furn/register.mjs web/tests/chratos_smoke.mjs` (repo root);
+  real-renderer screenshots: `sh .tmp/chratos/shots.sh front 34 eyes blink aa body` (headless Brave + SwiftShader → `.tmp/chratos/gpu_*.png`).

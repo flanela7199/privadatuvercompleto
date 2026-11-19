@@ -18,8 +18,8 @@ const tBuild = performance.now() - t0;
 const st = tb.stats();
 console.log(`preload (Rust build of every mesh) ${tPreload.toFixed(0)} ms, construct ${tBuild.toFixed(0)} ms, cache builds ${geocache.stats.builds}`);
 console.log('triangles', JSON.stringify(st));
-assert.ok(st.head > 60000 && st.head < 95000, `head tris ${st.head}`);
-assert.ok(st.total > 200000 && st.total < 450000, `total tris ${st.total}`);
+assert.ok(st.head > 60000 && st.head < 100000, `head tris ${st.head}`);
+assert.ok(st.total > 200000 && st.total <= 400000, `total tris ${st.total}`);
 for (const k of ['root', 'body', 'head', 'fx', 'sockets']) assert.ok(tb[k], k);
 for (const k of ['head_top', 'eyes', 'mouth']) assert.ok(tb.sockets[k], 'socket ' + k);
 assert.equal(tb.play('flush'), false);
@@ -28,8 +28,10 @@ assert.equal(tb.play('laugh'), true);
 // every vertex stays finite and inside a sane box through look + talk + actions
 const ev = [];
 tb.on((type, d) => ev.push(d));
-const acts = ['nod', 'no', 'surprise', 'wink', 'blink', 'laugh'];
-const N = 3000;
+const acts = ['nod', 'no', 'surprise', 'wink', 'blink', 'laugh', 'jump', 'backflip', 'gargle', 'blargh', 'sit', 'stand'];
+for (const k of ['mouth_spout', 'hand_L', 'hand_R']) assert.ok(tb.sockets[k], 'socket ' + k);
+assert.ok(tb.bodyCollider.length >= 10 && tb.spout().direction.z > 0.5);
+const N = 3600;
 t0 = performance.now();
 for (let i = 0; i < N; i++) {
   const t = i / 60;
@@ -46,19 +48,21 @@ tb.root.updateMatrixWorld(true);
 const THREE = await import('three');
 const v = new THREE.Vector3();
 let n = 0;
-for (const name of ['head', 'beard']) {
+for (const name of ['head', 'beard', 'torso', 'pants', 'shoes', 'hands']) {
   const m = tb.meshes[name];
   for (let i = 0; i < m.geometry.attributes.position.count; i += 37) {
     m.getVertexPosition(i, v).applyMatrix4(m.matrixWorld);
-    assert.ok(Number.isFinite(v.x + v.y + v.z) && Math.abs(v.x) < 1 && v.y > 0.3 && v.y < 2.2 && Math.abs(v.z) < 1, `${name} vertex ${i}: ${v.toArray()}`);
+    assert.ok(Number.isFinite(v.x + v.y + v.z) && Math.abs(v.x) < 1.2 && v.y > -0.3 && v.y < 2.6 && Math.abs(v.z) < 1.2, `${name} vertex ${i}: ${v.toArray()}`);
     n++;
   }
 }
+tb.setTheme({});
+for (let i = 0; i < 400; i++) tb.update(1 / 60, {});   // let the last action finish
 const head = new THREE.Vector3(); tb.head.getWorldPosition(head);
-assert.ok(head.y > 1.0 && head.y < 1.3, `head bone height ${head.y} (scale ${CHRATOS_SCALE.toFixed(2)})`);
+assert.ok(head.y > 1.4 && head.y < 1.62, `head bone height ${head.y} (scale ${CHRATOS_SCALE.toFixed(2)})`);
 // theme toggles
-tb.setTheme({ chratos: { chair: false, headphones: false, hoodie: '#7a1f2b' } });
-assert.equal(tb.meshes.chair.visible, false);
+tb.setTheme({ chratos: { chair: true, headphones: false, hoodie: '#7a1f2b' } });
+assert.equal(tb.meshes.chair?.visible, true);
 assert.equal(tb.headphones.visible, false);
 assert.ok(tb.materials.cloth.color.r > 1, 'hoodie tint is a ratio to the black base');
 tb.dispose();
