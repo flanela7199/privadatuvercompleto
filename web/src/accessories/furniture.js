@@ -677,7 +677,7 @@ export const FURNITURE_INFO = {
   mesa_bar: { name: 'Mesa de bar', socket: 'floor_right', category: 'Móveis', scale: S.mesa_bar,
     physics: { shape: 'box', size: [0.612, 0.72, 0.612], center: [0, 0.36, 0], comY: 0.62, mass: 3.5, fit: true } },
   isopor: { name: 'Isopor com cerveja', socket: 'floor_left', category: 'Móveis', scale: S.isopor,
-    physics: { shape: 'box', size: [0.48, 0.32, 0.55], center: [0.01, 0.16, -0.03], comY: 0.35, mass: 1.6 } },
+    physics: { shape: 'box', size: [0.48, 0.32, 0.55], center: [0.01, 0.16, -0.03], comY: 0.35, mass: 1.6, fit: true } },
 };
 /** seat height (m) for a slot entry's params (honours params.scale) */
 export const furnitureSeatHeight = (id, params = {}) => {

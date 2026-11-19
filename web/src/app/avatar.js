@@ -116,6 +116,21 @@ function wear(theme, id) {
   tuber.setTheme(theme);
   applyLookLimits();
   snapSoon();
+  checkSeat();
+}
+// Auto-sit: furniture on floor_under with a seat (chair/throne) -> sit; removed -> stand.
+// Only on seat presence CHANGES (id/height), so the physics worker's own re-sit after a prop
+// reset is never double-triggered.
+let lastSeatKey = null;
+function checkSeat() {
+  const h = typeof tuber.seatHeight === 'function' ? +tuber.seatHeight() || 0 : 0;
+  const ids = (tuber.accessories || []).filter((w) => w.userData?.slot === 'floor_under').map((w) => w.userData.entry?.id).join(',');
+  const key = `${ids}|${h.toFixed(3)}`;
+  if (key === lastSeatKey) return;
+  const first = lastSeatKey === null;
+  lastSeatKey = key;
+  if (h > 0 && !tuber.isSitting) tuber.play('sit');
+  else if (h <= 0 && tuber.isSitting && !first) tuber.play('stand');
 }
 function applyOutfit(id) {
   const t = resolveOutfit(id);
@@ -328,6 +343,7 @@ if (!OUTPUT) setInterval(() => {
   hitRect = computeHitRect();
   invoke('set_hit_rect', { rect: hitRect }).catch(() => {});
 }, 100);
+setInterval(() => checkSeat(), 250);   // catches accessory rebuilds that don't go through wear()
 if (!OUTPUT) setInterval(() => {
   emit('avatar-status', { fps, hitRect, outfitId, sceneId: config.activeScene, mode, follow, mic: micOn, rigHasLimits });
 }, 250);
@@ -664,6 +680,7 @@ for (const z of document.querySelectorAll('.rz')) {
 }
 
 loading(0.7, 'montando a privada…');
+checkSeat();   // first build (constructor path, not wear())
 fitCanvas();
 applySettings();
 applyConfigOutfit();
