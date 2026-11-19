@@ -17,21 +17,21 @@ pub const EYE: Vec3 = Vec3::new(0.0318, 0.0100, 0.0668);
 pub const EYE_R: f32 = 0.0124;
 /// eye opening (almond): half width, upper / lower height, shear (outer corner up)
 pub const LID_W: f32 = 0.0140;
-pub const LID_UP: f32 = 0.0058;
+pub const LID_UP: f32 = 0.0052;
 pub const LID_LOW: f32 = 0.0042;
 pub const LID_SHEAR: f32 = 0.05;
 pub const LID_DY: f32 = 0.0006;
 /// jaw hinge (x-axis through this point)
 pub const HINGE: Vec3 = Vec3::new(0.0, -0.020, -0.008);
 /// mouth: lip line y at the centre, half width, corner z
-pub const MOUTH_Y: f32 = -0.0625;
-pub const MOUTH_W: f32 = 0.0245;
+pub const MOUTH_Y: f32 = -0.0670;
+pub const MOUTH_W: f32 = 0.0270;
 pub const MOUTH_GAP: f32 = 0.0030;
 /// bind positions of the neck / head bones (model space); the rest of the skeleton is in body.rs
-pub const NECK_POS: Vec3 = Vec3::new(0.0, -0.155, -0.034);
+pub const NECK_POS: Vec3 = Vec3::new(0.0, -0.148, -0.034);
 pub const HEAD_POS: Vec3 = Vec3::new(0.0, -0.072, -0.022);
 /// where the neck skin ends (hidden inside the collar)
-pub const NECK_CUT: f32 = -0.204;
+pub const NECK_CUT: f32 = -0.192;
 /// centre used to project hair roots onto the scalp
 pub const SKULL_C: Vec3 = Vec3::new(0.0, 0.030, -0.012);
 
@@ -77,22 +77,29 @@ const M: f32 = MOUTH_Y;
 /// the lips (vermilion) alone: used for the lip colour mask and the beard exclusion
 pub fn lips_sdf(p: Vec3) -> f32 {
     let q = v(p.x.abs(), p.y, p.z);
-    let up = ellipsoid(q, v(0.0075, M + 0.0056, 0.0915), v(0.0138, 0.0040, 0.0068));
-    let up = smin(up, ellipsoid(q, v(0.0, M + 0.0048, 0.0932), v(0.0060, 0.0038, 0.0056)), 0.004);
-    let low = ellipsoid(q, v(0.0, M - 0.0064, 0.0924), v(0.0170, 0.0052, 0.0074));
+    // upper lip: thin, two lobes + the central tubercle, its top edge dips in the middle (cupid's bow)
+    let up = ellipsoid(q, v(0.0085, M + 0.0044, 0.0918), v(0.0152, 0.0031, 0.0066));
+    let up = smin(up, ellipsoid(q, v(0.0, M + 0.0034, 0.0936), v(0.0055, 0.0030, 0.0054)), 0.003);
+    let up = smax(up, -sphere(q, v(0.0, M + 0.0094, 0.0968), 0.0036), 0.002);
+    // lower lip: fuller, two soft lobes
+    let low = ellipsoid(q, v(0.0, M - 0.0058, 0.0916), v(0.0185, 0.0043, 0.0072));
+    let low = smin(low, ellipsoid(q, v(0.0072, M - 0.0060, 0.0934), v(0.0086, 0.0042, 0.0058)), 0.004);
     up.min(low)
 }
 
 /// skull + face without ears / neck (the scalp the hair grows on)
 pub fn skull_sdf(p: Vec3) -> f32 {
     let q = v(p.x.abs(), p.y, p.z);
-    let mut d = ellipsoid(q, SKULL_C, v(0.0800, 0.0915, 0.0970));
+    let mut d = ellipsoid(q, SKULL_C, v(0.0825, 0.0915, 0.0970));
     // face block, jaw, chin
-    d = smin(d, ellipsoid(q, v(0.0, -0.030, 0.020), v(0.0612, 0.0710, 0.0700)), 0.030);
-    d = smin(d, capsule2(q, v(0.0550, -0.060, -0.002), v(0.0230, -0.0935, 0.0640), 0.0200, 0.0172), 0.024);
-    d = smin(d, ellipsoid(q, v(0.0, -0.0930, 0.0725), v(0.0255, 0.0195, 0.0200)), 0.020);
+    d = smin(d, ellipsoid(q, v(0.0, -0.032, 0.020), v(0.0640, 0.0760, 0.0700)), 0.030);
+    d = smin(d, capsule2(q, v(0.0515, -0.064, 0.010), v(0.0235, -0.0990, 0.0640), 0.0180, 0.0168), 0.024);
+    d = smin(d, ellipsoid(q, v(0.0, -0.0995, 0.0725), v(0.0265, 0.0200, 0.0200)), 0.020);
     // cheekbones
-    d = smin(d, ellipsoid(q, v(0.0455, -0.0130, 0.0500), v(0.0215, 0.0145, 0.0220)), 0.022);
+    d = smin(d, ellipsoid(q, v(0.0490, -0.0120, 0.0490), v(0.0205, 0.0150, 0.0220)), 0.022);
+    // temples + lower cheeks: fill the outline so it runs straight from the temple down to the jaw
+    d = smin(d, ellipsoid(q, v(0.0540, 0.0140, 0.0430), v(0.0180, 0.0240, 0.0220)), 0.020);
+    d = smin(d, ellipsoid(q, v(0.0440, -0.0450, 0.0440), v(0.0230, 0.0270, 0.0250)), 0.020);
     d
 }
 
@@ -109,20 +116,22 @@ pub fn head_core(p: Vec3) -> f32 {
     d = smin(d, ellipsoid(q, v(0.0, M - 0.0020, 0.0680), v(0.0330, 0.0220, 0.0290)), 0.016);
     d = smin(d, lips_sdf(p), 0.0040);
     // nose: bridge, tip, wings, columella, nostrils
-    d = smin(d, capsule2(q, v(0.0, 0.0170, 0.0850), v(0.0, -0.0240, 0.1035), 0.0068, 0.0082), 0.013);
-    d = smin(d, sphere(q, v(0.0, -0.0300, 0.1078), 0.0086), 0.008);
-    d = smin(d, ellipsoid(q, v(0.0102, -0.0345, 0.0972), v(0.0066, 0.0060, 0.0084)), 0.006);
+    d = smin(d, capsule2(q, v(0.0, 0.0170, 0.0850), v(0.0, -0.0240, 0.1030), 0.0072, 0.0100), 0.013);
+    d = smin(d, ellipsoid(q, v(0.0, -0.0305, 0.1060), v(0.0118, 0.0098, 0.0100)), 0.008);
+    d = smin(d, ellipsoid(q, v(0.0132, -0.0340, 0.0962), v(0.0078, 0.0066, 0.0088)), 0.006);
     d = smin(d, capsule(q, v(0.0, -0.0360, 0.1040), v(0.0, -0.0415, 0.0950), 0.0040), 0.004);
-    d = smax(d, -ellipsoid(q, v(0.0068, -0.0415, 0.0995), v(0.0038, 0.0030, 0.0060)), 0.002);
+    d = smax(d, -ellipsoid(q, v(0.0078, -0.0418, 0.0985), v(0.0036, 0.0026, 0.0056)), 0.002);
     // philtrum, nasolabial fold, groove under the lower lip
-    d = smax(d, -capsule(q, v(0.0, -0.0445, 0.1000), v(0.0, -0.0500, 0.1020), 0.0024), 0.004);
-    d = smax(d, -capsule(q, v(0.0185, -0.0370, 0.0925), v(0.0325, -0.0610, 0.0850), 0.0022), 0.008);
+    d = smin(d, capsule(q, v(0.0042, -0.0450, 0.0975), v(0.0056, M + 0.0085, 0.0985), 0.0017), 0.003);
+    d = smax(d, -capsule(q, v(0.0, -0.0450, 0.1000), v(0.0, M + 0.0100, 0.1010), 0.0024), 0.004);
+    d = smax(d, -sphere(q, v(MOUTH_W + 0.0028, M + 0.0012, 0.0872), 0.0046), 0.007);
+    d = smax(d, -capsule(q, v(0.0195, -0.0380, 0.0925), v(0.0335, -0.0650, 0.0850), 0.0022), 0.008);
     d = smax(d, -ellipsoid(q, v(0.0, M - 0.0165, 0.1000), v(0.0170, 0.0042, 0.0070)), 0.008);
     // ears
     d = smin(d, ear_sdf(q), 0.005);
     // neck
-    d = smin(d, capsule2(p, v(0.0, -0.075, -0.024), v(0.0, -0.220, -0.040), 0.0490, 0.0565), 0.030);
-    d = smin(d, sphere(p, v(0.0, -0.140, 0.0210), 0.0110), 0.022);
+    d = smin(d, capsule2(p, v(0.0, -0.075, -0.024), v(0.0, -0.215, -0.040), 0.0545, 0.0650), 0.030);
+    d = smin(d, sphere(p, v(0.0, -0.142, 0.0260), 0.0070), 0.016);
     d.max(-(p.y - NECK_CUT))
 }
 
@@ -178,14 +187,14 @@ pub fn close_warp(p: Vec3) -> Vec3 {
 /// (chest, neck, head) skin weights; sum = 1
 pub fn skin_weights(p: Vec3) -> [f32; 3] {
     let wh = sstep(-0.140, -0.088, p.y + 0.5 * (p.z - 0.01).max(0.0));
-    let wt = sstep(-0.200, -0.150, p.y).max(wh);
+    let wt = sstep(-0.190, -0.145, p.y).max(wh);
     [1.0 - wt, wt - wh, wh]
 }
 
 /// > 0 inside the scalp-hair region (metres-ish)
 pub fn hair_region(p: Vec3) -> f32 {
     let ax = p.x.abs();
-    let front = p.y - (0.0740 - 4.0 * ax * ax);
+    let front = p.y - (0.0950 - 3.0 * ax * ax);
     let side = (0.020 + 0.30 * p.y.clamp(-0.05, 0.09)) - p.z;
     let low = p.y - mix(-0.085, -0.030, sstep(-0.035, 0.0, p.z));
     front.max(side.min(low))
@@ -194,15 +203,18 @@ pub fn hair_region(p: Vec3) -> f32 {
 /// 0..1 beard + mustache coverage (sculpt space)
 pub fn beard_mask(p: Vec3) -> f32 {
     // cheek line: from the nose base near the mouth (so the mustache connects) up to the sideburn
-    let line = mix(-0.0405, -0.0060, sstep(0.090, 0.018, p.z).powf(1.3));
-    let mut m = sstep(line + 0.003, line - 0.003, p.y);
+    let ax = p.x.abs();
+    let dip = mix(-0.0430, -0.0700, sstep(0.020, 0.036, ax));
+    let jaw = mix(dip, -0.0420, sstep(0.038, 0.064, ax));
+    let line = mix(jaw, -0.0150, sstep(0.040, 0.012, p.z));
+    let mut m = sstep(line + 0.005, line - 0.012, p.y);
     // neckline, sideburn back edge; not on the lips or on the cut surfaces (inside the mouth)
-    let nl = mix(-0.0990, -0.1260, sstep(0.0, 0.070, p.z));
+    let nl = mix(-0.1050, -0.1320, sstep(0.0, 0.070, p.z));
     m *= sstep(nl - 0.009, nl + 0.007, p.y);
     // back edge: follows the jaw toward the ear, fading out
     let back = mix(-0.006, 0.006, sstep(-0.085, -0.030, p.y));
     m *= sstep(back - 0.010, back + 0.010, p.z);
-    m *= sstep(0.0003, 0.0040, lips_sdf(p));
+    m *= if p.y > lip_line(p.x) { sstep(-0.0014, 0.0004, lips_sdf(p)) } else { sstep(0.0003, 0.0030, lips_sdf(p)) };
     m * (1.0 - cut_wall(p))
 }
 
@@ -210,7 +222,7 @@ pub fn beard_mask(p: Vec3) -> f32 {
 pub fn brow_line(ax: f32) -> (f32, f32) {
     let t = ((ax - 0.0085) / (0.0540 - 0.0085)).clamp(0.0, 1.0);
     let y = 0.0302 + 0.0034 * (t * 1.9).min(1.0).powf(0.8) - 0.0055 * sstep(0.62, 1.0, t);
-    let hh = mix(0.0044, 0.0038, t) * sstep(1.0, 0.72, t).max(0.25) * sstep(0.0, 0.06, t).max(0.55);
+    let hh = mix(0.0050, 0.0042, t) * sstep(1.0, 0.72, t).max(0.25) * sstep(0.0, 0.06, t).max(0.55);
     (y, hh)
 }
 pub fn brow_mask(p: Vec3) -> f32 {
@@ -226,7 +238,7 @@ pub fn color(p: Vec3) -> Vec3 {
 /// colour with baked ambient occlusion (`n` = the surface normal): creases, sockets and nostrils get darker and warmer
 pub fn color_ao(p: Vec3, n: Option<Vec3>) -> Vec3 {
     let q = v(p.x.abs(), p.y, p.z);
-    let mut c = srgb(226, 176, 146);
+    let mut c = srgb(222, 166, 138);
     // blotchy, low-frequency tone variation (never a flat plastic colour)
     let blotch = (61.0 * p.x + 13.0 * p.y).sin() * (47.0 * p.y - 29.0 * p.z).sin() + 0.6 * (131.0 * p.x - 87.0 * p.y + 59.0 * p.z).sin();
     c = c.lerp(srgb(214, 150, 124), 0.10 + 0.06 * blotch);
@@ -241,8 +253,8 @@ pub fn color_ao(p: Vec3, n: Option<Vec3>) -> Vec3 {
     c = c.lerp(srgb(206, 122, 116), 0.8 * gauss(q, v(EYE.x - LID_W + 0.0008, EYE.y - 0.0006, EYE.z + EYE_R - 0.002), v(0.0022, 0.0018, 0.004)));
     // lips
     let wall = cut_wall(p);
-    let lip = sstep(0.0014, 0.0002, lips_sdf(p)) * (1.0 - wall);
-    c = c.lerp(srgb(128, 56, 60), 0.90 * lip);
+    let lip = sstep(0.0032, -0.0012, lips_sdf(p)) * (1.0 - wall);
+    c = c.lerp(srgb(152, 92, 88), 0.68 * lip);
     // the line where the lips meet
     let crease = sstep(0.0016, 0.0002, mouth_gap(p)) * sstep(MOUTH_W + 0.002, MOUTH_W - 0.004, q.x) * (1.0 - wall);
     c = c.lerp(srgb(96, 44, 44), 0.75 * crease);
@@ -260,7 +272,7 @@ pub fn color_ao(p: Vec3, n: Option<Vec3>) -> Vec3 {
     c *= 1.0 - 0.14 * gauss(q, v(0.0318, 0.017, 0.078), v(0.018, 0.008, 0.012));
     // skin under brows / beard / scalp hair: dark, so gaps between strands never show pink
     c = c.lerp(srgb(120, 88, 70), 0.40 * brow_mask(p));
-    c = c.lerp(srgb(60, 43, 34), 0.82 * beard_mask(p));
+    c = c.lerp(srgb(70, 50, 40), 0.62 * beard_mask(p));
     // stubble shadow just outside the beard outline
     c = c.lerp(srgb(150, 112, 96), 0.35 * sstep(0.0, 0.3, beard_mask(p + v(0.0, -0.004, 0.0))) * (1.0 - beard_mask(p)));
     let scalp = sstep(0.0, 0.006, hair_region(p)) * sstep(0.004, -0.002, skull_sdf(p));

@@ -107,7 +107,7 @@ impl HumanRig {
     pub fn blink_timer(&self) -> f32 {
         self.inner.blink_timer
     }
-    /// resting smile 0..1 (default 0.30)
+    /// resting smile 0..1 (default 0.40)
     pub fn set_rest_smile(&mut self, v: f32) {
         self.inner.rest_smile = v.clamp(0.0, 1.0);
     }

@@ -311,7 +311,7 @@ impl HumanRig {
             blink_t: -1.0,
             blink_again: false,
             talk: 0.0,
-            rest_smile: 0.30,
+            rest_smile: 0.40,
             ext: Over::default(),
             w: [0.0; N],
             actions: Vec::new(),
@@ -502,6 +502,9 @@ impl HumanRig {
         let calm = (1.0 - target[m::PUCKER]) * (1.0 - target[m::FROWN_L].max(target[m::FROWN_R])) * (1.0 - 0.5 * target[m::PRESS]) * (1.0 - target[m::JAW_OPEN]);
         target[m::SMILE_L] += self.rest_smile * calm;
         target[m::SMILE_R] += self.rest_smile * calm;
+        // a relaxed, friendly eye: slightly narrowed with the resting smile
+        target[m::SQUINT_L] += 0.6 * self.rest_smile * calm;
+        target[m::SQUINT_R] += 0.6 * self.rest_smile * calm;
         target[m::BROW_UP_L] += 0.15 * self.talk;
         target[m::BROW_UP_R] += 0.15 * self.talk;
         for i in 0..N {

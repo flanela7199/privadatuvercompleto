@@ -185,12 +185,12 @@ pub fn eye_texture(size: usize) -> Vec<u8> {
             // iris
             if rr < 1.12 {
                 let fib = noise(a, rr, 7) * 0.6 + noise(a * 2.0, rr, 91) * 0.4;
-                let outer = srgb(52, 31, 17);
-                let inner = srgb(104, 62, 28);
+                let outer = srgb(36, 22, 13);
+                let inner = srgb(74, 44, 22);
                 let t = sstep(0.30, 0.95, rr);
                 let mut ic = inner.lerp(outer, t) * (0.62 + 0.85 * fib);
                 // collarette: a lighter wavy ring around the pupil
-                ic = ic.lerp(srgb(128, 84, 40), 0.40 * (-((rr - 0.50 - 0.05 * (fib - 0.5)) / 0.07).powi(2)).exp());
+                ic = ic.lerp(srgb(96, 60, 30), 0.35 * (-((rr - 0.50 - 0.05 * (fib - 0.5)) / 0.07).powi(2)).exp());
                 // limbal ring
                 ic = ic.lerp(srgb(26, 17, 12), sstep(0.80, 1.0, rr) * 0.9);
                 // pupil
@@ -219,7 +219,7 @@ pub fn hair_texture(w: usize, h: usize) -> Vec<u8> {
         .map(|k| {
             [
                 ((k / 6) as f32 + 0.5 + 0.62 * (hash(k * 7 + 1) - 0.5)) / (NS / 6) as f32, // centre u: 6 strands per clump
-                0.0040 + 0.0050 * hash(k * 7 + 2),                      // half width (u)
+                0.0070 + 0.0070 * hash(k * 7 + 2),                      // half width (u)
                 0.55 + 0.45 * hash(k * 7 + 3),                          // length (v)
                 (0.45 + 0.55 * hash((k / 6) * 7 + 4)) * (0.8 + 0.5 * hash(k * 7 + 4)), // brightness (clump x strand)
                 hash((k / 6) * 7 + 5) * 6.28 + 0.5 * hash(k * 7 + 5),   // wiggle phase (shared by the clump)
@@ -238,7 +238,7 @@ pub fn hair_texture(w: usize, h: usize) -> Vec<u8> {
                 let mut du = (u - cu).abs();
                 du = du.min(1.0 - du); // tile across
                 let hw = st[1] * (1.0 - 0.75 * sstep(st[2] * 0.55, st[2], vv));
-                let a = sstep(hw * 1.35, hw * 0.55, du) * sstep(st[2], st[2] - 0.06, vv);
+                let a = sstep(hw * 1.7, hw * 0.15, du) * sstep(st[2], st[2] - 0.12, vv);
                 alpha = alpha.max(a);
                 lum += a * st[3];
                 wsum += a;
@@ -326,10 +326,10 @@ pub fn mouth_lower() -> Part {
 }
 
 /* ------------------------------------------------------------------ hoodie torso */
-const TORSO_UP: f32 = 0.045;
+const TORSO_UP: f32 = 0.062;
 const TORSO_SX: f32 = 0.98;
 fn collar_sdf(p: Vec3) -> f32 {
-    torus(p, v(0.0, -0.224, -0.030), v(0.0, 1.0, 0.30).normalize(), 0.0600, 0.0135)
+    torus(p, v(0.0, -0.224, -0.030), v(0.0, 1.0, 0.30).normalize(), 0.0690, 0.0135)
 }
 /// the hoodie in its own proportions (before it is raised / narrowed to fit the stylized head)
 fn hoodie(p: Vec3) -> f32 {
@@ -337,7 +337,7 @@ fn hoodie(p: Vec3) -> f32 {
     let mut d = ellipsoid(q, v(0.0, -0.430, -0.030), v(0.168, 0.200, 0.108));
     d = smin(d, capsule(q, v(0.0, -0.292, -0.038), v(0.150, -0.300, -0.040), 0.060), 0.050);
     d = smin(d, sphere(q, v(0.186, -0.325, -0.040), 0.068), 0.040);
-    d = smin(d, capsule(q, v(0.035, -0.238, -0.050), v(0.130, -0.276, -0.045), 0.036), 0.040);
+    d = smin(d, capsule2(q, v(0.030, -0.222, -0.048), v(0.135, -0.276, -0.045), 0.046, 0.036), 0.040);
     // hood bunched behind the neck + its sides coming forward
     d = smin(d, ellipsoid(q, v(0.0, -0.232, -0.108), v(0.088, 0.046, 0.046)), 0.030);
     d = smin(d, ellipsoid(q, v(0.060, -0.243, -0.070), v(0.046, 0.034, 0.052)), 0.026);
@@ -357,7 +357,7 @@ pub fn torso_sdf(p: Vec3) -> f32 {
     d = smin(d, ellipsoid(q, v(0.0, -0.640, 0.064), v(0.088, 0.050, 0.022)), 0.020);
     d = smin(d, super::body::sleeves_sdf(q), 0.030);
     // neck hole, hem
-    let d = smax(d, -capsule(p, v(0.0, -0.090, -0.026), v(0.0, NECK_CUT - 0.004, -0.040), 0.0575), 0.006);
+    let d = smax(d, -capsule(p, v(0.0, -0.090, -0.026), v(0.0, NECK_CUT - 0.004, -0.040), 0.0665), 0.006);
     smax(d, -(p.y + 0.752), 0.010)
 }
 pub fn torso(detail: f32) -> Part {

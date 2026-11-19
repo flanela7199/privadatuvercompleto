@@ -26,20 +26,20 @@ pub fn hair_cap_sdf(p: Vec3) -> f32 {
 }
 
 fn hair_base(seed: u32) -> Vec3 {
-    srgb(40, 27, 19) * (0.62 + 0.75 * hash(seed))
+    srgb(31, 21, 16) * (0.62 + 0.75 * hash(seed))
 }
 /// the dark hair mass under the cards (opaque, no texture)
 pub fn hair_cap(detail: f32) -> Part {
     let c = 0.0042 / detail.clamp(0.25, 2.0);
     let m = iso::surface_nets(&hair_cap_sdf, &iso::uniform(-0.104, 0.104, c), &iso::uniform(-0.100, 0.165, c), &iso::uniform(-0.130, 0.125, c), 1.7);
-    Part::from_iso(m, |p, _| srgb(34, 23, 16) * (0.70 + 0.5 * hash(((p.x * 420.0) as i32 as u32).wrapping_mul(31) ^ (p.z * 140.0) as i32 as u32)))
+    Part::from_iso(m, |p, _| srgb(14, 10, 8) * (0.70 + 0.5 * hash(((p.x * 420.0) as i32 as u32).wrapping_mul(31) ^ (p.z * 140.0) as i32 as u32)))
 }
 
 /// the hair cards: three stacked alpha-textured ribbons per wavy lock + fine hairs along the hairline
 pub fn hair(detail: f32) -> Part {
     let mut part = Part::default();
     let skull: &dyn Fn(Vec3) -> f32 = &skull_sdf;
-    let total = (2150.0 * detail.clamp(0.25, 2.0)) as u32;
+    let total = (2300.0 * detail.clamp(0.25, 2.0)) as u32;
     let ga = std::f32::consts::PI * (3.0 - 5f32.sqrt());
     const K: usize = 7;
     for i in 0..total {
@@ -59,6 +59,10 @@ pub fn hair(detail: f32) -> Part {
         }
         let (r1, r2, r3) = (hash(i * 3 + 1), hash(i * 3 + 2), hash(i * 3 + 3));
         let top = sstep(0.040, 0.080, root.y);
+        // the top needs the density; thin out the short sides / back (mostly under the headphones)
+        if top < 0.5 && r2 > 0.55 {
+            continue;
+        }
         // the quiff: the rows near the forehead hairline stand up before they sweep back
         let front = sstep(0.020, 0.065, root.z) * top;
         let len = mix(0.022, mix(0.062, 0.095, front), top) * (0.80 + 0.40 * r1);
@@ -136,14 +140,14 @@ pub fn hair(detail: f32) -> Part {
         }
         let r0 = mix(0.0040, 0.0090, top) * (0.80 + 0.4 * r1);
         // three stacked cards per lock, each a different window of the strand texture
-        for j in 0..3u32 {
+        for j in 0..4u32 {
             let hj = hash(i * 11 + j * 3 + 7);
-            let lat = (j as f32 - 1.0) * r0 * 0.75 * (0.6 + 0.8 * hj);
+            let lat = (j as f32 - 1.5) * r0 * 0.70 * (0.6 + 0.8 * hj);
             let up = j as f32 * 0.0013;
             let card: Vec<Vec3> = (0..n).map(|k| pts[k] + side[k] * lat + frame[k] * up).collect();
             let base = hair_base(i * 3 + j);
             let u0 = hash(i * 17 + j * 5 + 3);
-            part.ribbon(&card, &side, &frame, |t| r0 * 1.25 * sstep(-0.10, 0.10, t) * (1.0 - 0.35 * sstep(0.6, 1.0, t)), |t| base * mix(0.62, 1.12, t), Some((u0, u0 + 0.42)), 0.45);
+            part.ribbon(&card, &side, &frame, |t| r0 * 1.75 * sstep(-0.10, 0.10, t) * (1.0 - 0.35 * sstep(0.6, 1.0, t)), |t| base * mix(0.40, 1.15, t), Some((u0, u0 + 0.36)), 0.45);
         }
     }
     part
@@ -268,7 +272,7 @@ fn jitter(seed: u32) -> Vec3 {
 pub fn beard(head: &Surf, hm: &[Vec<Vec3>], detail: f32) -> Part {
     let mut out = Rooted::new();
     let mask: &dyn Fn(Vec3) -> f32 = &beard_mask;
-    let tris = shell(&mut out, head, hm, mask, 0.30, 0.0022, srgb(30, 20, 15), 1.0);
+    let tris = shell(&mut out, head, hm, mask, 0.30, 0.0012, srgb(34, 23, 17), 0.60);
     let make = |r: &Root| {
         let sx = if r.p0.x >= 0.0 { 1.0 } else { -1.0 };
         let ax = r.p0.x.abs();
@@ -285,13 +289,13 @@ pub fn beard(head: &Surf, hm: &[Vec<Vec3>], detail: f32) -> Part {
         if hash(r.seed + 9) > r.mask * 1.6 {
             return None;
         }
-        let len = if mustache { 0.0052 } else { 0.0060 * (1.0 + 0.35 * chin) } * (0.60 + 0.70 * hash(r.seed + 2)) * r.mask.sqrt();
+        let len = if mustache { 0.0046 } else { 0.0042 * (1.0 + 0.45 * chin) } * (0.60 + 0.70 * hash(r.seed + 2)) * r.mask.sqrt();
         let d0 = (r.nrm * 0.70 + grain * 0.65 + j * 0.30).normalize();
         let d1 = (r.nrm * 0.20 + grain * 1.00 + j * 0.30).normalize();
         let p1 = r.pos + d0 * (len * 0.5);
         Some((vec![r.pos, p1, p1 + d1 * (len * 0.5)], 0.00034, hair_base(r.seed) * 0.95))
     };
-    strands(&mut out, head, hm, &tris, mask, 9500.0 * detail.clamp(0.25, 2.0), 0.0012, &make);
+    strands(&mut out, head, hm, &tris, mask, 7800.0 * detail.clamp(0.25, 2.0), 0.0012, &make);
     out.finish()
 }
 

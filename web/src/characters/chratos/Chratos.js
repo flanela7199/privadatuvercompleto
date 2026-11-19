@@ -27,9 +27,9 @@ const STRIDE = 10;
 // model space is metres with the origin between the ears; the avatar frames a 0..1.8 tall character
 const MODEL_BOTTOM = INFO?.bottom ?? -1.63, MODEL_TOP = INFO?.top ?? 0.165;   // bottom = the floor under his feet
 export const CHRATOS_SCALE = 1.75 / (MODEL_TOP - MODEL_BOTTOM);
-const DEFAULTS = { detail: 1, chair: false, headphones: true, cable: true, hoodie: null, hair: null, restSmile: 0.30 };
+const DEFAULTS = { detail: 1, chair: false, headphones: true, cable: true, hoodie: null, hair: null, restSmile: 0.40 };
 // default (linear) base colours the Rust vertex colours were authored with: tints are ratios to these
-const BASE = { hoodie: new THREE.Color().setRGB(26 / 255, 26 / 255, 30 / 255, THREE.SRGBColorSpace), hair: new THREE.Color().setRGB(40 / 255, 27 / 255, 19 / 255, THREE.SRGBColorSpace) };
+const BASE = { hoodie: new THREE.Color().setRGB(26 / 255, 26 / 255, 30 / 255, THREE.SRGBColorSpace), hair: new THREE.Color().setRGB(31 / 255, 21 / 255, 16 / 255, THREE.SRGBColorSpace) };
 
 const params = (detail, extra) => ({ detail, v: INFO.version, ...extra });
 const kindOf = (part) => 'human_' + part;
@@ -112,7 +112,7 @@ function makeMaterials() {
     // skin: no clearcoat (that reads as plastic); a warm sheen stands in for subsurface scattering, pores from the bump map
     skin: P({ roughness: 0.56, sheen: 0.55, sheenRoughness: 0.5, sheenColor: new THREE.Color(0.55, 0.20, 0.14), specularIntensity: 0.6, bumpMap: T.pores, bumpScale: 0.6 }),
     // hair cards: alpha-tested strands (alpha to coverage with MSAA: no sorting needed), anisotropic highlight across the strands
-    hair: P({ map: T.hair, color: new THREE.Color(HAIR_GAIN, HAIR_GAIN, HAIR_GAIN), alphaTest: 0.42, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 0.55, anisotropy: 0.6,
+    hair: P({ map: T.hair, color: new THREE.Color(HAIR_GAIN, HAIR_GAIN, HAIR_GAIN), alphaTest: 0.30, alphaToCoverage: true, side: THREE.DoubleSide, roughness: 0.55, anisotropy: 0.6,
       specularIntensity: 0.3 }),
     // beard / brows / lashes: thousands of single-hair ribbons over a dark shell
     beard: P({ side: THREE.DoubleSide, roughness: 0.6, specularIntensity: 0.35 }),

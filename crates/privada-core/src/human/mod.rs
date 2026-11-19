@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 /// bump when any mesh changes (part of the cache key through the `v` param)
-pub const HUMAN_VERSION: u32 = 5; // 2: realistic refit, hair cards, textured eyes, lashes, winding fixed
+pub const HUMAN_VERSION: u32 = 9; // 2: realistic refit, hair cards, textured eyes, lashes, winding fixed
 pub const PARTS: [&str; 18] = [
     "head", "beard", "brows", "hair", "hair_cap", "eye", "cornea", "mouth_upper", "mouth_lower", "torso", "pants", "shoes", "hands", "hp_shell", "hp_pad", "hp_metal", "plug",
     "chair",
