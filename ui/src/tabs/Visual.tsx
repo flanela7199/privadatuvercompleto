@@ -101,6 +101,14 @@ export function Visual({ active }: { active: boolean }) {
     <>
       <div>
         <Preview active={active} />
+        <Card className="compact">
+          <h3 style={{ marginTop: 0 }}>🏠 Sala 3D</h3>
+          <Fields>
+            <Field label="Sentar no sofá" tip="Nas cenas com fundo Sala 3D, esta aparência fica sentada no sofá da sala (desligado = em pé no chão)">
+              <Toggle checked={!!work.salaSofa} onChange={(v) => update((d) => { if (v) d.work.salaSofa = true; else delete d.work.salaSofa; }, { fork: true })} />
+            </Field>
+          </Fields>
+        </Card>
         {chratos && (
           <Card className="compact">
             <div className="sec-h row" style={{ marginBottom: 8 }}>
@@ -200,9 +208,6 @@ export function Visual({ active }: { active: boolean }) {
           <Fields>
             <Field label="Rolo de papel" tip="Onde fica o suporte do papel higiênico">
               <Segmented value={body.roll.mount} options={[['side', 'Do lado (padrão)'], ['front', 'Na frente']]} onChange={(v) => setBody('roll', 'mount', v)} />
-            </Field>
-            <Field label="Sentar no sofá" tip="Na cena com fundo Sala 3D, esta aparência fica sentada no sofá da sala (em vez de em pé no chão)">
-              <Toggle checked={!!work.salaSofa} onChange={(v) => update((d) => { if (v) d.work.salaSofa = true; else delete d.work.salaSofa; }, { fork: true })} />
             </Field>
           </Fields>
         </Card>

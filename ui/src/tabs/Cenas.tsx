@@ -75,6 +75,11 @@ export function Cenas() {
               <Button size="sm" disabled={!live} onClick={() => { runAction('sala:editar'); toast(<>Editor da sala aberto na janela da <b>Privada Tuber</b></>); }}>✏ Editar a sala</Button>
             </Field>
           )}
+          {sc.background === 'sala' && (
+            <Field label="Vaso no sofá" tip="Senta o vaso no sofá da sala. Fica salvo na aparência atual (também em Visual → 🏠 Sala 3D).">
+              <Toggle checked={!!s.work?.salaSofa} onChange={(v) => update((d) => { if (v) d.work.salaSofa = true; else delete d.work.salaSofa; }, { fork: true })} />
+            </Field>
+          )}
           <Field label="Seguir o mouse"><Toggle checked={sc.follow} onChange={(v) => set('follow', v)} /></Field>
           <Field label="Microfone mexe a boca"><Toggle checked={sc.mic} onChange={(v) => set('mic', v)} /></Field>
           <Field label="Sempre no topo" tip="Desligado: a privada pode ficar atrás de outras janelas (bom para OBS)."><Toggle checked={sc.alwaysOnTop} onChange={(v) => set('alwaysOnTop', v)} /></Field>
