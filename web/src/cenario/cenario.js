@@ -95,6 +95,8 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
     if (tipoDe(it) === 'parede') { g.rotation.y = PAREDES[it.p.parede || 'fundo'].rotY; g.rotateZ(it.rot * D2R); }
     else g.rotation.y = it.rot * D2R;
     g.scale.setScalar(it.escala); g.visible = it.visivel;
+    chaveMoveis = '?';   // força reaplicar "móvel em uso some" e o lugar do sofá
+    if (it.tipo === 'sofa') spotSofa = null;
   }
   function montarTudo() {
     for (const g of objs.values()) { raiz.remove(g); descartar(g); } objs.clear(); ctx.animacoes.clear();
@@ -102,10 +104,12 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
     posicionarRaiz(); aplicarEfeitos();
   }
   // raiz: o "lugar do personagem" (personagem.pos/rot, coordenadas da sala) vai para a origem do mundo
-  function posicionarRaiz() {
-    const p = cena.personagem, r = -(p.rot || 0) * D2R;
+  function posicionarRaiz(pos, rot) {
+    const p = cena.personagem;
+    if (!pos && sentado && spotSofa) return;   // sentado no sofá: o lugar é o assento
+    pos = pos || p.pos; const r = -((rot ?? p.rot) || 0) * D2R;
     raiz.rotation.set(0, r, 0);
-    raiz.position.set(-p.pos[0], 0, -p.pos[1]).applyAxisAngle(new THREE.Vector3(0, 1, 0), r);
+    raiz.position.set(-pos[0], 0, -pos[1]).applyAxisAngle(new THREE.Vector3(0, 1, 0), r);
     raiz.updateMatrixWorld(true);
   }
   function aplicarEfeitos() {
@@ -130,6 +134,8 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
   }
   function desativar() {
     if (!ativo) return; ativo = false;
+    if (sentado && ultTuber) { ultTuber.sitHeight = 0; sentado = false; spotSofa = null; }
+    chaveMoveis = '';
     raiz.visible = false; luzPers.visible = false; contato.visible = false;
     if (guardado) {
       for (const [l, v] of guardado.luzes) l.visible = v;
@@ -175,6 +181,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
       camera.lookAt(raiz.localToWorld(_b));
       camera.updateProjectionMatrix();
     }
+    if (tuber) correlacionar(tuber);
     // luz de frente acompanha o personagem; sombra de contato embaixo dele
     if (tuber?.body) {
       tuber.body.getWorldPosition(_v);
@@ -184,10 +191,40 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
       contato.position.set(_v.x, 0.003, _v.z - 0.02);
       const k = (cena.personagem.sombra ?? 1.1) * (1 + lift * 0.8);
       contato.scale.set(k, k * 1.1, 1);
-      contato.material.opacity = 0.6 * Math.max(0, 1 - lift * 3);
+      contato.material.opacity = sentado ? 0 : 0.6 * Math.max(0, 1 - lift * 3);
     }
     if (nQ++ % q().cada === 0 || arr) renderer.shadowMap.needsUpdate = true;
     if (selHelper) atualizarSelecao();
+  }
+
+  /* ------------------------------------------------------------ vaso x móveis da sala */
+  // 1) móvel que o vaso está usando na aparência (cadeira/trono/mesa/isopor) some da sala: fica um só.
+  // 2) aparência com "Sentar no sofá" (theme.salaSofa): o vaso vai para o assento do sofá e senta nele.
+  const MOVEIS = ['cadeira_skol', 'trono_skol', 'mesa_bar', 'isopor'];
+  let chaveMoveis = '', sentado = false, spotSofa = null;
+  const ASSENTO = { x: -0.32, z: 0.27, y: 0.7 };   // ponto do assento no sistema do sofá (escala 1)
+  let ultTuber = null;
+  function correlacionar(tuber) {
+    ultTuber = tuber;
+    const usados = new Set();
+    for (const w of tuber.accessories || []) { const id = w.userData?.entry?.id; if (id) usados.add(id); }
+    const chave = [...usados].filter((id) => MOVEIS.includes(id)).sort().join(',');
+    if (chave !== chaveMoveis) {
+      chaveMoveis = chave;
+      for (const it of cena.itens) if (MOVEIS.includes(it.tipo)) { const g = objs.get(it.id); if (g) g.visible = it.visivel && !usados.has(it.tipo); }
+    }
+    const sofa = tuber.theme?.salaSofa ? cena.itens.find((i) => i.tipo === 'sofa' && i.visivel) : null;
+    if (sofa) {
+      const r = sofa.rot * D2R, e = sofa.escala, cs = Math.cos(r), sn = Math.sin(r);
+      const lx = ASSENTO.x * e, lz = ASSENTO.z * e;
+      const x = sofa.pos[0] + lx * cs + lz * sn, z = sofa.pos[2] - lx * sn + lz * cs, h = sofa.pos[1] + ASSENTO.y * e;
+      const novo = `${x.toFixed(3)},${z.toFixed(3)},${sofa.rot}`;
+      if (novo !== spotSofa) { spotSofa = novo; posicionarRaiz([x, z], sofa.rot); }
+      if (!sentado || Math.abs(tuber.sitHeight - h) > 0.02 || !tuber.isSitting) tuber.sitHeight = h;
+      sentado = true;
+    } else if (sentado) {
+      sentado = false; spotSofa = null; tuber.sitHeight = 0; posicionarRaiz();
+    }
   }
 
   /* ------------------------------------------------------------ salvar */

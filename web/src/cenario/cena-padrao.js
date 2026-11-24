@@ -24,7 +24,7 @@ export const CENA_PADRAO = {
     { id: 'cadeira', tipo: 'cadeira_skol', nome: 'Cadeira Skol', pos: [-2.75, 0, 1.05], rot: 62, escala: 1, p: {}, frente: true },
     { id: 'poster', tipo: 'poster', nome: 'Pôster encostado', pos: [4.08, 0, -0.35], rot: -90, escala: 1, p: { imagem: 'poster' } },
     { id: 'rodo', tipo: 'rodo', nome: 'Rodo', pos: [3.98, 0, 0.35], rot: -90, escala: 1, p: {} },
-    { id: 'bandeira', tipo: 'bandeira', nome: 'Bandeira', pos: [0.35, 3.3, -2.5], rot: 0, escala: 1, p: { parede: 'fundo', largura: 2.15, altura: 1.42, imagem: 'bandeira', vento: 1 } },
+    { id: 'bandeira', tipo: 'bandeira', nome: 'Bandeira', pos: [0.35, 3.3, -2.5], rot: 0, escala: 1, p: { parede: 'fundo', largura: 2.2, altura: 1.36, imagem: 'bandeira', vento: 1 } },
     Q('quadro_sindicalista', 'Quadro dourado claro', -3.3, 3.25, 0.42, 0.52, 'dourada_clara', 'quadro_sindicalista', -8),
     Q('quadro_master', 'Quadro de madeira', -2.6, 3.0, 0.55, 0.76, 'madeira', 'quadro_master', 3),
     Q('quadro_ciborgue', 'Quadro dourado', -1.82, 2.72, 0.48, 0.62, 'dourada', 'quadro_ciborgue', 0),

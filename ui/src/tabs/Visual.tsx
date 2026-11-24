@@ -201,6 +201,9 @@ export function Visual({ active }: { active: boolean }) {
             <Field label="Rolo de papel" tip="Onde fica o suporte do papel higiênico">
               <Segmented value={body.roll.mount} options={[['side', 'Do lado (padrão)'], ['front', 'Na frente']]} onChange={(v) => setBody('roll', 'mount', v)} />
             </Field>
+            <Field label="Sentar no sofá" tip="Na cena com fundo Sala 3D, esta aparência fica sentada no sofá da sala (em vez de em pé no chão)">
+              <Toggle checked={!!work.salaSofa} onChange={(v) => update((d) => { if (v) d.work.salaSofa = true; else delete d.work.salaSofa; }, { fork: true })} />
+            </Field>
           </Fields>
         </Card>
         </>}

@@ -376,27 +376,39 @@ function quadro(p) {
   return g;
 }
 
-/* ============================================================ BANDEIRA (pano com ondulação) */
+/* ============================================================ BANDEIRA (pano 3D com vento) */
+// Pano pregado na parede pelos 4 cantos (igual à foto): as bordas ficam quase presas e o meio
+// "respira" com rajadas de vento vindas da janela, com ondas que correm pelo pano e pregas leves.
 function bandeira(p, ctx) {
-  const g = grupo('bandeira');
-  const w = p.largura ?? 2.0, h = p.altura ?? 1.35, nx = 36, ny = 24;
+  const g = grupo('bandeira'), m = mats();
+  const w = p.largura ?? 2.2, h = p.altura ?? 1.36, nx = 44, ny = 28;
   const geo = new THREE.PlaneGeometry(w, h, nx, ny);
   geo.translate(0, -h / 2, 0);
   const base = geo.attributes.position.array.slice();
   const t = texturaFoto(p.imagem || 'bandeira', w, h);
-  const pano = mesh(geo, mat({ map: t, roughness: 0.85, sheen: 0.6, sheenRoughness: 0.6, sheenColor: new THREE.Color('#ffffff'), side: THREE.DoubleSide }), g, 0, 0, 0.035);
+  const pano = mesh(geo, mat({ map: t, roughness: 0.82, sheen: 0.7, sheenRoughness: 0.55, sheenColor: new THREE.Color('#ffffff'), side: THREE.DoubleSide }), g, 0, 0, 0.03);
   pano.name = 'pano';
-  const m = mats();
-  for (const s of [-1, 1]) mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.05, 8), m.galvanizado, g, s * (w / 2 - 0.03), -0.03, 0.025, Math.PI / 2);
+  // pregos nos 4 cantos
+  for (const sx of [-1, 1]) for (const yy of [-0.03, -h + 0.03]) {
+    mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.06, 10), m.galvanizado, g, sx * (w / 2 - 0.035), yy, 0.03, Math.PI / 2);
+    mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.006, 14), m.galvanizado, g, sx * (w / 2 - 0.035), yy, 0.06, Math.PI / 2);
+  }
+  const seed = Math.random() * 100;
   const anima = (tempo) => {
-    const pa = geo.attributes.position, A = p.vento ?? 1;
+    const pa = geo.attributes.position, A = p.vento ?? 1, T = tempo + seed;
+    // rajada: força que sobe e desce devagar (nunca para totalmente)
+    const raj = 0.55 + 0.3 * Math.sin(T * 0.37) * Math.sin(T * 0.13 + 1) + 0.15 * Math.sin(T * 1.7) * Math.max(0, Math.sin(T * 0.21));
     for (let i = 0; i < pa.count; i++) {
       const x = base[i * 3], y = base[i * 3 + 1], u = x / w + 0.5, v = -y / h;
-      const preso = Math.min(1, v * 2.2) * (0.35 + 0.65 * Math.sin(Math.PI * u));
-      const onda = Math.sin(x * 4.5 + tempo * 1.6) * 0.022 + Math.sin(x * 9 - y * 3 + tempo * 2.3) * 0.009 + Math.sin(y * 6 + tempo * 1.1) * 0.006;
-      const prega = Math.sin(u * Math.PI * 6) * 0.012 * v; // pregas verticais do pano pendurado
-      pa.setZ(i, (onda * A + prega) * preso + 0.02 * v * v);
-      pa.setY(i, y - 0.03 * v * Math.sin(Math.PI * u) * 0.5);
+      // presa nos cantos (pregos); as bordas cedem um pouco, o meio solto
+      const solto = Math.pow(Math.sin(Math.PI * u), 0.7) * (0.3 + 0.7 * Math.pow(Math.sin(Math.PI * v), 0.8)) + 0.18 * Math.sin(Math.PI * u) * (v > 0.5 ? 1 : 0.3);
+      const onda = Math.sin(x * 3.2 - T * 1.9 + y * 0.8) * 0.032 + Math.sin(x * 7.5 - T * 3.1 - y * 2.2) * 0.011 + Math.sin(y * 5.5 + T * 1.3 + x * 1.5) * 0.008;
+      const barriga = 0.035 * Math.sin(Math.PI * u) * Math.sin(Math.PI * v);   // ar empurrando o meio
+      const pregas = Math.sin(u * Math.PI * 7 + 0.6) * 0.006 * (0.4 + v);        // dobras de pano guardado
+      pa.setZ(i, (onda * raj * A + barriga * raj * A) * solto + pregas + 0.004);
+      // o pano encolhe um tiquinho na horizontal quando estufa (não estica)
+      pa.setX(i, x * (1 - 0.006 * raj * A * Math.sin(Math.PI * v)));
+      pa.setY(i, y - 0.012 * Math.sin(Math.PI * u) * Math.pow(v, 1.5));          // a barra de baixo cede
     }
     pa.needsUpdate = true; geo.computeVertexNormals();
   };
