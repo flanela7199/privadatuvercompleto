@@ -10,7 +10,7 @@ import { ColorField } from '../components/ColorField';
 import { useToast } from '../components/Toast';
 
 export function Cenas() {
-  const { s, update, activateScene } = useStore();
+  const { s, update, activateScene, runAction } = useStore();
   const toast = useToast();
   const scenes = s.cfg.scenes;
   const [i, setI] = React.useState(Math.min(s.cfg.activeScene || 0, scenes.length - 1));
@@ -62,9 +62,14 @@ export function Cenas() {
           <Field label="Posição Y" tip="Onde fica o pé da privada (0 = topo, 1 = base)"><Slider value={sc.y} min={0} max={1} step={0.005} onChange={(v) => set('y', v)} /></Field>
           <Field label="Tamanho"><Slider value={sc.scale} min={0.3} max={3} step={0.01} fmt="x" onChange={(v) => set('scale', v)} /></Field>
           <Field label="Fundo">
-            <Select value={sc.background} options={[['transparent', 'Transparente'], ['color', 'Cor sólida / chroma']]} onChange={(v) => set('background', v)} />
+            <Select value={sc.background} options={[['transparent', 'Transparente'], ['color', 'Cor sólida / chroma'], ['sala', 'Sala 3D (cenário completo)']]} onChange={(v) => set('background', v)} />
             <ColorField value={sc.bgColor} fallback="#00ff00" disabled={sc.background !== 'color'} onChange={(v) => set('bgColor', v)} />
           </Field>
+          {sc.background === 'sala' && (
+            <Field label="Sala 3D" tip="O fundo 3D é desenhado junto com a privada, na mesma janela. Posição X/Y e Tamanho não se aplicam: use o editor da sala (lugar do personagem e câmera).">
+              <Button size="sm" disabled={!live} onClick={() => { runAction('sala:editar'); toast(<>Editor da sala aberto na janela da <b>Privada Tuber</b></>); }}>✏ Editar a sala</Button>
+            </Field>
+          )}
           <Field label="Seguir o mouse"><Toggle checked={sc.follow} onChange={(v) => set('follow', v)} /></Field>
           <Field label="Microfone mexe a boca"><Toggle checked={sc.mic} onChange={(v) => set('mic', v)} /></Field>
           <Field label="Sempre no topo" tip="Desligado: a privada pode ficar atrás de outras janelas (bom para OBS)."><Toggle checked={sc.alwaysOnTop} onChange={(v) => set('alwaysOnTop', v)} /></Field>
@@ -73,6 +78,7 @@ export function Cenas() {
           </Field>
         </Fields>
         <div style={{ marginTop: 16 }}>
+          {sc.background === 'sala' && <Note>🏠 <b>Sala 3D</b>: o cenário inteiro sai na própria janela da Privada Tuber (um programa só, sem fonte de navegador no OBS). Deixe a janela em 16:9 (ex.: 1280×720 ou 1920×1080). Para mexer nos móveis, quadros e câmera: ative a cena e clique em <b>✏ Editar a sala</b> (ou use o atalho "Abrir/fechar editor da Sala 3D").</Note>}
           <Note>💡 Para OBS: use <b>Captura de janela</b> na janela <b>Privada Tuber</b> (funciona mesmo atrás de outras janelas). Com fundo transparente ative <b>Permitir transparência</b> se houver; senão use fundo de cor + filtro <b>Chroma Key</b>.</Note>
         </div>
         <div className="btns" style={{ marginTop: 16 }}>

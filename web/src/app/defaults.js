@@ -12,6 +12,7 @@ export const ACTIONS = [
   { id: 'toggle:follow', name: 'Liga/desliga seguir o mouse' },
   { id: 'toggle:mic', name: 'Liga/desliga microfone' },
   { id: 'open:control', name: 'Abrir painel' },
+  { id: 'sala:editar', name: 'Abrir/fechar editor da Sala 3D' },
 ];
 
 export const DEFAULT_CONFIG = {
@@ -25,6 +26,7 @@ export const DEFAULT_CONFIG = {
   scenes: [
     { name: 'Janela (OBS chroma)', mode: 'window', outfit: null, x: 0.5, y: 0.86, scale: 1.25, background: 'color', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false },
     { name: 'Janela transparente', mode: 'window', outfit: null, x: 0.5, y: 0.86, scale: 1.25, background: 'transparent', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false },
+    { name: 'Sala 3D (cenário completo)', mode: 'window', outfit: null, x: 0.5, y: 0.86, scale: 1.25, background: 'sala', bgColor: '#000000', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false },
     { name: 'Desktop (overlay, opcional)', mode: 'overlay', outfit: null, x: 0.84, y: 0.8, scale: 1.0, background: 'transparent', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'on', alwaysOnTop: true },
   ],
   hotkeys: {
@@ -40,6 +42,7 @@ export const DEFAULT_CONFIG = {
     'Ctrl+Alt+1': { action: 'scene', arg: '0' },
     'Ctrl+Alt+2': { action: 'scene', arg: '1' },
     'Ctrl+Alt+3': { action: 'scene', arg: '2' },
+    'Ctrl+Alt+4': { action: 'scene', arg: '3' },
     'Ctrl+Shift+1': { action: 'outfit', arg: 'base' },
     'Ctrl+Shift+2': { action: 'outfit', arg: 'soviet' },
     'Ctrl+Shift+3': { action: 'outfit', arg: 'golden' },

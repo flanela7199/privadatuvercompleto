@@ -238,6 +238,20 @@ function applyLookLimits() {
   if (rigHasLimits) fn.call(tuber.rust && tuber.rust.set_look_limits === fn ? tuber.rust : tuber, yaw, pitch);
 }
 
+/* -------------------------------------------------------- sala 3D (cenário) */
+// Cena com fundo "sala": o fundo 3D completo é desenhado na MESMA cena/renderer do personagem
+// (web/src/cenario). Carregado só quando alguma cena usa (não pesa para quem não usa).
+let cenario = null, cenarioJob = null;
+function garantirCenario() {
+  if (cenario) return Promise.resolve(cenario);
+  if (!cenarioJob) cenarioJob = import('../cenario/cenario.js')
+    .then((m) => m.criarCenario({ renderer, scene, camera, invoke, invokeRaw }))
+    .then((c) => (cenario = c))
+    .catch((e) => { console.warn('[avatar] sala 3D indisponível:', e); cenarioJob = null; return null; });
+  return cenarioJob;
+}
+const usaSala = (sc) => !OUTPUT && sc?.background === 'sala';
+
 /* ------------------------------------------------------------- scenes */
 let follow = true, micOn = true, scale = 1, charPx = BASE_PX, mode = 'window';
 function applySettings() {
@@ -271,11 +285,13 @@ function applyScene(i, { save = false } = {}) {
     solid = o.background !== 'transparent';
     color = o.color || '#00ff00';
   } else {
-    mode = sc.mode || 'window';
+    mode = usaSala(sc) ? 'window' : (sc.mode || 'window');   // a sala é sempre numa janela própria
     scale = sc.scale ?? 1;
     follow = sc.follow ?? st.followDefault ?? true;
-    solid = sc.background === 'color' || sc.background === 'chroma';
-    color = sc.bgColor || '#00ff00';
+    solid = sc.background === 'color' || sc.background === 'chroma' || usaSala(sc);
+    color = usaSala(sc) ? '#000000' : (sc.bgColor || '#00ff00');
+    if (usaSala(sc)) garantirCenario().then((c) => { if (c && usaSala(scene0())) c.ativar(); });
+    else cenario?.desativar();
     invoke('set_avatar_mode', { mode, alwaysOnTop: !!sc.alwaysOnTop }).catch(() => {});
     if (mode === 'overlay') invoke('set_click_through', { mode: sc.clickThrough || 'auto' }).catch(() => {});
     else invoke('set_click_through', { mode: 'off' }).catch(() => {});
@@ -362,6 +378,7 @@ function act(action, arg) {
     case 'outfit': config.outfitTheme = null; config.activeOutfit = arg; applyOutfit(arg); saveSoon(); break;
     case 'scene': applyScene(+arg, { save: true }); break;
     case 'viseme': fake.hold(arg, 0.6); break;
+    case 'sala': garantirCenario().then((c) => c?.editar(arg || 'toggle')); break;   // abre/fecha o editor da sala 3D
     case 'say': fake.say(arg || ''); break;
     case 'toggle':
       if (arg === 'clickthrough') {
@@ -599,7 +616,7 @@ function renderOneThumb() {
     renderer.setScissorTest(true);
     renderer.setViewport(0, 0, S, S); renderer.setScissor(0, 0, S, S);
     renderer.setClearColor(0x000000, 0); renderer.clear();
-    renderer.render(scene, th.cam);
+    if (cenario) cenario.miniatura(() => renderer.render(scene, th.cam)); else renderer.render(scene, th.cam);
     if (!th.out) { th.out = new OffscreenCanvas(TH, TH); th.outCtx = th.out.getContext('2d'); }
     const cv = renderer.domElement;
     th.outCtx.clearRect(0, 0, TH, TH);
@@ -653,7 +670,8 @@ function frame(now) {
   last = now; lastFrame = now;
 
   const [sx, sy] = restPoint();
-  placeCamera(sx, sy);
+  if (cenario?.ativo) cenario.frame(dt, tuber);   // sala 3D: câmera da sala (o personagem fica no "lugar" dele)
+  else placeCamera(sx, sy);
   if (DBG) debugCamera();
 
   let look = { x: 0, y: 0 };
@@ -774,4 +792,4 @@ applySettings();
 applyConfigOutfit();
 applyScene(config.activeScene);
 applyLookLimits();
-window.avatar = { output: OUTPUT, act, config: () => config, applyScene, applyOutfit, computeLook, setCharacter, character: () => character };
+window.avatar = { output: OUTPUT, act, cenario: () => cenario, config: () => config, applyScene, applyOutfit, computeLook, setCharacter, character: () => character };
