@@ -270,6 +270,7 @@ function applySettings() {
   setTick();
 }
 
+let ultimoTam = '';
 function applyScene(i, { save = false } = {}) {
   if (config.scenes?.length) config.activeScene = clamp(i | 0, 0, config.scenes.length - 1);
   const sc = scene0();
@@ -292,7 +293,15 @@ function applyScene(i, { save = false } = {}) {
     color = usaSala(sc) ? '#000000' : (sc.bgColor || '#00ff00');
     if (usaSala(sc)) garantirCenario().then((c) => { if (c && usaSala(scene0())) c.ativar(); });
     else cenario?.desativar();
-    invoke('set_avatar_mode', { mode, alwaysOnTop: !!sc.alwaysOnTop }).catch(() => {});
+    // tamanho fixo da janela (ex.: 1920x1080 para o OBS). Em pixels reais da tela: o Tauri recebe
+    // tamanho lógico, então divide pela escala do Windows (125%, 150%...). Só reaplica quando a cena
+    // ou o tamanho mudam (a cada 'state' do painel o applyScene roda de novo).
+    const tam = mode === 'window' && /^\d+x\d+$/.test(sc.winSize || '') ? sc.winSize : '';
+    const chaveTam = `${config.activeScene}:${tam}`;
+    const args = { mode, alwaysOnTop: !!sc.alwaysOnTop };
+    if (tam && chaveTam !== ultimoTam) { const [w, h] = tam.split('x').map(Number), d = devicePixelRatio || 1; args.width = w / d; args.height = h / d; }
+    ultimoTam = chaveTam;
+    invoke('set_avatar_mode', args).catch(() => {});
     if (mode === 'overlay') invoke('set_click_through', { mode: sc.clickThrough || 'auto' }).catch(() => {});
     else invoke('set_click_through', { mode: 'off' }).catch(() => {});
   }

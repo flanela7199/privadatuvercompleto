@@ -26,7 +26,7 @@ export const DEFAULT_CONFIG = {
   scenes: [
     { name: 'Janela (OBS chroma)', mode: 'window', outfit: null, x: 0.5, y: 0.86, scale: 1.25, background: 'color', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false },
     { name: 'Janela transparente', mode: 'window', outfit: null, x: 0.5, y: 0.86, scale: 1.25, background: 'transparent', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false },
-    { name: 'Sala 3D (cenário completo)', mode: 'window', outfit: null, x: 0.5, y: 0.86, scale: 1.25, background: 'sala', bgColor: '#000000', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false },
+    { name: 'Sala 3D (cenário completo)', mode: 'window', outfit: null, x: 0.5, y: 0.86, scale: 1.25, background: 'sala', bgColor: '#000000', winSize: '1920x1080', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false },
     { name: 'Desktop (overlay, opcional)', mode: 'overlay', outfit: null, x: 0.84, y: 0.8, scale: 1.0, background: 'transparent', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'on', alwaysOnTop: true },
   ],
   hotkeys: {

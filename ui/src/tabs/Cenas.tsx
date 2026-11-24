@@ -57,6 +57,11 @@ export function Cenas() {
           <Field label="Modo" tip="Janela própria: uma janela normal só da privada (ideal para OBS). Overlay: flutua por cima da área de trabalho.">
             <Select value={sc.mode} options={[['window', 'Janela própria (recomendado p/ OBS)'], ['overlay', 'Sobre o desktop (overlay)']]} onChange={(v) => set('mode', v)} />
           </Field>
+          {sc.mode !== 'overlay' && (
+            <Field label="Tamanho da janela" tip="Sempre abre a janela da privada neste tamanho (em pixels reais da tela) ao ativar a cena ou abrir o app. Para o OBS, 1920×1080 (16:9).">
+              <Select value={sc.winSize || ''} options={[['', 'Livre (lembra o último tamanho)'], ['1920x1080', '1920 × 1080 (16:9 Full HD)'], ['1280x720', '1280 × 720 (16:9 HD)'], ['1080x1920', '1080 × 1920 (vertical 9:16)'], ['720x900', '720 × 900 (padrão do app)']]} onChange={(v) => set('winSize', v)} />
+            </Field>
+          )}
           <Field label="Visual da cena"><Select value={sc.outfit || ''} options={[['', '(manter visual atual)'], ...allOutfits(s)]} onChange={(v) => set('outfit', v || null)} /></Field>
           <Field label="Posição X" tip="0 = esquerda, 1 = direita"><Slider value={sc.x} min={0} max={1} step={0.005} onChange={(v) => set('x', v)} /></Field>
           <Field label="Posição Y" tip="Onde fica o pé da privada (0 = topo, 1 = base)"><Slider value={sc.y} min={0} max={1} step={0.005} onChange={(v) => set('y', v)} /></Field>
