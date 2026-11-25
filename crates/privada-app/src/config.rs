@@ -28,8 +28,25 @@ pub fn load() -> Option<Value> {
 /// start from the same migrated file. Returns true when something changed.
 fn migrate(cfg: &mut Value) -> bool {
     let Some(obj) = cfg.as_object_mut() else { return false };
+    let mut mudou = false;
+    // 0.4.5: nova cena "Ilha tropical 3D" (cópia da cena da sala, com o fundo da ilha)
+    if obj.get("migr045").and_then(Value::as_bool) != Some(true) {
+        obj.insert("migr045".into(), Value::Bool(true));
+        mudou = true;
+        if let Some(scenes) = obj.get_mut("scenes").and_then(Value::as_array_mut) {
+            let tem_ilha = scenes.iter().any(|s| s.get("background").and_then(Value::as_str) == Some("ilha"));
+            let sala = scenes.iter().find(|s| s.get("background").and_then(Value::as_str) == Some("sala")).cloned();
+            if let (false, Some(mut nova)) = (tem_ilha, sala) {
+                if let Some(n) = nova.as_object_mut() {
+                    n.insert("name".into(), "Ilha tropical 3D".into());
+                    n.insert("background".into(), "ilha".into());
+                }
+                scenes.push(nova);
+            }
+        }
+    }
     if obj.get("migr044").and_then(Value::as_bool) == Some(true) {
-        return false;
+        return mudou;
     }
     obj.insert("migr044".into(), Value::Bool(true));
     // 0.4.4: the transparent "gameplay" scene puts the character small in the bottom-right corner of
