@@ -83,10 +83,19 @@ pub fn start(app: AppHandle) {
             let mut last: Option<CursorEvent> = None;
             let mut ignoring: Option<bool> = None;
             let mut since_emit = 0u32;
+            // the character window handle is looked up ONCE and reused: get_webview_window() clones a
+            // struct of ~15 Arcs out of the webview manager; doing it 60x/s from this thread was where
+            // the live crashes (0xC000001D, Arc refcount abort inside the clone) happened.
+            let mut avatar: Option<WebviewWindow> = None;
             loop {
                 if let Some((x, y)) = cursor_pos() {
-                    let avatar = app.get_webview_window("avatar");
+                    if avatar.is_none() {
+                        avatar = app.get_webview_window("avatar");
+                    }
                     let win = avatar.as_ref().and_then(win_rect);
+                    if avatar.is_some() && win.is_none() {
+                        avatar = None; // window gone/recreated: look it up again next tick
+                    }
                     let ev = CursorEvent { x, y, win };
                     since_emit += 1;
                     // emit on any change (cursor or window moved), and ~2x/s for late listeners

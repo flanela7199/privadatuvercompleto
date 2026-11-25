@@ -20,6 +20,7 @@ import { MaterialLib } from '../rig/materials.js';
 import { DIM } from '../rig/ToiletTuber.js';
 import { makeResolver, migrateOutfit } from './outfits.js';
 import { DEFAULT_CONFIG } from './defaults.js';
+import { criarTransicao } from './transicao.js';
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const OUTPUT = new URLSearchParams(location.search).has('output');
@@ -101,6 +102,14 @@ const { renderer, scene, camera } = stage;
 camera.fov = FOV;
 camera.near = 0.1; camera.far = 200;
 renderer.setClearColor(0x000000, 0);
+// transição entre cenas (descarga): a cena que sai é sugada para dentro do vaso / a que entra sai dele
+const trans = criarTransicao(renderer, scene, camera);
+const _pv = new THREE.Vector3();
+/** onde está a "boca" do vaso na tela, em uv (0..1, origem embaixo). O personagem fica sempre na origem do mundo. */
+function vasoUV() {
+  _pv.set(0, 0.5, 0.05).project(camera);
+  return [THREE.MathUtils.clamp(_pv.x * 0.5 + 0.5, 0, 1), THREE.MathUtils.clamp(_pv.y * 0.5 + 0.5, 0, 1)];
+}
 
 // window mode: invisible drag strip on top (Tauri drag region) with a subtle handle on hover
 const strip = document.createElement('div');
@@ -271,9 +280,20 @@ function applySettings() {
 }
 
 let ultimoTam = '';
+let firstFrame = false;
+let cenaAtual = -1;     // índice da cena aplicada por último (para saber quando houve troca de cena)
 function applyScene(i, { save = false } = {}) {
   if (config.scenes?.length) config.activeScene = clamp(i | 0, 0, config.scenes.length - 1);
   const sc = scene0();
+  // troca de cena -> transição. Fotografa a cena antiga ANTES de mudar qualquer coisa.
+  let tr = null;
+  const idx = config.activeScene | 0;
+  if (!OUTPUT && firstFrame && cenaAtual >= 0 && idx !== cenaAtual) {
+    const tipo = sc.transicao || 'descarga';
+    if (trans.ativa) trans.cancelar();
+    if (tipo !== 'nenhuma' && trans.capturar()) tr = { tipo, modo: usaSala(sc) ? 'entra' : 'sai', dreno: vasoUV() };
+  }
+  cenaAtual = idx;
   const st = settings();
   micOn = sc.mic !== false;
   if (sc.outfit) applyOutfit(sc.outfit);
@@ -305,10 +325,19 @@ function applyScene(i, { save = false } = {}) {
     if (mode === 'overlay') invoke('set_click_through', { mode: sc.clickThrough || 'auto' }).catch(() => {});
     else invoke('set_click_through', { mode: 'off' }).catch(() => {});
   }
-  document.documentElement.style.background = document.body.style.background = solid ? color : 'transparent';
+  // a sala "saindo do ralo": a janela fica transparente até a transição acabar (o jogo aparece atrás no OBS)
+  const fundoJanela = (on) => {
+    document.documentElement.style.background = document.body.style.background = on ? color : 'transparent';
+    // native window background matches the page, so nothing white can show around the webview
+    if (!OUTPUT) invoke('set_window_background', { color: on ? color : 'transparent' }).catch(() => {});
+  };
   renderer.setClearColor(solid ? color : 0x000000, solid ? 1 : 0);
-  // native window background matches the page, so nothing white can show around the webview
-  if (!OUTPUT) invoke('set_window_background', { color: solid ? color : 'transparent' }).catch(() => {});
+  if (tr) {
+    const ehEntra = tr.modo === 'entra';
+    fundoJanela(solid && !ehEntra);
+    trans.iniciar({ ...tr, fim: () => { if (cenaAtual === idx) fundoJanela(solid); } });
+    if (tr.tipo === 'descarga') sfx.play('flush');
+  } else if (!trans.ativa) fundoJanela(solid);
   document.body.classList.toggle('windowed', mode !== 'overlay');
   document.body.classList.toggle('solidbg', !!solid);
   layout();
@@ -339,6 +368,7 @@ function placeCamera(sx, sy) {
   const halfH = (CHAR_H * H) / (2 * charPx);
   const dist = halfH / Math.tan(THREE.MathUtils.degToRad(FOV / 2));
   camera.aspect = W / H;
+  camera.near = 0.1; camera.far = 200;
   camera.position.set(0, CENTER_Y, dist);
   camera.lookAt(0, CENTER_Y, 0);
   const cx = sx, cy = sy - (charPx * CENTER_Y) / CHAR_H;
@@ -679,8 +709,12 @@ function frame(now) {
   last = now; lastFrame = now;
 
   const [sx, sy] = restPoint();
+  // durante a descarga o vaso "engole" a cena (dá uma inchada no fim)
+  const gole = trans.ativa && trans.modo === 'sai' ? Math.sin(Math.PI * clamp((trans.progresso - 0.62) / 0.38, 0, 1)) * 0.14 : 0;
+  charPx = BASE_PX * scale * (1 + gole);
   if (cenario?.ativo) cenario.frame(dt, tuber);   // sala 3D: câmera da sala (o personagem fica no "lugar" dele)
   else placeCamera(sx, sy);
+  if (trans.ativa && trans.modo === 'sai') trans.setDreno(...vasoUV());
   if (DBG) debugCamera();
 
   let look = { x: 0, y: 0 };
@@ -729,7 +763,8 @@ function frame(now) {
     th.wantOne = false;
     if (renderOneThumb()) { if (th.queue.length) idleThumbs(); else flushThumbKeys(); }
   }
-  stage.render(dt, !!config.render?.ao);
+  if (trans.ativa) trans.render(() => stage.render(dt, !!config.render?.ao));
+  else stage.render(dt, !!config.render?.ao);
   if (pv.until) capturePreview(now);
   if (!firstFrame) {
     firstFrame = true;
@@ -760,7 +795,6 @@ function shapeMouth(m) {
     cornerL: shape(m.cornerL), cornerR: shape(m.cornerR), jawSide: shape(m.jawSide), jawFwd: shape(m.jawFwd), upperRaise: shape(m.upperRaise),
   };
 }
-let firstFrame = false;
 
 // rAF normally; a worker ticker takes over when hidden/occluded (OBS captures it behind other
 // windows and rAF pauses then). Never pauses on blur.

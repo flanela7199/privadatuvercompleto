@@ -12,11 +12,10 @@
 //   c.miniatura(fn)           -> roda fn com a sala escondida e as luzes do palco originais (thumbnails)
 //   c.editar(on?)             -> abre/fecha o editor da sala dentro da janela do personagem
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { MaterialLib } from '../rig/materials.js';
 import { CATALOGO, MOLDURAS, construir } from './objetos.js';
 import { criarSala, criarFeixe, criarPoeira, PAREDES, SALA } from './sala.js';
-import { CENA_PADRAO } from './cena-padrao.js';
+import { CENA_PADRAO, MIGRAR_POS } from './cena-padrao.js';
 import * as TX from './texturas.js';
 
 const CHAVE = 'privada_sala3d_v1';
@@ -29,6 +28,18 @@ function normalizar(c) {
   c.camera = Object.assign({}, CENA_PADRAO.camera, c.camera || {});
   c.personagem = Object.assign({}, CENA_PADRAO.personagem, c.personagem || {});
   for (const it of c.itens) { it.escala ??= 1; it.rot ??= 0; it.visivel ??= true; it.p ??= {}; }
+  // migração 0.4.x -> 0.4.4: o que ainda está no lugar antigo vai para o lugar novo
+  if (!(c.rev >= 2)) {
+    const igual = (a, b) => a && b && a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-3);
+    for (const it of c.itens) {
+      const m = MIGRAR_POS[it.id]; if (!m || !igual(it.pos, m.de)) continue;
+      const nv = CENA_PADRAO.itens.find((i) => i.id === it.id); if (!nv) continue;
+      it.pos = nv.pos.slice(); if (m.p) Object.assign(it.p, m.p);
+    }
+    if (igual(c.personagem.pos, [0.35, -0.45])) c.personagem.pos = CENA_PADRAO.personagem.pos.slice();
+    if (igual(c.camera.pos, [0.15, 1.95, 6.9]) && igual(c.camera.alvo, [0.15, 1.5, -1.2])) { c.camera.pos = CENA_PADRAO.camera.pos.slice(); c.camera.alvo = CENA_PADRAO.camera.alvo.slice(); }
+    c.rev = 2;
+  }
   return c;
 }
 
@@ -163,25 +174,25 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
     if (!ativo) return;
     tempo += dt;
     const e = cena.efeitos;
-    for (const [g, fn] of ctx.animacoes) if (g.visible) fn(tempo);
+    for (const [g, fn] of ctx.animacoes) if (g.visible && !g.userData.fora) fn(tempo);
     for (const t of ctx.animaveis) t.userData.atualizar(tempo);
     poeira.visible = e.poeira; feixe.visible = e.feixe;
     if (poeira.visible) poeira.userData.anima(tempo);
     // câmera (coordenadas da sala -> mundo)
     camLocal.pos.fromArray(cena.camera.pos); camLocal.alvo.fromArray(cena.camera.alvo);
-    if (livre) { controles.update(); }
-    else {
+    {
       const a = e.movimento && !editando ? e.intensidade : 0, s = tempo * e.velocidade;
       _a.set(camLocal.pos.x + Math.sin(s * 0.21) * 0.45 * a + Math.sin(s * 0.09) * 0.2 * a, camLocal.pos.y + Math.sin(s * 0.17 + 1) * 0.07 * a, camLocal.pos.z + Math.sin(s * 0.13 + 2) * 0.25 * a);
       _b.set(camLocal.alvo.x + Math.sin(s * 0.11) * 0.1 * a, camLocal.alvo.y, camLocal.alvo.z);
       camera.clearViewOffset();
-      camera.fov = cena.camera.fov; camera.near = 0.05; camera.far = 60;
+      camera.fov = cena.camera.fov; camera.near = 0.3; camera.far = 40;  // near maior = mais precisão de profundidade (sem tremer escada/corrimão)
       camera.aspect = innerWidth / Math.max(1, innerHeight);
       camera.position.copy(raiz.localToWorld(_a));
       camera.lookAt(raiz.localToWorld(_b));
       camera.updateProjectionMatrix();
     }
     if (tuber) correlacionar(tuber);
+    if (nCull++ % 20 === 0) recortar();
     // luz de frente acompanha o personagem; sombra de contato embaixo dele
     if (tuber?.body) {
       tuber.body.getWorldPosition(_v);
@@ -195,6 +206,24 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
     }
     if (nQ++ % q().cada === 0 || arr) renderer.shadowMap.needsUpdate = true;
     if (selHelper) atualizarSelecao();
+  }
+
+  /* ------------------------------------------------------------ recorte pela câmera */
+  // Objetos inteiramente fora do enquadramento (com folga para o balanço da câmera e para sombras que
+  // entram na tela) vão para a layer 1: não são desenhados nem entram no mapa de sombra, e não animam.
+  // No editor tudo volta (para poder clicar/arrastar).
+  let nCull = 0;
+  const camCull = new THREE.PerspectiveCamera(), frust = new THREE.Frustum(), _m4 = new THREE.Matrix4(), _box = new THREE.Box3();
+  function recortar() {
+    camCull.copy(camera, false); camCull.fov = Math.min(150, camera.fov + 24); camCull.aspect = camera.aspect * 1.15;
+    camCull.updateProjectionMatrix(); camCull.updateMatrixWorld();
+    frust.setFromProjectionMatrix(_m4.multiplyMatrices(camCull.projectionMatrix, camCull.matrixWorldInverse));
+    raiz.updateMatrixWorld();
+    for (const g of objs.values()) {
+      let fora = false;
+      if (!editando && g.visible) { _box.setFromObject(g); fora = !_box.isEmpty() && !frust.intersectsBox(_box.expandByScalar(0.6)); }
+      if (fora !== !!g.userData.fora) { g.userData.fora = fora; g.traverse((o) => o.layers.set(fora ? 1 : 0)); renderer.shadowMap.needsUpdate = true; }
+    }
   }
 
   /* ------------------------------------------------------------ vaso x móveis da sala */
@@ -249,7 +278,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
   }
 
   /* ============================================================ EDITOR (dentro da janela do personagem) */
-  let editando = false, livre = false, controles = null, selId = null, selHelper = null, arr = null, ui = null;
+  let editando = false, selId = null, selHelper = null, arr = null, ui = null;
   const sel = () => cena.itens.find((i) => i.id === selId);
   function selecionar(id) {
     selId = id;
@@ -266,9 +295,9 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
   function editar(on) {
     on = on === undefined || on === 'editar' || on === 'toggle' ? !editando : !!on && on !== 'fechar';
     if (on && !ativo) { aviso('Ative uma cena com fundo "Sala 3D" primeiro'); return; }
-    editando = on;
+    editando = on; nCull = 0; recortar();
     if (on) { if (!ui) montarUI(); ui.root.style.display = ''; painel(); }
-    else { if (ui) ui.root.style.display = 'none'; selecionar(null); if (livre) alternarLivre(); }
+    else { if (ui) ui.root.style.display = 'none'; selecionar(null); }
   }
 
   const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plano = new THREE.Plane(), pt = new THREE.Vector3();
@@ -294,7 +323,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
   function onDown(ev) {
     if (!editando || ev.button !== 0 || ev.target !== renderer.domElement) return;
     const h = pick(ev);
-    if (!h) { if (!livre) selecionar(null); return; }
+    if (!h) { selecionar(null); return; }
     if (h.id !== selId) selecionar(h.id);
     const it = sel(), tp = tipoDe(it);
     if (tp === 'parede') {
@@ -304,7 +333,6 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
     } else plano.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), h.ponto);
     ray.ray.intersectPlane(plano, pt);
     arr = { it, tp, off: new THREE.Vector3().fromArray(it.pos).sub(raiz.worldToLocal(pt.clone())) };
-    if (controles) controles.enabled = false;
     ev.preventDefault(); ev.stopPropagation();
   }
   function onMove(ev) {
@@ -318,11 +346,10 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
   function onUp() {
     if (!arr) return;
     if (arr.tp === 'piso' && ui.chkGrudar.checked) assentar(arr.it);
-    arr = null; if (controles) controles.enabled = livre; confirmar(); painel();
+    arr = null; confirmar(); painel();
   }
   function onWheel(ev) {
     const it = sel(); if (!editando || !it || ev.target !== renderer.domElement) return;
-    if (livre && !ev.shiftKey && !ev.altKey) return;
     ev.preventDefault();
     if (ev.shiftKey) it.rot = +(it.rot + (ev.deltaY > 0 ? 3 : -3)).toFixed(1);
     else it.escala = Math.max(0.1, +(it.escala * (ev.deltaY > 0 ? 0.96 : 1.04)).toFixed(3));
@@ -332,7 +359,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
   function onKey(ev) {
     if (!editando || ev.target.matches?.('input[type=text]')) return;
     const it = sel();
-    if (ev.key === 'Escape') { if (livre) alternarLivre(); else if (selId) selecionar(null); else editar(false); return; }
+    if (ev.key === 'Escape') { if (selId) selecionar(null); else editar(false); return; }
     if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') { ev.preventDefault(); voltar(); return; }
     if (!it) return;
     if (ev.key === 'Delete') { ev.preventDefault(); remover(it); }
@@ -344,13 +371,6 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
       if (ev.key === 'ArrowDown') tp === 'parede' ? (it.pos[1] -= d) : (it.pos[2] += d);
       posicionar(it); clearTimeout(onKey.t); onKey.t = setTimeout(confirmar, 400);
     }
-  }
-  function alternarLivre() {
-    livre = !livre;
-    if (!controles) { controles = new OrbitControls(camera, renderer.domElement); controles.enableDamping = true; }
-    controles.enabled = livre;
-    if (livre) { controles.target.copy(raiz.localToWorld(camLocal.alvo.clone())); controles.update(); aviso('Câmera livre: arraste no vazio para girar, botão direito move, roda dá zoom'); }
-    painel();
   }
   function novo(tipo) {
     const def = CATALOGO[tipo];
@@ -419,7 +439,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
     const root = document.createElement('div'); root.id = 's3d';
     root.innerHTML = `
 <header><h1>Sala 3D — editor <button data-a="fechar" title="Fechar (Esc)">✕</button></h1>
-<div class="linha"><button class="pri" data-a="add">＋ Adicionar</button><button data-a="desfazer">↶ Desfazer</button><button data-a="livre"></button></div></header>
+<div class="linha"><button class="pri" data-a="add">＋ Adicionar</button><button data-a="desfazer">↶ Desfazer</button></div></header>
 <div class="corpo">
 <h2>Objetos</h2><ul></ul>
 <p class="dica">Clique num objeto e arraste. Roda = tamanho · Shift+roda = girar · setas = ajuste fino · Delete · Ctrl+D · Ctrl+Z.</p>
@@ -435,7 +455,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
 <div class="campo"><div class="rot"><span>Lugar frente ↕ fundo</span></div><input type="range" data-pers="1" min="-1.8" max="3" step="0.01"></div>
 <div class="campo"><div class="rot"><span>Luz no personagem</span></div><input type="range" data-ef="luzPersonagem" min="0" max="2.5" step="0.05"></div>
 <h2>Câmera</h2>
-<div class="linha"><button data-a="usarVista">📌 Usar esta vista</button><button data-a="vistaPadrao">Vista original</button></div>
+<div class="linha"><button data-a="vistaPadrao">Vista original</button></div>
 <div class="campo"><div class="rot"><span>Lente (zoom)</span><span data-v="fov"></span></div><input type="range" data-cam="fov" min="18" max="70" step="1"></div>
 <div class="linha"><label><input type="checkbox" data-efc="movimento"> Câmera se mexendo devagar</label></div>
 <div class="campo"><div class="rot"><span>Quanto mexe</span></div><input type="range" data-ef="intensidade" min="0" max="3" step="0.05"></div>
@@ -457,7 +477,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
     // eventos 3D
     addEventListener('pointerdown', onDown, true); addEventListener('pointermove', onMove); addEventListener('pointerup', onUp);
     addEventListener('wheel', onWheel, { passive: false }); addEventListener('keydown', onKey);
-    // no editor o botão direito move a câmera livre: não abre o painel
+    // no editor o botão direito não abre o painel
     addEventListener('contextmenu', (e) => { if (editando) { e.stopPropagation(); e.preventDefault(); } }, true);
     root.addEventListener('pointerdown', (e) => e.stopPropagation());
     // botões
@@ -466,15 +486,9 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
       const a = b.dataset.a, it = sel();
       if (a === 'fechar') editar(false);
       if (a === 'desfazer') voltar();
-      if (a === 'livre') alternarLivre();
       if (a === 'assentar' && it) { assentar(it); confirmar(); painel(); }
       if (a === 'duplicar' && it) duplicar(it);
       if (a === 'remover' && it) remover(it);
-      if (a === 'usarVista') {
-        const p = raiz.worldToLocal(camera.position.clone()), alvo = livre ? raiz.worldToLocal(controles.target.clone()) : camLocal.alvo.clone();
-        cena.camera.pos = p.toArray().map((v) => +v.toFixed(3)); cena.camera.alvo = alvo.toArray().map((v) => +v.toFixed(3));
-        if (livre) alternarLivre(); confirmar(); aviso('Esta vista agora é a câmera da sala');
-      }
       if (a === 'vistaPadrao') { cena.camera = clone(CENA_PADRAO.camera); confirmar(); painel(); }
       if (a === 'exportar') {
         const el = document.createElement('a'); el.href = URL.createObjectURL(new Blob([JSON.stringify(cena)], { type: 'application/json' }));
@@ -574,7 +588,6 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
     ui.root.querySelectorAll('[data-efc]').forEach((el) => { el.checked = !!e[el.dataset.efc]; });
     ui.root.querySelectorAll('[data-pers]').forEach((el) => { el.value = cena.personagem.pos[+el.dataset.pers]; });
     $r('[data-qual]').value = e.qualidade; $r('[data-cam=fov]').value = cena.camera.fov;
-    $r('[data-a=livre]').textContent = livre ? '✔ Sair da câmera livre' : '🎥 Câmera livre';
     painelLeve();
   }
 

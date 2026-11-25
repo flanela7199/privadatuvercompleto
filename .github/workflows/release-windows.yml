@@ -88,6 +88,8 @@ jobs:
           Get-ChildItem target/release/bundle/nsis/*.exe | ForEach-Object {
             Copy-Item $_.FullName "dist-release/PrivadaTuber_${{ inputs.version }}_x64-setup.exe" }
           Copy-Item target/release/privada-app.exe "dist-release/PrivadaTuber_${{ inputs.version }}_x64-portable.exe"
+          # debug symbols: lets crash dumps (AppData\Local\CrashDumps) be read with function names
+          if (Test-Path target/release/privada_app.pdb) { Copy-Item target/release/privada_app.pdb "dist-release/PrivadaTuber_${{ inputs.version }}_symbols.pdb" }
           Get-ChildItem dist-release
 
       - uses: softprops/action-gh-release@v2

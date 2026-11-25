@@ -9,6 +9,8 @@ export const PAREDES = {
   esquerda: { normal: new THREE.Vector3(1, 0, 0), plano: SALA.esq + 0.1, rotY: Math.PI / 2 },
   direita: { normal: new THREE.Vector3(-1, 0, 0), plano: SALA.dir - 0.1, rotY: -Math.PI / 2 },
 };
+// vão no teto em cima da escada (canto esquerdo do fundo): acima dele só um "poço" escuro, nada é renderizado lá em cima
+export const ABERTURA = { x1: -2.5, z1: -1.36, poco: 1.3 };
 export const JANELA = { z0: -2.15, z1: -0.75, y0: 1.15, y1: 3.05 };
 
 function rep(t, x, y) { const c = t.clone(); c.repeat.set(x, y); c.needsUpdate = true; return c; }
@@ -67,7 +69,13 @@ export function criarSala(scene, ctx) {
   caixa(e, y0, z1 - z0, mcL, xr, y0 / 2, (z0 + z1) / 2, g);
   caixa(e, alto - y1, z1 - z0, mcL, xr, (alto + y1) / 2, (z0 + z1) / 2, g);
   // teto
-  caixa(W + 2 * e, e, frente - fundo, matConcreto(3, 1, 1, '#6a665f'), 0, alto + e / 2, (frente + fundo) / 2, g).castShadow = true;
+  const mt = matConcreto(3, 1, 1, '#6a665f'), { x1: ax, z1: az, poco } = ABERTURA, xe = esq - e;
+  caixa(dir + e - ax, e, frente - fundo, mt, (ax + dir + e) / 2, alto + e / 2, (frente + fundo) / 2, g);
+  caixa(ax - xe, e, frente - az, mt, (xe + ax) / 2, alto + e / 2, (az + frente) / 2, g);
+  // poço escuro acima do vão (só as faces de dentro; não projeta sombra)
+  const pw = ax - (esq + 0.1), pd = az - (fundo + 0.1);
+  const poco3 = new THREE.Mesh(new THREE.BoxGeometry(pw, poco, pd), new THREE.MeshStandardMaterial({ color: '#2a2825', roughness: 1, side: THREE.BackSide }));
+  poco3.position.set(esq + 0.1 + pw / 2, alto + poco / 2, fundo + 0.1 + pd / 2); poco3.receiveShadow = true; g.add(poco3);
   // janela: caixilho de alumínio, vidro e "lá fora"
   const alu = new THREE.MeshPhysicalMaterial({ color: '#cfd3d6', metalness: 1, roughness: 0.35 });
   const jx = dir - 0.06, jw = z1 - z0, jh = y1 - y0;

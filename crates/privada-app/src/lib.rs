@@ -550,7 +550,28 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 /* ------------------------------------------------------------------ run */
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Append a line to `<exe dir>/privada-data/crash.log` (panics and fatal errors, for diagnosing lives).
+pub fn crash_log(msg: &str) {
+    use std::io::Write;
+    let dir = config::data_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("crash.log");
+    if std::fs::metadata(&path).map(|m| m.len() > 512 * 1024).unwrap_or(false) {
+        let _ = std::fs::rename(&path, dir.join("crash.old.log"));
+    }
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let t = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let _ = writeln!(f, "[{t}] v{} {msg}", env!("CARGO_PKG_VERSION"));
+    }
+}
+
 pub fn run() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let th = std::thread::current();
+        crash_log(&format!("PANIC thread '{}': {info}\n{}", th.name().unwrap_or("?"), std::backtrace::Backtrace::force_capture()));
+        prev(info);
+    }));
     tauri::Builder::default()
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()

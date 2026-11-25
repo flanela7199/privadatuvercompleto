@@ -62,6 +62,11 @@ export function Cenas() {
               <Select value={sc.winSize || ''} options={[['', 'Livre (lembra o último tamanho)'], ['1920x1080', '1920 × 1080 (16:9 Full HD)'], ['1280x720', '1280 × 720 (16:9 HD)'], ['1080x1920', '1080 × 1920 (vertical 9:16)'], ['720x900', '720 × 900 (padrão do app)']]} onChange={(v) => set('winSize', v)} />
             </Field>
           )}
+          {sc.mode !== 'overlay' && (
+            <Field label="Transição ao entrar" tip="Efeito quando você troca PARA esta cena (atalho ou painel). Descarga: a cena anterior é sugada girando para dentro da privada (ou a sala sai girando de dentro dela). Use o mesmo tamanho de janela nas cenas entre as quais vai trocar.">
+              <Select value={sc.transicao || 'descarga'} options={[['descarga', '🌀 Descarga (redemoinho no vaso)'], ['fade', 'Dissolver'], ['nenhuma', 'Nenhuma (corte seco)']]} onChange={(v) => set('transicao', v)} />
+            </Field>
+          )}
           <Field label="Visual da cena"><Select value={sc.outfit || ''} options={[['', '(manter visual atual)'], ...allOutfits(s)]} onChange={(v) => set('outfit', v || null)} /></Field>
           <Field label="Posição X" tip="0 = esquerda, 1 = direita"><Slider value={sc.x} min={0} max={1} step={0.005} onChange={(v) => set('x', v)} /></Field>
           <Field label="Posição Y" tip="Onde fica o pé da privada (0 = topo, 1 = base)"><Slider value={sc.y} min={0} max={1} step={0.005} onChange={(v) => set('y', v)} /></Field>

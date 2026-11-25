@@ -9,8 +9,10 @@ license = "MIT"
 
 [profile.release]
 opt-level = 3
+debug = "line-tables-only"   # gera o .pdb (símbolos para ler crash dumps); não aumenta o .exe
 lto = "thin"
 codegen-units = 1
 
 [profile.release.package.privada-wasm]
 opt-level = 3
+debug = false

@@ -399,9 +399,9 @@ function bandeira(p, ctx) {
     // rajada: força que sobe e desce devagar (nunca para totalmente)
     const raj = 0.55 + 0.3 * Math.sin(T * 0.37) * Math.sin(T * 0.13 + 1) + 0.15 * Math.sin(T * 1.7) * Math.max(0, Math.sin(T * 0.21));
     for (let i = 0; i < pa.count; i++) {
-      const x = base[i * 3], y = base[i * 3 + 1], u = x / w + 0.5, v = -y / h;
+      const x = base[i * 3], y = base[i * 3 + 1], u = Math.min(1, Math.max(0, x / w + 0.5)), v = Math.min(1, Math.max(0, -y / h));
       // presa nos cantos (pregos); as bordas cedem um pouco, o meio solto
-      const solto = Math.pow(Math.sin(Math.PI * u), 0.7) * (0.3 + 0.7 * Math.pow(Math.sin(Math.PI * v), 0.8)) + 0.18 * Math.sin(Math.PI * u) * (v > 0.5 ? 1 : 0.3);
+      const solto = Math.pow(Math.max(0, Math.sin(Math.PI * u)), 0.7) * (0.3 + 0.7 * Math.pow(Math.max(0, Math.sin(Math.PI * v)), 0.8)) + 0.18 * Math.sin(Math.PI * u) * (v > 0.5 ? 1 : 0.3);
       const onda = Math.sin(x * 3.2 - T * 1.9 + y * 0.8) * 0.032 + Math.sin(x * 7.5 - T * 3.1 - y * 2.2) * 0.011 + Math.sin(y * 5.5 + T * 1.3 + x * 1.5) * 0.008;
       const barriga = 0.035 * Math.sin(Math.PI * u) * Math.sin(Math.PI * v);   // ar empurrando o meio
       const pregas = Math.sin(u * Math.PI * 7 + 0.6) * 0.006 * (0.4 + v);        // dobras de pano guardado
@@ -488,17 +488,18 @@ function escada(p) {
   const n = p.degraus ?? 13, comp = p.comprimento ?? 3.4, alt = p.altura ?? 3.3, larg = p.largura ?? 1.05;
   const pa = comp / n, ea = alt / n;
   const conc = TX.concreto(3), cm = mat({ map: repetir(conc.map, 0.6, 0.3), normalMap: repetir(conc.normalMap, 0.6, 0.3), roughness: 0.92 });
-  // degraus sobem para a esquerda (−x)
-  for (let i = 0; i < n; i++) mesh(rbox(pa + 0.02, ea, larg, 0.012, 2), cm, g, -(i + 0.5) * pa, (i + 0.5) * ea, 0);
-  // laje inclinada por baixo
+  // degraus sobem para a esquerda (−x). Degraus vizinhos se sobrepõem 2 cm em x; para as faces da frente/fundo
+  // não ficarem no MESMO plano (z-fighting = escada "piscando"), os ímpares são 4 mm mais estreitos.
+  for (let i = 0; i < n; i++) mesh(rbox(pa + 0.02, ea, larg - (i % 2) * 0.004, 0.012, 2), cm, g, -(i + 0.5) * pa, (i + 0.5) * ea, 0);
+  // laje inclinada por baixo: mais estreita e recuada (antes as laterais coincidiam com as dos degraus)
   const ang = Math.atan2(alt, comp), L = Math.hypot(alt, comp);
-  mesh(new THREE.BoxGeometry(L, 0.18, larg), cm, g, -comp / 2 - 0.06, alt / 2 - 0.12, 0, 0, 0, -ang);
-  // corrimão no lado aberto (+z)
-  const zc = larg / 2 - 0.04, hr = 0.95;
-  for (let i = 0; i <= n; i += 3) mesh(new THREE.CylinderGeometry(0.018, 0.018, hr, 10), m.galvanizado, g, -i * pa - pa * 0.5, i * ea + hr / 2, zc);
+  mesh(new THREE.BoxGeometry(L, 0.18, larg - 0.05), cm, g, -comp / 2 - 0.06, alt / 2 - 0.12, 0, 0, 0, -ang);
+  // corrimão no lado aberto (+z): um pouco mais grosso (fino demais "serrilha" e pisca de longe)
+  const zc = larg / 2 - 0.05, hr = 0.95;
+  for (let i = 0; i <= n; i += 3) mesh(new THREE.CylinderGeometry(0.024, 0.024, hr, 10), m.galvanizado, g, -i * pa - pa * 0.5, i * ea + hr / 2, zc);
   for (const k of [1, 0.55]) {
     const ini = new THREE.Vector3(-pa * 0.5, ea + hr * k, zc), fim = new THREE.Vector3(-(n - 0.5) * pa, n * ea + hr * k, zc);
-    const tubo = new THREE.TubeGeometry(new THREE.LineCurve3(ini, fim), 1, k === 1 ? 0.022 : 0.014, 10);
+    const tubo = new THREE.TubeGeometry(new THREE.LineCurve3(ini, fim), 1, k === 1 ? 0.03 : 0.02, 12);
     mesh(tubo, m.galvanizado, g);
   }
   return g;

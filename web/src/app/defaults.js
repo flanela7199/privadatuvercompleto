@@ -16,6 +16,7 @@ export const ACTIONS = [
 ];
 
 export const DEFAULT_CONFIG = {
+  migr044: true,   // configs novas já nascem no formato 0.4.4 (ver config.rs::migrate)
   version: 1,
   character: 'privada',   // 'privada' (toilet) | 'chratos' (human avatar)
   activeOutfit: 'base',
@@ -27,6 +28,7 @@ export const DEFAULT_CONFIG = {
     { name: 'Janela (OBS chroma)', mode: 'window', outfit: null, x: 0.5, y: 0.86, scale: 1.25, background: 'color', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false },
     { name: 'Janela transparente', mode: 'window', outfit: null, x: 0.5, y: 0.86, scale: 1.25, background: 'transparent', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false },
     { name: 'Sala 3D (cenário completo)', mode: 'window', outfit: null, x: 0.5, y: 0.86, scale: 1.25, background: 'sala', bgColor: '#000000', winSize: '1920x1080', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false },
+    { name: 'Gameplay (vaso no canto)', mode: 'window', outfit: null, x: 0.91, y: 0.975, scale: 1.05, background: 'transparent', bgColor: '#00ff00', winSize: '1920x1080', follow: true, mic: true, clickThrough: 'off', alwaysOnTop: false, transicao: 'descarga' },
     { name: 'Desktop (overlay, opcional)', mode: 'overlay', outfit: null, x: 0.84, y: 0.8, scale: 1.0, background: 'transparent', bgColor: '#00ff00', follow: true, mic: true, clickThrough: 'on', alwaysOnTop: true },
   ],
   hotkeys: {
@@ -43,6 +45,7 @@ export const DEFAULT_CONFIG = {
     'Ctrl+Alt+2': { action: 'scene', arg: '1' },
     'Ctrl+Alt+3': { action: 'scene', arg: '2' },
     'Ctrl+Alt+4': { action: 'scene', arg: '3' },
+    'Ctrl+Alt+5': { action: 'scene', arg: '4' },
     'Ctrl+Shift+1': { action: 'outfit', arg: 'base' },
     'Ctrl+Shift+2': { action: 'outfit', arg: 'soviet' },
     'Ctrl+Shift+3': { action: 'outfit', arg: 'golden' },
