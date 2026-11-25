@@ -20,7 +20,7 @@ import { MaterialLib } from '../rig/materials.js';
 import { DIM } from '../rig/ToiletTuber.js';
 import { makeResolver, migrateOutfit } from './outfits.js';
 import { DEFAULT_CONFIG } from './defaults.js';
-import { criarTransicao } from './transicao.js';
+import { criarTransicao, curvas } from './transicao.js';
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const OUTPUT = new URLSearchParams(location.search).has('output');
@@ -103,13 +103,27 @@ camera.fov = FOV;
 camera.near = 0.1; camera.far = 200;
 renderer.setClearColor(0x000000, 0);
 // transição entre cenas (descarga): a cena que sai é sugada para dentro do vaso / a que entra sai dele
-const trans = criarTransicao(renderer, scene, camera);
-const _pv = new THREE.Vector3();
-/** onde está a "boca" do vaso na tela, em uv (0..1, origem embaixo). O personagem fica sempre na origem do mundo. */
-function vasoUV() {
-  _pv.set(0, 0.5, 0.05).project(camera);
-  return [THREE.MathUtils.clamp(_pv.x * 0.5 + 0.5, 0, 1), THREE.MathUtils.clamp(_pv.y * 0.5 + 0.5, 0, 1)];
-}
+const _pv = new THREE.Vector3(), _pv2 = new THREE.Vector3();
+const trans = criarTransicao(renderer, scene, camera, {
+  // cenário sem o vaso (para a foto que ele engole / a sala que ele cospe)
+  semVaso(fn) { const v = tuber?.root.visible; if (tuber) tuber.root.visible = false; try { fn(); } finally { if (tuber) tuber.root.visible = v; } },
+  // só o vaso (as luzes continuam): esconde o resto da cena, inclusive os móveis das salas 3D
+  soVaso(fn) {
+    const esc = [];
+    for (const o of scene.children) {
+      if (o === tuber?.root || o.isLight || !o.visible) continue;
+      if (o.userData.cenario) { for (const c of o.children) if (!c.isLight && c.visible) { esc.push(c); c.visible = false; } }
+      else { esc.push(o); o.visible = false; }
+    }
+    try { fn(); } finally { for (const o of esc) o.visible = true; }
+  },
+  // boca do vaso no mundo (entre o lábio de baixo e a ponta da tampa); sem sockets: meio do vaso
+  bocaMundo(out) {
+    const sk = tuber?.sockets;
+    if (sk?.mouth && sk?.lip_upper) { sk.mouth.getWorldPosition(out); sk.lip_upper.getWorldPosition(_pv2); out.lerp(_pv2, 0.5); }
+    else out.set(0, 0.55, 0.1);
+  },
+});
 
 // window mode: invisible drag strip on top (Tauri drag region) with a subtle handle on hover
 const strip = document.createElement('div');
@@ -250,16 +264,20 @@ function applyLookLimits() {
 /* -------------------------------------------------------- sala 3D (cenário) */
 // Cena com fundo "sala": o fundo 3D completo é desenhado na MESMA cena/renderer do personagem
 // (web/src/cenario). Carregado só quando alguma cena usa (não pesa para quem não usa).
-let cenario = null, cenarioJob = null;
-function garantirCenario() {
-  if (cenario) return Promise.resolve(cenario);
-  if (!cenarioJob) cenarioJob = import('../cenario/cenario.js')
-    .then((m) => m.criarCenario({ renderer, scene, camera, invoke, invokeRaw }))
-    .then((c) => (cenario = c))
-    .catch((e) => { console.warn('[avatar] sala 3D indisponível:', e); cenarioJob = null; return null; });
-  return cenarioJob;
+// Dois ambientes: 'sala' (porão de concreto) e 'ilha' (ilha tropical). Cada um é criado só na 1ª vez.
+const cenarios = {}, cenarioJobs = {};
+let cenario = null;   // o último ativado (editor / miniaturas)
+const ambDe = (sc) => (sc?.background === 'ilha' ? 'ilha' : 'sala');
+function garantirCenario(amb = ambDe(scene0())) {
+  if (cenarios[amb]) return Promise.resolve(cenarios[amb]);
+  if (!cenarioJobs[amb]) cenarioJobs[amb] = import('../cenario/cenario.js')
+    .then((m) => m.criarCenario({ renderer, scene, camera, invoke, invokeRaw, ambiente: amb }))
+    .then((c) => (cenarios[amb] = c))
+    .catch((e) => { console.warn('[avatar] cenário 3D indisponível:', amb, e); cenarioJobs[amb] = null; return null; });
+  return cenarioJobs[amb];
 }
-const usaSala = (sc) => !OUTPUT && sc?.background === 'sala';
+const cenarioAtivo = () => Object.values(cenarios).find((c) => c.ativo) || null;
+const usaSala = (sc) => !OUTPUT && (sc?.background === 'sala' || sc?.background === 'ilha');
 
 /* ------------------------------------------------------------- scenes */
 let follow = true, micOn = true, scale = 1, charPx = BASE_PX, mode = 'window';
@@ -291,7 +309,7 @@ function applyScene(i, { save = false } = {}) {
   if (!OUTPUT && firstFrame && cenaAtual >= 0 && idx !== cenaAtual) {
     const tipo = sc.transicao || 'descarga';
     if (trans.ativa) trans.cancelar();
-    if (tipo !== 'nenhuma' && trans.capturar()) tr = { tipo, modo: usaSala(sc) ? 'entra' : 'sai', dreno: vasoUV() };
+    if (tipo !== 'nenhuma' && trans.capturar(tipo)) tr = { tipo, modo: usaSala(sc) ? 'entra' : 'sai' };
   }
   cenaAtual = idx;
   const st = settings();
@@ -311,8 +329,11 @@ function applyScene(i, { save = false } = {}) {
     follow = sc.follow ?? st.followDefault ?? true;
     solid = sc.background === 'color' || sc.background === 'chroma' || usaSala(sc);
     color = usaSala(sc) ? '#000000' : (sc.bgColor || '#00ff00');
-    if (usaSala(sc)) garantirCenario().then((c) => { if (c && usaSala(scene0())) c.ativar(); });
-    else cenario?.desativar();
+    if (usaSala(sc)) {
+      const amb = ambDe(sc);
+      for (const [k, c] of Object.entries(cenarios)) if (k !== amb) c.desativar();
+      garantirCenario(amb).then((c) => { if (c && usaSala(scene0()) && ambDe(scene0()) === amb) { c.ativar(); cenario = c; } });
+    } else for (const c of Object.values(cenarios)) c.desativar();
     // tamanho fixo da janela (ex.: 1920x1080 para o OBS). Em pixels reais da tela: o Tauri recebe
     // tamanho lógico, então divide pela escala do Windows (125%, 150%...). Só reaplica quando a cena
     // ou o tamanho mudam (a cada 'state' do painel o applyScene roda de novo).
@@ -335,8 +356,9 @@ function applyScene(i, { save = false } = {}) {
   if (tr) {
     const ehEntra = tr.modo === 'entra';
     fundoJanela(solid && !ehEntra);
+    trans.engoliu = false;
     trans.iniciar({ ...tr, fim: () => { if (cenaAtual === idx) fundoJanela(solid); } });
-    if (tr.tipo === 'descarga') sfx.play('flush');
+    if (tr.tipo === 'descarga') sfx.play('whoosh');
   } else if (!trans.ativa) fundoJanela(solid);
   document.body.classList.toggle('windowed', mode !== 'overlay');
   document.body.classList.toggle('solidbg', !!solid);
@@ -417,7 +439,7 @@ function act(action, arg) {
     case 'outfit': config.outfitTheme = null; config.activeOutfit = arg; applyOutfit(arg); saveSoon(); break;
     case 'scene': applyScene(+arg, { save: true }); break;
     case 'viseme': fake.hold(arg, 0.6); break;
-    case 'sala': garantirCenario().then((c) => c?.editar(arg || 'toggle')); break;   // abre/fecha o editor da sala 3D
+    case 'sala': garantirCenario(ambDe(scene0())).then((c) => c?.editar(arg || 'toggle')); break;   // abre/fecha o editor da sala 3D
     case 'say': fake.say(arg || ''); break;
     case 'toggle':
       if (arg === 'clickthrough') {
@@ -655,7 +677,7 @@ function renderOneThumb() {
     renderer.setScissorTest(true);
     renderer.setViewport(0, 0, S, S); renderer.setScissor(0, 0, S, S);
     renderer.setClearColor(0x000000, 0); renderer.clear();
-    if (cenario) cenario.miniatura(() => renderer.render(scene, th.cam)); else renderer.render(scene, th.cam);
+    const ca = cenarioAtivo(); if (ca) ca.miniatura(() => renderer.render(scene, th.cam)); else renderer.render(scene, th.cam);
     if (!th.out) { th.out = new OffscreenCanvas(TH, TH); th.outCtx = th.out.getContext('2d'); }
     const cv = renderer.domElement;
     th.outCtx.clearRect(0, 0, TH, TH);
@@ -709,12 +731,13 @@ function frame(now) {
   last = now; lastFrame = now;
 
   const [sx, sy] = restPoint();
-  // durante a descarga o vaso "engole" a cena (dá uma inchada no fim)
-  const gole = trans.ativa && trans.modo === 'sai' ? Math.sin(Math.PI * clamp((trans.progresso - 0.62) / 0.38, 0, 1)) * 0.14 : 0;
-  charPx = BASE_PX * scale * (1 + gole);
-  if (cenario?.ativo) cenario.frame(dt, tuber);   // sala 3D: câmera da sala (o personagem fica no "lugar" dele)
+  // durante a transição o vaso "engole" a cena (dá uma inchada quando engole)
+  const comBoca = trans.ativa && trans.tipo !== 'fade';
+  charPx = BASE_PX * scale * (1 + (comBoca ? curvas.gole(trans.modo, trans.progresso) : 0));
+  if (comBoca && trans.modo === 'sai' && trans.progresso > 0.8 && !trans.engoliu) { trans.engoliu = true; sfx.play('gole'); }
+  const cAtivo = cenarioAtivo();
+  if (cAtivo) cAtivo.frame(dt, tuber);   // sala 3D: câmera da sala (o personagem fica no "lugar" dele)
   else placeCamera(sx, sy);
-  if (trans.ativa && trans.modo === 'sai') trans.setDreno(...vasoUV());
   if (DBG) debugCamera();
 
   let look = { x: 0, y: 0 };
@@ -727,7 +750,8 @@ function frame(now) {
   else if (OUTPUT && remoteMouth && now - remoteT < 500) mic = remoteMouth;
   const test = mouthTest && now - mouthTestT < 2000 && (mouthTest.cornerL || mouthTest.cornerR) ? mouthTest : null;
   const rawMouth = maxMouth(mic, fake.update(dt), test);   // maxMouth keeps the signed corner channels
-  const mouth = DBG ? { ...zeroMouth(), ...(DBG_EXPR[DBG.expr] || {}) } : shapeMouth(rawMouth);
+  let mouth = DBG ? { ...zeroMouth(), ...(DBG_EXPR[DBG.expr] || {}) } : shapeMouth(rawMouth);
+  if (comBoca) { const b = curvas.boca(trans.modo, trans.progresso); if (b > 0.01) mouth = { ...zeroMouth(), open: b * 0.85, wide: b * 0.6, round: b * 0.15 }; }
 
   if (settings().autoBlink === false || DBG) tuber.blinkTimer = 1e9;
   else if (tuber.blinkTimer > 1e8) tuber.blinkTimer = 2;
@@ -835,4 +859,4 @@ applySettings();
 applyConfigOutfit();
 applyScene(config.activeScene);
 applyLookLimits();
-window.avatar = { output: OUTPUT, act, cenario: () => cenario, config: () => config, applyScene, applyOutfit, computeLook, setCharacter, character: () => character };
+window.avatar = { output: OUTPUT, act, trans: () => trans, cenario: () => cenarioAtivo() || cenario, cenarios: () => cenarios, config: () => config, applyScene, applyOutfit, computeLook, setCharacter, character: () => character };

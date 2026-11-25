@@ -5,7 +5,7 @@ const Q = (id, nome, x, y, w, h, moldura, foto, inclinacao = 0, parede = 'fundo'
 
 export const CENA_PADRAO = {
   versao: 2,
-  rev: 2,
+  rev: 3,
   camera: { pos: [0.3, 1.95, 6.9], alvo: [0.3, 1.5, -1.2], fov: 36 },
   // lugar do personagem na sala (x, z em metros; o personagem fica sempre na origem do mundo e a sala se ajusta)
   personagem: { pos: [0.6, -0.45], rot: 0, sombra: 1.1 },
@@ -17,7 +17,7 @@ export const CENA_PADRAO = {
     { id: 'mesinha', tipo: 'mesinha', nome: 'Mesinha de madeira', pos: [2.9, 0, -2.02], rot: 0, escala: 1, p: {} },
     { id: 'tv', tipo: 'tv', nome: 'TV antiga', pos: [2.9, 0.66, -1.98], rot: -6, escala: 1, p: { tela: 'chuvisco' } },
     { id: 'estatueta', tipo: 'estatueta', nome: 'Estatueta de prata', pos: [2.5, 1.47, -2.02], rot: 10, escala: 1, p: {} },
-    { id: 'caixinha', tipo: 'caixinha', nome: 'Caixinha', pos: [3.22, 1.47, -2.05], rot: -8, escala: 1, p: {} },
+    { id: 'caixinha', tipo: 'onibus', nome: 'Miniatura de ônibus (Vasco)', pos: [3.2, 1.47, -2.06], rot: -6, escala: 1, p: {} },
     { id: 'mesa', tipo: 'mesa_vermelha', nome: 'Mesa de bar vermelha', pos: [-2.15, 0, -0.45], rot: 18, escala: 1, p: { cor: '#c8121b' } },
     { id: 'livro_capital', tipo: 'livro', nome: 'Livro O Capital', pos: [-2.3, 0.937, -0.55], rot: 14, escala: 0.82, p: { capa: 'capital' } },
     { id: 'livro_amarelo', tipo: 'livro', nome: 'O Livro Amarelo', pos: [-1.95, 0.937, -0.47], rot: 20, escala: 0.82, p: { capa: 'amarelo' } },

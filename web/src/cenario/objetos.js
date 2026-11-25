@@ -324,6 +324,164 @@ function caixinha() {
   return g;
 }
 
+/* ============================================================ MINIATURA DE ÔNIBUS (o "Vasco" de cima da TV) */
+// Ônibus rodoviário de dois andares em miniatura: preto, faixa branca, escudo branco com cruz vermelha
+// na lateral, para-brisa grande e 3 eixos. p.imagem = imagem própria para a lateral (adesivo).
+function canvasTex(w, h, desenha) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h; desenha(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t;
+}
+function ladoOnibus(x, W, H) {
+  const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#2a2b2f'); g.addColorStop(0.5, '#141416'); g.addColorStop(1, '#0b0b0c');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  // janelas dos dois andares (vidro fumê com reflexo)
+  const vid = (y, h) => { const gv = x.createLinearGradient(0, y, 0, y + h); gv.addColorStop(0, '#3b4350'); gv.addColorStop(0.45, '#1a1e25'); gv.addColorStop(1, '#0d0f13'); x.fillStyle = gv; x.fillRect(W * 0.16, y, W * 0.8, h); };
+  vid(H * 0.1, H * 0.2); vid(H * 0.42, H * 0.17);
+  x.strokeStyle = 'rgba(0,0,0,.7)'; x.lineWidth = 6;
+  for (let k = 1; k < 7; k++) { const xx = W * (0.16 + k * 0.8 / 7); x.beginPath(); x.moveTo(xx, H * 0.1); x.lineTo(xx, H * 0.3); x.moveTo(xx, H * 0.42); x.lineTo(xx, H * 0.59); x.stroke(); }
+  // faixa branca em diagonal (corre da frente para o teto)
+  x.fillStyle = '#e9e9e6'; x.beginPath(); x.moveTo(W * 0.02, H * 0.86); x.bezierCurveTo(W * 0.25, H * 0.8, W * 0.32, H * 0.25, W * 0.42, 0); x.lineTo(W * 0.455, 0); x.bezierCurveTo(W * 0.35, H * 0.3, W * 0.28, H * 0.86, W * 0.02, H * 0.92); x.fill();
+  // escudo branco com cruz vermelha
+  const ex = W * 0.66, ey = H * 0.2, ew = W * 0.15, eh = H * 0.62;
+  x.fillStyle = '#d8d8d4'; x.strokeStyle = '#f4f4f2'; x.lineWidth = 5;
+  x.beginPath(); x.moveTo(ex, ey); x.lineTo(ex + ew, ey); x.lineTo(ex + ew, ey + eh * 0.55); x.quadraticCurveTo(ex + ew, ey + eh * 0.9, ex + ew / 2, ey + eh); x.quadraticCurveTo(ex, ey + eh * 0.9, ex, ey + eh * 0.55); x.closePath(); x.fill(); x.stroke();
+  x.fillStyle = '#c3161c'; const cx = ex + ew / 2, cy = ey + eh * 0.45, a = ew * 0.36, b = ew * 0.1;
+  x.beginPath();
+  x.moveTo(cx - b, cy - b); x.lineTo(cx - a * 0.75, cy - a * 1.15); x.lineTo(cx + a * 0.75, cy - a * 1.15); x.lineTo(cx + b, cy - b);
+  x.lineTo(cx + a * 1.0, cy - a * 0.6); x.lineTo(cx + a * 1.0, cy + a * 0.6); x.lineTo(cx + b, cy + b);
+  x.lineTo(cx + a * 0.75, cy + a * 1.5); x.lineTo(cx - a * 0.75, cy + a * 1.5); x.lineTo(cx - b, cy + b);
+  x.lineTo(cx - a * 1.0, cy + a * 0.6); x.lineTo(cx - a * 1.0, cy - a * 0.6); x.closePath(); x.fill();
+  // flâmula cinza saindo do escudo e detalhes
+  x.fillStyle = 'rgba(200,200,196,.55)'; x.beginPath(); x.moveTo(ex + ew, ey + eh * 0.1); x.bezierCurveTo(W * 0.88, H * 0.05, W * 0.93, H * 0.3, W * 0.99, H * 0.22); x.lineTo(W * 0.99, H * 0.3); x.bezierCurveTo(W * 0.92, H * 0.38, W * 0.88, H * 0.2, ex + ew, ey + eh * 0.22); x.fill();
+  x.fillStyle = '#0a0a0a'; x.fillRect(0, H * 0.93, W, H * 0.07);   // saia
+}
+function onibus(p) {
+  const m = mats(), g = grupo('onibus');
+  const L = 0.5, Hc = 0.165, Wd = 0.12, y0 = 0.024;
+  const lado = p.imagem ? texturaFoto(p.imagem, L, Hc) : canvasTex(1024, 340, ladoOnibus);
+  const ladoB = lado.clone(); ladoB.needsUpdate = true; ladoB.wrapS = THREE.RepeatWrapping; ladoB.repeat.x = -1; ladoB.offset.x = 1;
+  const frente = canvasTex(256, 340, (x, W, H) => {
+    x.fillStyle = '#121214'; x.fillRect(0, 0, W, H);
+    const gv = x.createLinearGradient(0, 0, W, H); gv.addColorStop(0, '#5b6675'); gv.addColorStop(0.4, '#1b2029'); gv.addColorStop(1, '#0c0e12');
+    x.fillStyle = gv; x.fillRect(W * 0.08, H * 0.06, W * 0.84, H * 0.26); x.fillRect(W * 0.08, H * 0.38, W * 0.84, H * 0.33);
+    x.fillStyle = '#f2f2ee'; x.fillRect(W * 0.08, H * 0.78, W * 0.2, H * 0.06); x.fillRect(W * 0.72, H * 0.78, W * 0.2, H * 0.06);
+    x.fillStyle = '#9a9a9a'; x.fillRect(W * 0.34, H * 0.8, W * 0.32, H * 0.08);
+  });
+  const tras = canvasTex(256, 340, (x, W, H) => {
+    x.fillStyle = '#141416'; x.fillRect(0, 0, W, H); x.fillStyle = '#1d2027'; x.fillRect(W * 0.12, H * 0.08, W * 0.76, H * 0.2);
+    x.fillStyle = '#c31a1a'; x.fillRect(W * 0.06, H * 0.62, W * 0.12, H * 0.18); x.fillRect(W * 0.82, H * 0.62, W * 0.12, H * 0.18);
+  });
+  const verniz = { roughness: 0.3, clearcoat: 0.8, clearcoatRoughness: 0.12 };
+  const preto = mat({ color: '#101012', ...verniz });
+  // caixa com materiais por face: +x frente, -x trás, +y teto, -y chão, +z lado, -z lado
+  const geo = new THREE.BoxGeometry(L, Hc, Wd);
+  const caixa = mesh(geo, [mat({ map: frente, ...verniz }), mat({ map: tras, ...verniz }), preto, preto, mat({ map: lado, ...verniz }), mat({ map: ladoB, ...verniz })], g, 0, y0 + Hc / 2, 0);
+  caixa.name = 'carroceria';
+  // cantos arredondados de miniatura: teto e frente com "capô" curvo
+  mesh(new THREE.CylinderGeometry(0.018, 0.018, Wd, 16, 1, false, 0, Math.PI / 2), preto, g, L / 2 - 0.018, y0 + Hc - 0.018, 0, Math.PI / 2, 0, 0).scale.set(1, 1, 1);
+  // rodas: 1 eixo na frente, 2 atrás
+  const pneu = mat({ color: '#0c0c0c', roughness: 0.85 }), r = 0.022;
+  for (const ex of [L * 0.33, -L * 0.26, -L * 0.38]) for (const sz of [-1, 1]) {
+    mesh(new THREE.CylinderGeometry(r, r, 0.018, 20), pneu, g, ex, r, sz * (Wd / 2 - 0.006), Math.PI / 2);
+    mesh(new THREE.CylinderGeometry(r * 0.55, r * 0.55, 0.002, 16), m.cromo, g, ex, r, sz * (Wd / 2 + 0.0035), Math.PI / 2);
+  }
+  // retrovisores "chifre" na frente
+  for (const sz of [-1, 1]) mesh(new THREE.BoxGeometry(0.008, 0.03, 0.006), preto, g, L / 2 + 0.008, y0 + Hc * 0.72, sz * (Wd / 2 + 0.006));
+  return g;
+}
+
+/* ============================================================ GUARDA-SOL de praia */
+function guardaSol(p) {
+  const g = grupo('guarda_sol');
+  const R = p.raio ?? 1.25, alt = p.altura ?? 2.25, n = 10, c1 = p.cor || '#f6c21a', c2 = p.cor2 || '#d6262b';
+  const haste = mat({ color: '#f3f1ea', roughness: 0.4, metalness: 0.2 });
+  const incl = (p.inclinacao ?? 8) * Math.PI / 180;
+  const topo = grupo('topo'); topo.rotation.z = incl; g.add(topo);
+  mesh(new THREE.CylinderGeometry(0.02, 0.022, alt, 12), haste, topo, 0, alt / 2, 0);
+  mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.12, 12), haste, topo, 0, alt * 0.62, 0);
+  // lona em gomos (cone aberto com leve "barriga" entre as varetas)
+  const geo = new THREE.CylinderGeometry(0.004, R, 0.48, n * 4, 6, true);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i), y = pos.getY(i), a = Math.atan2(z, x), rr = Math.hypot(x, z);
+    const gomo = Math.abs(Math.sin((a * n) / 2));             // 0 nas varetas, 1 no meio do gomo
+    pos.setY(i, y - gomo * 0.035 * (rr / R));
+  }
+  geo.computeVertexNormals();
+  const tex = canvasTex(1024, 64, (x, W, H) => { for (let k = 0; k < n; k++) { x.fillStyle = k % 2 ? c2 : c1; x.fillRect((k * W) / n, 0, W / n + 1, H); } });
+  const lona = mesh(geo, mat({ map: tex, emissiveMap: tex, emissive: new THREE.Color('#ffffff'), emissiveIntensity: 0.22, roughness: 0.75, side: THREE.DoubleSide, sheen: 0.4, sheenColor: new THREE.Color('#ffffff') }), topo, 0, alt + 0.2, 0);   // emissive = sol atravessando a lona
+  lona.name = 'lona';
+  // babado na borda
+  const bab = new THREE.CylinderGeometry(R * 0.995, R * 0.995, 0.09, n * 4, 1, true);
+  mesh(bab, mat({ map: tex, roughness: 0.8, side: THREE.DoubleSide }), topo, 0, alt - 0.08, 0);
+  // varetas
+  for (let k = 0; k < n; k++) {
+    const a = (k / n) * Math.PI * 2 + Math.PI / n;
+    const ap = new THREE.Vector3(0, alt + 0.44, 0), base = new THREE.Vector3(Math.cos(a) * R * 0.99, alt - 0.06, Math.sin(a) * R * 0.99);
+    const d = base.clone().sub(ap), v = mesh(new THREE.CylinderGeometry(0.006, 0.006, d.length(), 6), haste, topo);
+    v.position.copy(ap).addScaledVector(d, 0.5); v.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.normalize());
+  }
+  mesh(new THREE.SphereGeometry(0.035, 12, 8), haste, topo, 0, alt + 0.45, 0);
+  return g;
+}
+
+/* ============================================================ COQUEIRO */
+function texFolha() {
+  return canvasTex(128, 512, (x, W, H) => {
+    x.clearRect(0, 0, W, H);
+    // folíolos saindo da nervura central
+    for (let i = 0; i < 46; i++) {
+      const y = 10 + (i / 46) * (H - 20), larg = W * 0.48 * Math.sin(Math.PI * (0.12 + 0.88 * i / 46)) + 6;
+      x.strokeStyle = `hsl(${92 + Math.random() * 18},${48 + Math.random() * 14}%,${24 + Math.random() * 12}%)`; x.lineWidth = 5 + Math.random() * 2;
+      for (const s of [-1, 1]) { x.beginPath(); x.moveTo(W / 2, y); x.quadraticCurveTo(W / 2 + s * larg * 0.5, y + 6, W / 2 + s * larg, y + 22 + Math.random() * 6); x.stroke(); }
+    }
+    x.strokeStyle = '#6a7a2a'; x.lineWidth = 4; x.beginPath(); x.moveTo(W / 2, 0); x.lineTo(W / 2, H); x.stroke();
+  });
+}
+let FOLHA = null;
+function coqueiro(p, ctx) {
+  const g = grupo('coqueiro');
+  const alt = p.altura ?? 6.5, curva = p.curva ?? 1.4, seed = p.semente ?? 1;
+  let sr = seed * 9301 + 49297; const r = () => ((sr = (sr * 9301 + 49297) % 233280) / 233280);
+  // tronco curvo, mais fino em cima, com anéis
+  const pts = []; for (let i = 0; i <= 10; i++) { const t = i / 10; pts.push(new THREE.Vector3(curva * t * t, alt * t, curva * 0.25 * Math.sin(t * 2))); }
+  const curvaT = new THREE.CatmullRomCurve3(pts);
+  const tg = new THREE.TubeGeometry(curvaT, 40, 0.17, 10, false);
+  const tp = tg.attributes.position, uv = tg.attributes.uv;
+  for (let i = 0; i < tp.count; i++) {
+    const t = uv.getX(i), c = curvaT.getPoint(t), k = 1 - 0.45 * t;
+    tp.setXYZ(i, c.x + (tp.getX(i) - c.x) * k * (t < 0.05 ? 1.3 - t * 6 : 1), tp.getY(i), c.z + (tp.getZ(i) - c.z) * k * (t < 0.05 ? 1.3 - t * 6 : 1));
+  }
+  tg.computeVertexNormals();
+  const casca = canvasTex(64, 512, (x, W, H) => {
+    x.fillStyle = '#8a6f4f'; x.fillRect(0, 0, W, H);
+    for (let y = 0; y < H; y += 9 + Math.random() * 4) { x.fillStyle = `rgba(60,42,25,${0.35 + Math.random() * 0.3})`; x.fillRect(0, y, W, 3); x.fillStyle = 'rgba(190,165,130,.25)'; x.fillRect(0, y + 3, W, 2); }
+  });
+  casca.wrapS = casca.wrapT = THREE.RepeatWrapping; casca.repeat.set(1, 6);
+  mesh(tg, mat({ map: casca, roughness: 0.95 }), g);
+  // copa
+  const topo = curvaT.getPoint(1), copa = grupo('copa'); copa.position.copy(topo); g.add(copa);
+  FOLHA ||= texFolha();
+  const mf = mat({ map: FOLHA, alphaTest: 0.45, side: THREE.DoubleSide, roughness: 0.7, sheen: 0.3 });
+  const nF = 11;
+  for (let i = 0; i < nF; i++) {
+    const comp = 2.0 + r() * 0.8, geo = new THREE.PlaneGeometry(1.15, comp, 1, 12);
+    geo.translate(0, comp / 2, 0);
+    const pa = geo.attributes.position;
+    for (let k = 0; k < pa.count; k++) { const y = pa.getY(k), t = y / comp; pa.setZ(k, -t * t * comp * 0.85); pa.setX(k, pa.getX(k) * (1 - Math.abs(pa.getX(k)) * 0.3 * t)); }
+    geo.computeVertexNormals();
+    const f = new THREE.Mesh(geo, mf); f.castShadow = true;
+    const piv = new THREE.Group(); piv.rotation.y = (i / nF) * Math.PI * 2 + r() * 0.4; piv.add(f);
+    f.rotation.x = -Math.PI / 2 + 0.35 + r() * 0.45;   // sai quase na horizontal, subindo um pouco; a curva da geometria faz a queda
+    copa.add(piv);
+  }
+  for (let i = 0; i < 4; i++) mesh(new THREE.SphereGeometry(0.11, 12, 10), mat({ color: i % 2 ? '#5a6b23' : '#6b5326', roughness: 0.6 }), copa, Math.cos(i * 1.7) * 0.14, -0.12, Math.sin(i * 1.7) * 0.14);
+  // balanço no vento
+  const fase = r() * 10;
+  ctx?.animacoes.set(g, (t) => { copa.rotation.z = Math.sin(t * 0.7 + fase) * 0.04; copa.rotation.x = Math.sin(t * 0.53 + fase * 2) * 0.03; });
+  return g;
+}
+
 /* ============================================================ QUADRO (moldura + foto) */
 export const MOLDURAS = {
   dourada: { nome: 'Dourada', borda: 0.11, prof: 0.05, mat: 'ouro', friso: 'ouroVelho' },
@@ -519,6 +677,9 @@ export const CATALOGO = {
   mesinha: { nome: 'Mesinha de madeira', fn: mesinha, tipo: 'piso' },
   estatueta: { nome: 'Estatueta de prata', fn: estatueta, tipo: 'piso' },
   caixinha: { nome: 'Caixinha', fn: caixinha, tipo: 'piso' },
+  onibus: { nome: 'Miniatura de ônibus (Vasco)', fn: onibus, tipo: 'piso', campos: ['imagem'] },
+  guarda_sol: { nome: 'Guarda-sol', fn: guardaSol, tipo: 'piso', campos: ['cor'] },
+  coqueiro: { nome: 'Coqueiro', fn: coqueiro, tipo: 'piso' },
   quadro: { nome: 'Quadro com foto', fn: quadro, tipo: 'parede', campos: ['foto', 'moldura', 'tamanho'] },
   bandeira: { nome: 'Bandeira', fn: bandeira, tipo: 'parede', campos: ['imagem', 'tamanho'] },
   poster: { nome: 'Pôster encostado', fn: poster, tipo: 'piso', campos: ['imagem', 'tamanho'] },

@@ -16,17 +16,23 @@ import { MaterialLib } from '../rig/materials.js';
 import { CATALOGO, MOLDURAS, construir } from './objetos.js';
 import { criarSala, criarFeixe, criarPoeira, PAREDES, SALA } from './sala.js';
 import { CENA_PADRAO, MIGRAR_POS } from './cena-padrao.js';
+import { CENA_ILHA } from './cena-ilha.js';
+import { criarIlha, SOL_DIR as SOL_ILHA, ILHA } from './ilha.js';
 import * as TX from './texturas.js';
 
-const CHAVE = 'privada_sala3d_v1';
+// ambientes: cada um tem o seu layout salvo, a sua cena padrão e o seu "mundo" (sala de concreto / ilha)
+const AMBIENTES = {
+  sala: { chave: 'privada_sala3d_v1', cache: 'sala3d-layout', padrao: CENA_PADRAO, nome: 'Sala 3D', env: 0.32, far: 40 },
+  ilha: { chave: 'privada_ilha3d_v1', cache: 'ilha3d-layout', padrao: CENA_ILHA, nome: 'Ilha tropical', env: 0.75, far: 220 },
+};
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const D2R = Math.PI / 180;
 const QUAL = { baixa: { sombra: 1024, sombraLampada: false, cada: 3 }, media: { sombra: 2048, sombraLampada: false, cada: 2 }, alta: { sombra: 2048, sombraLampada: true, cada: 1 } };
 
-function normalizar(c) {
-  c.efeitos = Object.assign({}, CENA_PADRAO.efeitos, c.efeitos || {});
-  c.camera = Object.assign({}, CENA_PADRAO.camera, c.camera || {});
-  c.personagem = Object.assign({}, CENA_PADRAO.personagem, c.personagem || {});
+function normalizar(c, PADRAO = CENA_PADRAO) {
+  c.efeitos = Object.assign({}, PADRAO.efeitos, c.efeitos || {});
+  c.camera = Object.assign({}, PADRAO.camera, c.camera || {});
+  c.personagem = Object.assign({}, PADRAO.personagem, c.personagem || {});
   for (const it of c.itens) { it.escala ??= 1; it.rot ??= 0; it.visivel ??= true; it.p ??= {}; }
   // migração 0.4.x -> 0.4.4: o que ainda está no lugar antigo vai para o lugar novo
   if (!(c.rev >= 2)) {
@@ -40,45 +46,55 @@ function normalizar(c) {
     if (igual(c.camera.pos, [0.15, 1.95, 6.9]) && igual(c.camera.alvo, [0.15, 1.5, -1.2])) { c.camera.pos = CENA_PADRAO.camera.pos.slice(); c.camera.alvo = CENA_PADRAO.camera.alvo.slice(); }
     c.rev = 2;
   }
+  // 0.4.5: a "caixinha" de cima da TV era na verdade a miniatura do ônibus do Vasco
+  if (c.rev < 3) {
+    for (const it of c.itens) if (it.id === 'caixinha' && it.tipo === 'caixinha') { it.tipo = 'onibus'; it.nome = 'Miniatura de ônibus (Vasco)'; }
+    c.rev = 3;
+  }
   return c;
 }
 
-export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw }) {
+export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw, ambiente = 'sala' }) {
+  const AMB = AMBIENTES[ambiente] || AMBIENTES.sala, PADRAO = AMB.padrao, ehIlha = ambiente === 'ilha';
+  const CHAVE = AMB.chave;
   /* ------------------------------------------------------------ layout salvo */
   let cena = null;
   const cands = [];
   try { const s = localStorage.getItem(CHAVE); if (s) cands.push(JSON.parse(s)); } catch (e) { /* */ }
   try { // cópia de segurança no privada-data/cache (sobrevive a limpar dados do WebView)
-    const buf = await invoke('cache_get', { key: 'sala3d-layout' });
+    const buf = await invoke('cache_get', { key: AMB.cache });
     if (buf && buf.byteLength) cands.push(JSON.parse(new TextDecoder().decode(buf)));
   } catch (e) { /* */ }
   cands.sort((a, b) => (b.salvoEm || 0) - (a.salvoEm || 0));
-  cena = normalizar(cands.find((c) => c && c.versao === 2 && Array.isArray(c.itens)) || clone(CENA_PADRAO));
+  cena = normalizar(cands.find((c) => c && c.versao === 2 && Array.isArray(c.itens)) || clone(PADRAO), PADRAO);
 
   /* ------------------------------------------------------------ raiz da sala */
-  const raiz = new THREE.Group(); raiz.name = 'sala3d'; raiz.visible = false;
+  const raiz = new THREE.Group(); raiz.name = ehIlha ? 'ilha3d' : 'sala3d'; raiz.visible = false; raiz.userData.cenario = true;
   const q = () => QUAL[cena.efeitos.qualidade] || QUAL.media;
   const ctx = { mats: new MaterialLib({}), animacoes: new Map(), animaveis: new Set(), qualidade: q() };
   // luzes próprias da sala (as do palco são desligadas enquanto a sala está ativa)
-  const hemi = new THREE.HemisphereLight(0xdfe6ee, 0x6e665c, 0.55);
-  const dirSol = new THREE.Vector3(-1, -0.62, -0.42).normalize();
-  const sol = new THREE.DirectionalLight(0xfff0d6, 5.5);
-  sol.position.copy(dirSol).multiplyScalar(-14).add(new THREE.Vector3(2.2, 1.4, -1.2));
-  sol.target.position.set(2.2, 1.4, -1.2);
+  const hemi = ehIlha ? new THREE.HemisphereLight(0xcfe9ff, 0xf0d9a8, 1.15) : new THREE.HemisphereLight(0xdfe6ee, 0x6e665c, 0.55);
+  const dirSol = ehIlha ? SOL_ILHA.clone() : new THREE.Vector3(-1, -0.62, -0.42).normalize();
+  const SOL_BASE = ehIlha ? 3.6 : 5.5;
+  const sol = new THREE.DirectionalLight(ehIlha ? 0xfff1dc : 0xfff0d6, SOL_BASE);
+  const alvoSol = ehIlha ? new THREE.Vector3(0, 0.8, 0) : new THREE.Vector3(2.2, 1.4, -1.2);
+  sol.position.copy(dirSol).multiplyScalar(-14).add(alvoSol);
+  sol.target.position.copy(alvoSol);
   sol.castShadow = true; sol.shadow.mapSize.set(q().sombra, q().sombra);
-  Object.assign(sol.shadow.camera, { left: -6, right: 6, top: 5, bottom: -5, near: 4, far: 30 });
+  Object.assign(sol.shadow.camera, ehIlha ? { left: -8, right: 8, top: 8, bottom: -6, near: 2, far: 32 } : { left: -6, right: 6, top: 5, bottom: -5, near: 4, far: 30 });
   sol.shadow.bias = -0.0004; sol.shadow.normalBias = 0.02; sol.shadow.radius = 3;
-  const prench = new THREE.DirectionalLight(0xd8e4ff, 0.55); prench.position.set(-2, 3, 6);
-  const prench2 = new THREE.PointLight(0xffe2c0, 1.6, 12, 2); prench2.position.set(-1, 2.6, 2.5);
+  const prench = new THREE.DirectionalLight(0xd8e4ff, ehIlha ? 0.35 : 0.55); prench.position.set(-2, 3, 6);
+  const prench2 = new THREE.PointLight(0xffe2c0, ehIlha ? 0 : 1.6, 12, 2); prench2.position.set(-1, 2.6, 2.5);
   // luz suave de frente no personagem (para ele não ficar escuro no meio da sala)
   const luzPers = new THREE.SpotLight(0xfff3e4, 9, 14, 0.42, 0.9, 1.6);
   raiz.add(hemi, sol, sol.target, prench, prench2);
   scene.add(raiz);
   scene.add(luzPers, luzPers.target);
   luzPers.visible = false;
-  const salaG = criarSala(raiz, ctx);
-  const feixe = criarFeixe(raiz, dirSol);
-  const poeira = criarPoeira(raiz);
+  const mundo = ehIlha ? criarIlha(raiz) : null;
+  const salaG = ehIlha ? mundo.chao : criarSala(raiz, ctx);
+  const feixe = ehIlha ? null : criarFeixe(raiz, dirSol);
+  const poeira = ehIlha ? null : criarPoeira(raiz);
   // sombra de contato do personagem (o palco do avatar não tem chão)
   const sombraTex = TX.radial([[0, 'rgba(0,0,0,0.85)'], [0.45, 'rgba(0,0,0,0.4)'], [1, 'rgba(0,0,0,0)']], 'contato');
   const contato = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: sombraTex, transparent: true, depthWrite: false, opacity: 0.6, toneMapped: false }));
@@ -125,7 +141,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
   }
   function aplicarEfeitos() {
     const e = cena.efeitos;
-    sol.intensity = 5.5 * e.sol; feixe.material.uniforms.forca.value = 0.09 * e.sol;
+    sol.intensity = SOL_BASE * e.sol; if (feixe) feixe.material.uniforms.forca.value = 0.09 * e.sol; mundo?.aplicar(e);
     luzPers.intensity = 9 * (e.luzPersonagem ?? 1);
   }
 
@@ -138,7 +154,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
     if (ativo) return; ativo = true;
     guardado = { env: scene.environmentIntensity, tone: renderer.toneMappingExposure, auto: renderer.shadowMap.autoUpdate, luzes: luzesPalco().map((l) => [l, l.visible]) };
     for (const [l] of guardado.luzes) l.visible = false;
-    scene.environmentIntensity = 0.32;
+    scene.environmentIntensity = AMB.env;
     renderer.toneMappingExposure = cena.efeitos.brilho;
     renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = true;
     raiz.visible = true; luzPers.visible = true; contato.visible = true;
@@ -176,8 +192,9 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
     const e = cena.efeitos;
     for (const [g, fn] of ctx.animacoes) if (g.visible && !g.userData.fora) fn(tempo);
     for (const t of ctx.animaveis) t.userData.atualizar(tempo);
-    poeira.visible = e.poeira; feixe.visible = e.feixe;
-    if (poeira.visible) poeira.userData.anima(tempo);
+    if (poeira) { poeira.visible = e.poeira; if (poeira.visible) poeira.userData.anima(tempo); }
+    if (feixe) feixe.visible = e.feixe;
+    mundo?.animar(tempo);
     // câmera (coordenadas da sala -> mundo)
     camLocal.pos.fromArray(cena.camera.pos); camLocal.alvo.fromArray(cena.camera.alvo);
     {
@@ -185,7 +202,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
       _a.set(camLocal.pos.x + Math.sin(s * 0.21) * 0.45 * a + Math.sin(s * 0.09) * 0.2 * a, camLocal.pos.y + Math.sin(s * 0.17 + 1) * 0.07 * a, camLocal.pos.z + Math.sin(s * 0.13 + 2) * 0.25 * a);
       _b.set(camLocal.alvo.x + Math.sin(s * 0.11) * 0.1 * a, camLocal.alvo.y, camLocal.alvo.z);
       camera.clearViewOffset();
-      camera.fov = cena.camera.fov; camera.near = 0.3; camera.far = 40;  // near maior = mais precisão de profundidade (sem tremer escada/corrimão)
+      camera.fov = cena.camera.fov; camera.near = 0.3; camera.far = AMB.far;  // near maior = mais precisão de profundidade (sem tremer escada/corrimão)
       camera.aspect = innerWidth / Math.max(1, innerHeight);
       camera.position.copy(raiz.localToWorld(_a));
       camera.lookAt(raiz.localToWorld(_b));
@@ -267,7 +284,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
     cena.salvoEm = Date.now();
     const txt = JSON.stringify(cena);
     try { localStorage.setItem(CHAVE, txt); } catch (e) { /* cheio: fica só no cache */ }
-    invokeRaw('cache_put', new TextEncoder().encode(txt), { 'x-key': 'sala3d-layout' }).catch(() => {});
+    invokeRaw('cache_put', new TextEncoder().encode(txt), { 'x-key': AMB.cache }).catch(() => {});
   }
   function recarregar(nova) { cena = normalizar(nova); montarTudo(); selecionar(null); painel(); }
   function voltar() {
@@ -383,7 +400,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
     cena.itens.push(it); montar(it); selecionar(it.id); confirmar();
   }
   function remover(it) {
-    if (CENA_PADRAO.itens.some((i) => i.id === it.id)) { it.visivel = false; posicionar(it); }
+    if (PADRAO.itens.some((i) => i.id === it.id)) { it.visivel = false; posicionar(it); }
     else { cena.itens = cena.itens.filter((i) => i !== it); const g = objs.get(it.id); if (g) { raiz.remove(g); descartar(g); objs.delete(it.id); ctx.animacoes.delete(g); } }
     selecionar(null); confirmar();
   }
@@ -438,7 +455,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
     document.head.appendChild(css);
     const root = document.createElement('div'); root.id = 's3d';
     root.innerHTML = `
-<header><h1>Sala 3D — editor <button data-a="fechar" title="Fechar (Esc)">✕</button></h1>
+<header><h1>${AMB.nome} — editor <button data-a="fechar" title="Fechar (Esc)">✕</button></h1>
 <div class="linha"><button class="pri" data-a="add">＋ Adicionar</button><button data-a="desfazer">↶ Desfazer</button></div></header>
 <div class="corpo">
 <h2>Objetos</h2><ul></ul>
@@ -463,7 +480,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
 <h2>Luz e efeitos</h2>
 <div class="campo"><div class="rot"><span>Sol da janela</span></div><input type="range" data-ef="sol" min="0" max="2.5" step="0.05"></div>
 <div class="campo"><div class="rot"><span>Brilho geral</span></div><input type="range" data-ef="brilho" min="0.3" max="2.5" step="0.05"></div>
-<div class="linha"><label><input type="checkbox" data-efc="feixe"> Feixe de luz</label><label><input type="checkbox" data-efc="poeira"> Poeira</label></div>
+${ehIlha ? '' : '<div class="linha"><label><input type="checkbox" data-efc="feixe"> Feixe de luz</label><label><input type="checkbox" data-efc="poeira"> Poeira</label></div>'}
 <div class="linha"><label>Qualidade da sala <select data-qual><option value="baixa">Leve</option><option value="media">Média</option><option value="alta">Alta</option></select></label></div>
 <div class="linha"><label><input type="checkbox" data-grudar checked> Ao soltar, assentar em cima do que estiver embaixo</label></div>
 <h2>Salvar</h2>
@@ -489,16 +506,16 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
       if (a === 'assentar' && it) { assentar(it); confirmar(); painel(); }
       if (a === 'duplicar' && it) duplicar(it);
       if (a === 'remover' && it) remover(it);
-      if (a === 'vistaPadrao') { cena.camera = clone(CENA_PADRAO.camera); confirmar(); painel(); }
+      if (a === 'vistaPadrao') { cena.camera = clone(PADRAO.camera); confirmar(); painel(); }
       if (a === 'exportar') {
         const el = document.createElement('a'); el.href = URL.createObjectURL(new Blob([JSON.stringify(cena)], { type: 'application/json' }));
-        el.download = 'sala3d-layout.json'; document.body.appendChild(el); el.click(); el.remove();
+        el.download = `${AMB.cache}.json`; document.body.appendChild(el); el.click(); el.remove();
       }
-      if (a === 'original' && confirm('Voltar para a sala original? (Ctrl+Z desfaz)')) { recarregar(clone(CENA_PADRAO)); confirmar(); }
+      if (a === 'original' && confirm('Voltar para a sala original? (Ctrl+Z desfaz)')) { recarregar(clone(PADRAO)); confirmar(); }
       if (a === 'add') {
         const r = b.getBoundingClientRect(); menu.style.left = Math.max(8, r.left - 10) + 'px'; menu.style.top = r.bottom + 6 + 'px';
         const rem = cena.itens.filter((i) => !i.visivel);
-        menu.innerHTML = '<div class="dica">Novo objeto:</div>' + Object.entries(CATALOGO).map(([k, d]) => `<button data-novo="${k}">${d.nome}</button>`).join('') +
+        menu.innerHTML = '<div class="dica">Novo objeto:</div>' + Object.entries(CATALOGO).filter(([, d]) => !ehIlha || d.tipo === 'piso').map(([k, d]) => `<button data-novo="${k}">${d.nome}</button>`).join('') +
           (rem.length ? '<div class="dica" style="margin-top:8px">Trazer de volta:</div>' + rem.map((i) => `<button data-volta="${i.id}">↩ ${esc(i.nome)}</button>`).join('') : '');
         menu.style.display = menu.style.display === 'block' ? 'none' : 'block'; e.stopPropagation();
       }
@@ -566,7 +583,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw 
       $r('[data-k=nome]').value = it.nome;
       const p = it.p; let h = '';
       if (it.tipo === 'quadro') {
-        h += campoImg('Trocar foto', 'foto', CENA_PADRAO.itens.find((i) => i.id === it.id)?.p.foto);
+        h += campoImg('Trocar foto', 'foto', PADRAO.itens.find((i) => i.id === it.id)?.p.foto);
         h += `<div class="campo"><div class="rot"><span>Moldura</span></div><select data-p="moldura" style="width:100%">${Object.entries(MOLDURAS).map(([k, m]) => `<option value="${k}" ${k === (p.moldura || 'dourada') ? 'selected' : ''}>${m.nome}</option>`).join('')}</select></div>`;
         h += rng('Largura (m)', 'largura', p.largura ?? 0.5, 0.15, 2.5, 0.01) + rng('Altura (m)', 'altura', p.altura ?? 0.65, 0.15, 2.5, 0.01) + rng('Torto (graus)', 'inclinacao', p.inclinacao ?? 0, -25, 25, 0.5);
         h += `<div class="campo"><div class="rot"><span>Parede</span></div><select data-p="parede" style="width:100%">${['fundo', 'esquerda', 'direita'].map((k) => `<option ${k === (p.parede || 'fundo') ? 'selected' : ''}>${k}</option>`).join('')}</select></div>`;

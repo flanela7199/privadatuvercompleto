@@ -71,6 +71,8 @@ export const sfx = {
     for (let i = 0; i < 9; i++) tone(220 + Math.random() * 180, 120, 0.12, 0.12, 'sine', i * 0.19);
     burst({ sec: 2, type: 'bandpass', f0: 600, f1: 300, q: 2, peak: 0.12, attack: 0.2 });
   },
+  /** gole (o vaso engolindo o cenário) */
+  gole() { tone(260, 70, 0.28, 0.32, 'sine'); burst({ sec: 0.35, type: 'bandpass', f0: 700, f1: 200, q: 1.2, peak: 0.18, attack: 0.02 }); tone(140, 90, 0.12, 0.15, 'triangle', 0.32); },
   boing() { tone(200, 520, 0.35, 0.2, 'triangle'); },
   clack(d) { tone(140, 60, 0.07, Math.min(0.3, (d?.v ?? 3) * 0.04), 'square'); },
   pop() { tone(500, 900, 0.08, 0.12, 'sine'); },
