@@ -22,13 +22,14 @@ export const ESTILOS = {
     x.fillStyle = '#fff'; for (const [a, b] of [[-150, -30], [120, -35], [30, -40]]) { x.beginPath(); x.ellipse(a, b, 9, 5, -0.4, 0, 6.3); x.fill(); }
     x.font = F('bold', 26, '"Comic Sans MS", cursive'); x.fillStyle = '#7a3cff'; x.fillText('★ crew ★', 0, 70);
   },
-  // fofinho: cursiva rosa com corações
+  // caligrafia de marcador turquesa com brilhos (sem corações)
   Ju(x, r) {
-    x.rotate(0.06); x.font = F('italic bold', 96, '"Segoe Script", "Brush Script MT", cursive'); x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillStyle = '#ff5fa2'; x.fillText('Ju', 0, 0);
-    const coracao = (cx, cy, s, c) => { x.fillStyle = c; x.beginPath(); x.moveTo(cx, cy + s * 0.3); x.bezierCurveTo(cx - s, cy - s * 0.5, cx - s * 0.4, cy - s * 1.2, cx, cy - s * 0.5); x.bezierCurveTo(cx + s * 0.4, cy - s * 1.2, cx + s, cy - s * 0.5, cx, cy + s * 0.3); x.fill(); };
-    coracao(95, -40, 26, '#ff3b7f'); coracao(-90, 35, 18, '#ff9ccc'); coracao(70, 45, 14, '#ff5fa2');
-    x.font = F('', 24, '"Segoe Script", cursive'); x.fillStyle = '#d63384'; x.fillText('passei aqui ♡', 0, 62);
+    x.rotate(0.05); x.font = F('italic bold', 100, '"Segoe Script", "Brush Script MT", cursive'); x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.lineWidth = 10; x.strokeStyle = '#0b3d3a'; x.strokeText('Ju', 0, 0);
+    const g = x.createLinearGradient(-60, -40, 60, 40); g.addColorStop(0, '#2ad4c4'); g.addColorStop(1, '#1b8fd1'); x.fillStyle = g; x.fillText('Ju', 0, 0);
+    const brilho = (cx, cy, s2) => { x.fillStyle = '#ffffff'; x.beginPath(); x.moveTo(cx, cy - s2); x.lineTo(cx + s2 * 0.25, cy - s2 * 0.25); x.lineTo(cx + s2, cy); x.lineTo(cx + s2 * 0.25, cy + s2 * 0.25); x.lineTo(cx, cy + s2); x.lineTo(cx - s2 * 0.25, cy + s2 * 0.25); x.lineTo(cx - s2, cy); x.lineTo(cx - s2 * 0.25, cy - s2 * 0.25); x.closePath(); x.fill(); };
+    brilho(70, -42, 16); brilho(-72, 30, 10); brilho(88, 26, 8);
+    x.strokeStyle = '#1b8fd1'; x.lineWidth = 4; x.lineCap = 'round'; x.beginPath(); x.moveTo(-90, 52); x.bezierCurveTo(-30, 70, 30, 40, 95, 56); x.stroke();
   },
   // estêncil militar com spray preto
   Vitola(x, r) {
@@ -82,17 +83,16 @@ export const ESTILOS = {
     for (const [a, c] of [[-21, '#c8121b'], [0, '#1f6bd0'], [21, '#1a9a4a']]) { x.fillStyle = c; x.beginPath(); x.arc(a, -58, 4, 0, 6.3); x.fill(); }
     x.font = F('italic', 20, 'Georgia, serif'); x.fillStyle = '#6a4a00'; x.fillText('por decreto imperial', 0, 64);
   },
-  // batom: escrita rosa-vermelha e marca de beijo
+  // letras de bloco 3D (laranja com sombra extrudada) e um raio
   Bibi(x, r) {
-    x.rotate(0.1); x.font = F('bold', 84, '"Brush Script MT", "Segoe Script", cursive'); x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.fillStyle = '#c2185b'; x.globalAlpha = 0.92; x.fillText('Bibi', -20, 0); x.globalAlpha = 1;
-    // beijo
-    x.save(); x.translate(110, -10); x.rotate(-0.3); x.fillStyle = '#d81b60';
-    x.beginPath(); x.moveTo(-34, 0); x.bezierCurveTo(-24, -22, -6, -18, 0, -8); x.bezierCurveTo(6, -18, 24, -22, 34, 0); x.bezierCurveTo(20, -4, -20, -4, -34, 0); x.fill();
-    x.beginPath(); x.moveTo(-34, 2); x.bezierCurveTo(-18, 26, 18, 26, 34, 2); x.bezierCurveTo(18, 8, -18, 8, -34, 2); x.fill();
-    x.strokeStyle = 'rgba(255,255,255,.35)'; x.lineWidth = 1; for (let k = -24; k <= 24; k += 6) { x.beginPath(); x.moveTo(k, -10); x.lineTo(k * 1.05, 16); x.stroke(); }
-    x.restore();
-    x.font = F('', 22, '"Segoe Script", cursive'); x.fillStyle = '#c2185b'; x.fillText('xoxo', -20, 56);
+    x.rotate(-0.06); x.font = F('900', 96, '"Arial Black", Impact, sans-serif'); x.textAlign = 'center'; x.textBaseline = 'middle';
+    for (let k = 12; k > 0; k--) { x.fillStyle = k > 1 ? '#3a1d00' : '#1b0e00'; x.fillText('BIBI', k * 0.9, k * 0.9); }   // extrusão
+    x.lineWidth = 5; x.strokeStyle = '#1b0e00'; x.strokeText('BIBI', 0, 0);
+    const g = x.createLinearGradient(0, -45, 0, 45); g.addColorStop(0, '#ffd04a'); g.addColorStop(1, '#ff7a1a'); x.fillStyle = g; x.fillText('BIBI', 0, 0);
+    // raio
+    x.fillStyle = '#ffe14a'; x.strokeStyle = '#1b0e00'; x.lineWidth = 3; x.beginPath();
+    x.moveTo(150, -60); x.lineTo(122, -6); x.lineTo(140, -6); x.lineTo(116, 52); x.lineTo(168, -18); x.lineTo(148, -18); x.lineTo(170, -60); x.closePath(); x.fill(); x.stroke();
+    x.font = F('bold', 22, 'Impact, sans-serif'); x.fillStyle = '#1b0e00'; x.fillText('NA ÁREA', 0, 64);
   },
   // viking: letras angulosas vermelho-escuras, machado cruzado e "runas"
   TheFallenRagnar(x, r) {
