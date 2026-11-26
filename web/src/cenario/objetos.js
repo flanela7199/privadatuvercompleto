@@ -11,6 +11,7 @@ import '../accessories/furniture.js';
 import * as TX from './texturas.js';
 import { FOTOS } from './fotos.js';
 import { IDS_CANAIS, texturaCanal } from './canais.js';
+import { MODERADORES, desenharPichacoes } from './pichacoes.js';
 
 /* ------------------------------------------------------------ utilidades */
 export const mat = (o) => {
@@ -678,19 +679,22 @@ function escada(p) {
 /* ============================================================ MÓVEIS DOS AMBIENTES NOVOS */
 const porcelana = () => (M2.porc ||= mat({ color: '#f3f2ee', roughness: 0.18, clearcoat: 0.8, clearcoatRoughness: 0.08 }));
 const M2 = {};
-function texRabisco(seed) {
-  return canvasTex(256, 512, (x, W, H) => {
+function texRabisco(seed, nomes) {
+  return canvasTex(512, 1024, (x, W, H) => {
     x.fillStyle = '#c9b48a'; x.fillRect(0, 0, W, H);
     const r = TX.rng(seed);
-    for (let k = 0; k < 900; k++) { x.fillStyle = `rgba(90,70,40,${r() * 0.05})`; x.fillRect(r() * W, r() * H, 2, 2); }
-    const frases = ['VASCO', 'GALO', 'Ana ♥ Zé', 'TEL 9999-0000', 'NÃO TEM PAPEL', 'olha pra cima ↑', 'X', '2008', 'PIX?', 'tô atrasado'];
-    for (let k = 0; k < 7; k++) {
-      x.save(); x.translate(20 + r() * (W - 60), 40 + r() * (H - 80)); x.rotate((r() - 0.5) * 0.6);
-      x.fillStyle = ['#1b1b1b', '#1f3fa0', '#b3172a', '#2b2b2b'][k % 4]; x.font = `${18 + r() * 18}px "Comic Sans MS", cursive`;
-      x.fillText(frases[Math.floor(r() * frases.length)], 0, 0); x.restore();
-    }
-    x.strokeStyle = 'rgba(0,0,0,.6)'; x.lineWidth = 2; x.beginPath(); for (let k = 0; k < 5; k++) x.lineTo(30 + r() * 180, 300 + r() * 160); x.stroke();
+    for (let k = 0; k < 2600; k++) { x.fillStyle = `rgba(90,70,40,${r() * 0.05})`; x.fillRect(r() * W, r() * H, 3, 3); }
+    // marcas de mão/sujeira perto da maçaneta
+    for (let k = 0; k < 6; k++) { const px = W * 0.75 + r() * 60, py = H * 0.45 + r() * 120, g = x.createRadialGradient(px, py, 0, px, py, 30); g.addColorStop(0, 'rgba(70,50,30,.12)'); g.addColorStop(1, 'rgba(70,50,30,0)'); x.fillStyle = g; x.fillRect(px - 30, py - 30, 60, 60); }
+    desenharPichacoes(x, W, H, nomes, r);
   });
+}
+/** distribui os moderadores pelas portas (2-3 por porta) */
+function nomesDaPorta(i, n, abertas) {
+  // só nas portas fechadas (a aberta fica de lado e ninguém leria)
+  const fechadas = [...Array(n).keys()].filter((k) => !abertas.includes(k));
+  const j = fechadas.indexOf(i); if (j < 0) return [];
+  return MODERADORES.filter((_, k) => k % fechadas.length === j);
 }
 function cabines(p, ctx) {
   const g = grupo('cabines'), n = p.n ?? 4, w = 0.98, d = 1.5, h = 2.05, y0 = 0.16, m = mats();
@@ -706,7 +710,7 @@ function cabines(p, ctx) {
   const abertas = p.abertas ?? [1];
   for (let i = 0; i < n; i++) {
     const piv = new THREE.Group(); piv.position.set(x0 + i * w + 0.03, 0, 0.0); g.add(piv);
-    const porta = mesh(new THREE.BoxGeometry(w - 0.06, h - 0.05, 0.03), [formica, formica, formica, formica, mat({ map: texRabisco(i * 7 + 3), roughness: 0.5 }), formica], piv, (w - 0.06) / 2, y0 + h / 2, 0);
+    const porta = mesh(new THREE.BoxGeometry(w - 0.06, h - 0.05, 0.03), [formica, formica, formica, formica, mat({ map: texRabisco(i * 7 + 3, nomesDaPorta(i, n, abertas)), roughness: 0.5 }), formica], piv, (w - 0.06) / 2, y0 + h / 2, 0);
     mesh(new THREE.BoxGeometry(0.06, 0.03, 0.03), borda, piv, w - 0.16, y0 + h * 0.5, 0.025);
     piv.rotation.y = abertas.includes(i) ? -1.15 : 0;
     piv.userData.base = piv.rotation.y; portas.push(piv);

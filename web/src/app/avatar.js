@@ -294,7 +294,7 @@ function liberarCenarios(atual) {
   for (const amb of usoCen.slice(2)) {
     const c = cenarios[amb]; if (!c || c.ativo) continue;
     try { c.destruir?.(); } catch (e) { console.warn('[avatar] liberar', amb, e); }
-    delete cenarios[amb]; delete cenarioJobs[amb]; usoCen.splice(usoCen.indexOf(amb), 1);
+    delete cenarios[amb]; delete cenarioJobs[amb]; usoCen.splice(usoCen.indexOf(amb), 1); prontos.delete(amb);
   }
 }
 const cenarioAtivo = () => { for (const k in cenarios) if (cenarios[k].ativo) return cenarios[k]; return null; };
@@ -318,12 +318,32 @@ function applySettings() {
   setTick();
 }
 
-let ultimoTam = '';
+let ultimoTam = '', ultimoModo = '', ultimoCT = '', ultimoFundo = '';
 let firstFrame = false;
 let cenaAtual = -1;     // índice da cena aplicada por último (para saber quando houve troca de cena)
+// Ambiente 3D novo: antes de trocar, ele é montado aos poucos, as texturas sobem para a placa e os
+// shaders são compilados em paralelo (compileAsync). Enquanto isso a cena atual continua rodando lisa;
+// a troca (e a transição) só acontece quando está tudo pronto — era isso que travava na troca de cenas.
+const prontos = new Set(), preparando = {};
+let compilouPalco = false;
+async function prepararCenario(amb) {
+  const c = await garantirCenario(amb); if (!c) return;
+  await c.preparar();
+  await c.subirTexturas();
+  try { await c.comoVisual(() => renderer.compileAsync(scene, camera)); } catch (e) { logJS(`compilar ${amb}: ${e}`); }
+}
 function applyScene(i, { save = false } = {}) {
   if (config.scenes?.length) config.activeScene = clamp(i | 0, 0, config.scenes.length - 1);
   const sc = scene0();
+  if (usaSala(sc) && !prontos.has(ambDe(sc))) {
+    const amb = ambDe(sc);
+    if (save) saveSoon();
+    if (!preparando[amb]) preparando[amb] = prepararCenario(amb).catch((e) => logJS(`preparar ${amb}: ${e}`)).finally(() => {
+      preparando[amb] = null; prontos.add(amb);
+      if (usaSala(scene0()) && ambDe(scene0()) === amb) applyScene(config.activeScene | 0);
+    });
+    if (cenaAtual >= 0) return;   // segue mostrando a cena atual até o ambiente novo ficar pronto
+  }
   // troca de cena -> transição. Fotografa a cena antiga ANTES de mudar qualquer coisa.
   let tr = null;
   const idx = config.activeScene | 0;
@@ -353,25 +373,37 @@ function applyScene(i, { save = false } = {}) {
     if (usaSala(sc)) {
       const amb = ambDe(sc);
       for (const [k, c] of Object.entries(cenarios)) if (k !== amb) c.desativar();
-      garantirCenario(amb).then((c) => { if (c && usaSala(scene0()) && ambDe(scene0()) === amb) { c.ativar(); cenario = c; liberarCenarios(amb); } });
+      garantirCenario(amb).then((c) => {
+        if (!(c && usaSala(scene0()) && ambDe(scene0()) === amb)) return;
+        c.ativar(); cenario = c; liberarCenarios(amb);
+        // a variante "sem cenário" (luzes do palco) dos shaders do vaso também fica pronta, para a volta ao gameplay não travar
+        if (!compilouPalco) { compilouPalco = true; setTimeout(() => { try { c.miniatura(() => renderer.compileAsync(scene, camera)); } catch { /* */ } }, 1500); }
+      });
     } else for (const c of Object.values(cenarios)) c.desativar();
     // tamanho fixo da janela (ex.: 1920x1080 para o OBS). Em pixels reais da tela: o Tauri recebe
     // tamanho lógico, então divide pela escala do Windows (125%, 150%...). Só reaplica quando a cena
     // ou o tamanho mudam (a cada 'state' do painel o applyScene roda de novo).
     const tam = mode === 'window' && /^\d+x\d+$/.test(sc.winSize || '') ? sc.winSize : '';
-    const chaveTam = `${config.activeScene}:${tam}`;
+    // Só mexe na janela quando algo muda de verdade: cada chamada (bordas, barra de tarefas, tamanho)
+    // faz o Windows recompor a janela do WebView, e isso aparecia como uma travadinha na troca de cena.
     const args = { mode, alwaysOnTop: !!sc.alwaysOnTop };
-    if (tam && chaveTam !== ultimoTam) { const [w, h] = tam.split('x').map(Number), d = devicePixelRatio || 1; args.width = w / d; args.height = h / d; }
-    ultimoTam = chaveTam;
-    invoke('set_avatar_mode', args).catch(() => {});
-    if (mode === 'overlay') invoke('set_click_through', { mode: sc.clickThrough || 'auto' }).catch(() => {});
-    else invoke('set_click_through', { mode: 'off' }).catch(() => {});
+    if (tam) {
+      const [w, h] = tam.split('x').map(Number), d = devicePixelRatio || 1;
+      const difere = Math.abs(Math.round(innerWidth * d) - w) > 2 || Math.abs(Math.round(innerHeight * d) - h) > 2;
+      if (difere) { args.width = w / d; args.height = h / d; }
+    }
+    ultimoTam = `${config.activeScene}:${tam}`;
+    const chaveModo = `${mode}|${args.alwaysOnTop}`;
+    if (args.width || chaveModo !== ultimoModo) { ultimoModo = chaveModo; invoke('set_avatar_mode', args).catch(() => {}); }
+    const ct = mode === 'overlay' ? (sc.clickThrough || 'auto') : 'off';
+    if (ct !== ultimoCT) { ultimoCT = ct; invoke('set_click_through', { mode: ct }).catch(() => {}); }
   }
   // a sala "saindo do ralo": a janela fica transparente até a transição acabar (o jogo aparece atrás no OBS)
   const fundoJanela = (on) => {
     document.documentElement.style.background = document.body.style.background = on ? color : 'transparent';
     // native window background matches the page, so nothing white can show around the webview
-    if (!OUTPUT) invoke('set_window_background', { color: on ? color : 'transparent' }).catch(() => {});
+    const cor = on ? color : 'transparent';
+    if (!OUTPUT && cor !== ultimoFundo) { ultimoFundo = cor; invoke('set_window_background', { color: cor }).catch(() => {}); }
   };
   renderer.setClearColor(solid ? color : 0x000000, solid ? 1 : 0);
   if (tr) {
@@ -758,7 +790,7 @@ function texPlaca(texto, sub) {
   x.strokeStyle = '#4a2c12'; x.lineWidth = 16; x.strokeRect(8, 8, 752, 368);
   x.fillStyle = '#fff6dc'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.shadowColor = 'rgba(0,0,0,.45)'; x.shadowBlur = 8; x.shadowOffsetY = 4;
   x.font = 'bold 132px Georgia, serif'; x.fillText(texto, 384, sub ? 160 : 192, 700);
-  if (sub) { x.font = 'italic 46px Georgia, serif'; x.fillText(sub, 384, 290, 700); }
+  if (sub) { x.font = 'italic 58px Georgia, serif'; x.fillText(sub, 384, 296, 700); }
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
 }
 function montarPausa() {
@@ -769,9 +801,10 @@ function montarPausa() {
   pz.texto = chave;
   const g = new THREE.Group(); g.name = 'pausa';
   const mad = new THREE.MeshStandardMaterial({ color: '#7c5128', roughness: 0.8 });
-  const estaca = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.25, 0.06), mad); estaca.position.y = 0.62; estaca.castShadow = true; g.add(estaca);
+  // estaca ATRÁS da placa (antes atravessava a frente e cobria o texto)
+  const estaca = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.3, 0.05), mad); estaca.position.set(0, 0.65, -0.05); estaca.castShadow = true; g.add(estaca);
   const placa = new THREE.Group(); placa.position.y = 1.18; g.add(placa);
-  const tab = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.46, 0.04), [mad, mad, mad, mad, new THREE.MeshStandardMaterial({ map: texPlaca(texto, sub), roughness: 0.7 }), mad]);
+  const tab = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.5, 0.04), [mad, mad, mad, mad, new THREE.MeshStandardMaterial({ map: texPlaca(texto, sub), roughness: 0.7 }), mad]);
   tab.castShadow = true; placa.add(tab); pz.placa = placa;
   const zTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); x.font = 'bold 110px Georgia'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineWidth = 10; x.strokeStyle = '#1b2a4a'; x.strokeText('Z', 64, 64); x.fillStyle = '#eaf2ff'; x.fillText('Z', 64, 64); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
   const zz = new THREE.Group(); zz.name = 'zzz'; g.userData.zz = zz;
@@ -966,6 +999,7 @@ function fitCanvas() {
 }
 addEventListener('resize', fitCanvas);
 prPronto = true;
+setTimeout(() => sfx.aquecer?.(), 2000);
 (function watchDpr() {   // devicePixelRatio changes (moving between monitors with different scaling)
   const mq = matchMedia(`(resolution: ${devicePixelRatio}dppx)`);
   mq.addEventListener('change', () => { fitCanvas(); watchDpr(); }, { once: true });

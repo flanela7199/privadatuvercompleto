@@ -124,6 +124,30 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw,
     chaveMoveis = '?';   // força reaplicar "móvel em uso some" e o lugar do sofá
     if (it.tipo === 'sofa') spotSofa = null;
   }
+  const pausaJS = () => new Promise((r) => setTimeout(r, 0));
+  /** monta os móveis aos poucos (um por vez, devolvendo o controle entre eles: a cena atual não trava) */
+  async function preparar() {
+    if (construido) return;
+    for (const g of objs.values()) { raiz.remove(g); descartar(g); } objs.clear(); ctx.animacoes.clear();
+    for (const it of [...cena.itens]) { if (construido) return; montar(it); await pausaJS(); }
+    posicionarRaiz(); aplicarEfeitos(); construido = true;
+  }
+  /** roda fn() com as luzes/objetos como se o ambiente estivesse na tela (para pré-compilar shaders) */
+  function comoVisual(fn) {
+    if (ativo) return fn();
+    const pal = luzesPalco().map((l) => [l, l.visible]);
+    const r0 = raiz.visible, l0 = luzPers.visible, c0 = contato.visible;
+    for (const [l] of pal) l.visible = false;
+    raiz.visible = true; luzPers.visible = true; contato.visible = true;
+    try { return fn(); } finally { for (const [l, v] of pal) l.visible = v; raiz.visible = r0; luzPers.visible = l0; contato.visible = c0; }
+  }
+  /** manda as texturas para a placa de vídeo aos poucos (antes era tudo no 1º quadro do ambiente) */
+  async function subirTexturas() {
+    const ts = new Set();
+    raiz.traverse((o) => { for (const m of [].concat(o.material || [])) for (const k of ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'alphaMap', 'clearcoatNormalMap']) if (m[k]?.isTexture) ts.add(m[k]); });
+    let n = 0;
+    for (const t of ts) { try { renderer.initTexture(t); } catch { /* */ } if (++n % 6 === 0) await pausaJS(); }
+  }
   function montarTudo() {
     for (const g of objs.values()) { raiz.remove(g); descartar(g); } objs.clear(); ctx.animacoes.clear();
     for (const it of cena.itens) montar(it);
@@ -222,7 +246,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw,
   const camLocal = { pos: new THREE.Vector3(), alvo: new THREE.Vector3() };
   function luzesPalco() { return scene.children.filter((o) => o.isLight && !raiz.children.includes(o) && o !== luzPers); }
   function ativar() {
-    if (!construido) { montarTudo(); construido = true; }
+    if (!construido) { montarTudo(); construido = true; }   // (normalmente já veio pronto de preparar())
     if (ativo) return; ativo = true;
     guardado = { env: scene.environmentIntensity, tone: renderer.toneMappingExposure, auto: renderer.shadowMap.autoUpdate, luzes: luzesPalco().map((l) => [l, l.visible]) };
     for (const [l] of guardado.luzes) l.visible = false;
@@ -709,7 +733,7 @@ ${feixe ? '<div class="linha"><label><input type="checkbox" data-efc="feixe"> Fe
 
   return {
     get ativo() { return ativo; }, get editando() { return editando; },
-    ativar, desativar, frame, miniatura, editar, pausa, destruir,
+    ativar, desativar, frame, miniatura, editar, pausa, destruir, preparar, comoVisual, subirTexturas,
     get layout() { return cena; },
     get nome() { return AMB.nome; },
     /** dispara um evento interativo ('aleatorio' = qualquer um deste ambiente) */

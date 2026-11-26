@@ -26,13 +26,11 @@ void main(){
   vec2 s = rot(-ang) * d / k; s.x /= aspect;
   vec2 uv = dreno + s;
   if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) discard;
-  vec4 c = texture2D(tex, uv); c.rgb *= escala;
+  vec4 c = texture2D(tex, uv); c.rgb /= max(c.a, 1e-4);   // cópia da tela (pré-multiplicada)
   // escurece um pouco ao entrar na "garganta"
   c.rgb *= 1.0 - 0.45 * smoothstep(0.55, 1.0, e);
   float a = c.a * fade * (1.0 - smoothstep(0.86, 1.0, e));
   gl_FragColor = vec4(c.rgb, a);
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
 }`;
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
@@ -42,8 +40,8 @@ const FS_MIX = /* glsl */`
 uniform sampler2D velha, nova; uniform float x, aspect, tempo, escVelha; uniform vec2 dreno; uniform int tipo;
 varying vec2 vUv;
 mat2 rot(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
-vec4 V(vec2 uv){ vec4 c = texture2D(velha, clamp(uv, 0., 1.)); c.rgb *= escVelha; return c; }
-vec4 N(vec2 uv){ return texture2D(nova, clamp(uv, 0., 1.)); }
+vec4 V(vec2 uv){ vec4 c = texture2D(velha, clamp(uv, 0., 1.)); c.rgb /= max(c.a, 1e-4); return c; }
+vec4 N(vec2 uv){ vec4 c = texture2D(nova, clamp(uv, 0., 1.)); c.rgb /= max(c.a, 1e-4); return c; }
 void main(){
   vec2 uv = vUv; vec4 c;
   if (tipo == 1) {            // DESCARGA COM ÁGUA: a água sobe, gira e desce pelo ralo levando a cena antiga
@@ -92,8 +90,6 @@ void main(){
     else if (off < -.045 && off > -.12) c.rgb *= .72 + .28 * smoothstep(-.045, -.12, off);
   }
   gl_FragColor = c;
-  #include <tonemapping_fragment>
-  #include <colorspace_fragment>
 }`;
 const TIPO_MIX = { agua: 1, arroto: 2, papel: 3 };
 
@@ -114,11 +110,13 @@ export const curvas = {
 
 export function criarTransicao(renderer, scene, camera, { semVaso, soVaso, bocaMundo }) {
   const tam = new THREE.Vector2();
-  const mkRT = () => new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
-  let rtVelha = null, rtNova = null;
+  // Sem render targets: a cena é desenhada NA TELA (mesmos shaders do quadro normal) e copiada para uma
+  // textura. Render target exigia outra versão de TODOS os shaders da cena (saída linear) = travada na troca.
+  let texVelha = null, texNova = null;
+  const mkTex = (w, h) => { const t = new THREE.FramebufferTexture(w, h); t.minFilter = t.magFilter = THREE.LinearFilter; t.generateMipmaps = false; return t; };
   const mat = () => new THREE.ShaderMaterial({
     uniforms: { tex: { value: null }, escala: { value: 1 }, p: { value: 0 }, giro: { value: 2.5 }, fade: { value: 1 }, dreno: { value: new THREE.Vector2(0.5, 0.5) }, aspect: { value: 1 } },
-    vertexShader: VS, fragmentShader: FS, transparent: true, depthTest: false, depthWrite: false, toneMapped: true,
+    vertexShader: VS, fragmentShader: FS, transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
   });
   const mVelha = mat(), mNova = mat();
   const quadScene = new THREE.Scene(), cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -127,7 +125,7 @@ export function criarTransicao(renderer, scene, camera, { semVaso, soVaso, bocaM
   quadScene.add(qVelha, qNova);
   const mMix = new THREE.ShaderMaterial({
     uniforms: { velha: { value: null }, nova: { value: null }, x: { value: 0 }, aspect: { value: 1 }, tempo: { value: 0 }, escVelha: { value: 1 }, dreno: { value: new THREE.Vector2(0.5, 0.4) }, tipo: { value: 1 } },
-    vertexShader: VS, fragmentShader: FS_MIX, transparent: true, depthTest: false, depthWrite: false, toneMapped: true,
+    vertexShader: VS, fragmentShader: FS_MIX, transparent: true, depthTest: false, depthWrite: false, toneMapped: false,
   });
   const mixScene = new THREE.Scene(), qMix = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mMix); qMix.frustumCulled = false; mixScene.add(qMix);
   let t = null, expCap = 1;
@@ -164,27 +162,31 @@ export function criarTransicao(renderer, scene, camera, { semVaso, soVaso, bocaM
   // a foto da cena antiga só é redimensionada na captura (setSize apaga o conteúdo); a da nova acompanha a janela
   function garantirRT(velhaTambem) {
     renderer.getDrawingBufferSize(tam);
-    if (!rtVelha) { rtVelha = mkRT(); rtNova = mkRT(); }
-    if (velhaTambem && (rtVelha.width !== tam.x || rtVelha.height !== tam.y)) rtVelha.setSize(tam.x, tam.y);
-    if (rtNova.width !== tam.x || rtNova.height !== tam.y) rtNova.setSize(tam.x, tam.y);
+    const ok = (t) => t && t.image.width === tam.x && t.image.height === tam.y;
+    if (velhaTambem && !ok(texVelha)) { texVelha?.dispose(); texVelha = mkTex(tam.x, tam.y); }
+    if (!ok(texNova)) { texNova?.dispose(); texNova = mkTex(tam.x, tam.y); }
   }
-  function renderEm(rt, comVaso) {
-    renderer.setRenderTarget(rt); renderer.clear();
-    if (comVaso) renderer.render(scene, camera); else semVaso(() => renderer.render(scene, camera));
+  const _zero = new THREE.Vector2();
+  /** desenha a cena na tela e copia para a textura (a tela é redesenhada logo em seguida) */
+  function renderEm(qual, comVaso) {
     renderer.setRenderTarget(null);
+    const auto = renderer.autoClear; renderer.autoClear = true;
+    if (comVaso) renderer.render(scene, camera); else semVaso(() => renderer.render(scene, camera));
+    renderer.autoClear = auto;
+    renderer.copyFramebufferToTexture(qual === 'velha' ? texVelha : texNova, _zero);
   }
   /** fotografa a cena atual (sem o vaso, se for a transição com boca) ANTES de trocar a cena */
   function capturar(tipo) {
-    try { garantirRT(true); renderEm(rtVelha, tipo !== 'descarga'); expCap = renderer.toneMappingExposure; guardar(A); return true; }
+    try { garantirRT(true); renderEm('velha', tipo !== 'descarga'); expCap = renderer.toneMappingExposure; guardar(A); return true; }
     catch (e) { console.warn('[transição] captura falhou', e); return false; }
   }
   /** @param {object} o  { modo: 'sai'|'entra', tipo: 'descarga'|'fade', dur (s), fim() } */
   function iniciar(o) {
     const durs = { fade: 0.9, descarga: 2.1, agua: 2.6, arroto: 1.7, papel: 2.3 };
     t = { t0: performance.now(), dur: (o.dur ?? window.__transDur ?? durs[o.tipo] ?? 2.1) * 1000, modo: o.modo, tipo: o.tipo || 'descarga', fim: o.fim, x: 0 };
-    mMix.uniforms.velha.value = rtVelha.texture; mMix.uniforms.nova.value = rtNova.texture; mMix.uniforms.aspect.value = tam.x / Math.max(1, tam.y);
+    mMix.uniforms.velha.value = texVelha; mMix.uniforms.nova.value = texNova; mMix.uniforms.aspect.value = tam.x / Math.max(1, tam.y);
     mMix.uniforms.tipo.value = TIPO_MIX[t.tipo] || 1;
-    mVelha.uniforms.tex.value = rtVelha.texture; mNova.uniforms.tex.value = rtNova.texture;
+    mVelha.uniforms.tex.value = texVelha; mNova.uniforms.tex.value = texNova;
     for (const m of [mVelha, mNova]) { m.uniforms.aspect.value = tam.x / Math.max(1, tam.y); m.uniforms.giro.value = o.modo === 'sai' ? 1.1 : -0.9; }
   }
   /** substitui o render normal enquanto a transição roda (a câmera já está na posição da cena nova) */
@@ -201,7 +203,7 @@ export function criarTransicao(renderer, scene, camera, { semVaso, soVaso, bocaM
     }
     if (TIPO_MIX[t.tipo]) {   // água / arroto / papel: compõe a foto antiga com a cena nova (vaso incluso)
       const cc = renderer.getClearColor(new THREE.Color()), ca = renderer.getClearAlpha();
-      garantirRT(false); renderEm(rtNova, true);
+      garantirRT(false); renderEm('nova', true); mMix.uniforms.nova.value = texNova;
       const [u, v] = bocaUV();
       const U = mMix.uniforms;
       if (t.tipo === 'agua') U.dreno.value.set(u, Math.max(0.05, v - 0.06)); else U.dreno.value.set(u, v);
@@ -213,7 +215,7 @@ export function criarTransicao(renderer, scene, camera, { semVaso, soVaso, bocaM
     }
     guardar(B);
     const cc = renderer.getClearColor(new THREE.Color()), ca = renderer.getClearAlpha();
-    if (!sai) { garantirRT(false); renderEm(rtNova, false); }    // sala nova (sem o vaso) -> textura
+    if (!sai) { garantirRT(false); renderEm('nova', false); mNova.uniforms.tex.value = texNova; }    // sala nova (sem o vaso) -> textura
     // câmera do vaso: vai da posição antiga para a nova
     misturarCam(suave((x - (sai ? 0.04 : 0.08)) / 0.72));
     const [u, v] = bocaUV();

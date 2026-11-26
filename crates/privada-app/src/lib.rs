@@ -350,17 +350,25 @@ fn apply_avatar_mode(app: &AppHandle, m: AvatarMode) -> tauri::Result<()> {
             *cm = ClickMode::Auto;
         }
     } else {
-        w.set_ignore_cursor_events(false)?;
-        w.set_decorations(false)?;
-        w.set_shadow(false)?;
-        w.set_resizable(true)?;
-        w.set_skip_taskbar(false)?;
+        // só chama o que mudou: cada set_* força o Windows a recompor a janela (travadinha na troca de cena)
+        if was != "window" {
+            w.set_ignore_cursor_events(false)?;
+            w.set_decorations(false)?;
+            w.set_shadow(false)?;
+            w.set_skip_taskbar(false)?;
+        }
+        if !w.is_resizable().unwrap_or(false) {
+            w.set_resizable(true)?;
+        }
         let size = m.width.zip(m.height);
         if was != "window" || size.is_some() {
             restore_window_rect(app, &w, size)?;
         }
     }
-    w.set_always_on_top(m.always_on_top.unwrap_or(false))?;
+    let aot = m.always_on_top.unwrap_or(false);
+    if w.is_always_on_top().unwrap_or(!aot) != aot {
+        w.set_always_on_top(aot)?;
+    }
     Ok(())
 }
 

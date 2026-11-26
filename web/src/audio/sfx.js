@@ -49,6 +49,8 @@ function tone(f0, f1, sec, peak = 0.2, type = 'sine', at = 0) {
 export const sfx = {
   enabled: true,
   volume: 1,
+  /** cria o AudioContext já na carga (o 1º som da live não "engasga" criando ele) */
+  aquecer() { try { const a = ac(); out(a); } catch { /* */ } },
   play(name, data) {
     if (!this.enabled) return;
     try { (this[name] || (() => {}))(data); } catch { /* audio blocked until user gesture */ }
