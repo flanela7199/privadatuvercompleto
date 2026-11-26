@@ -29,6 +29,35 @@ pub fn load() -> Option<Value> {
 fn migrate(cfg: &mut Value) -> bool {
     let Some(obj) = cfg.as_object_mut() else { return false };
     let mut mudou = false;
+    // 0.5.0: ambientes novos (banheiro, prisão, bar) como cenas prontas + atalhos de pausa/TV/evento
+    if obj.get("migr050").and_then(Value::as_bool) != Some(true) {
+        obj.insert("migr050".into(), Value::Bool(true));
+        mudou = true;
+        if let Some(scenes) = obj.get_mut("scenes").and_then(Value::as_array_mut) {
+            let sala = scenes.iter().find(|s| s.get("background").and_then(Value::as_str) == Some("sala")).cloned();
+            if let Some(sala) = sala {
+                for (bg, nome, tr) in [("banheiro", "Banheiro da rodoviária 3D", "agua"), ("prisao", "Cela da prisão 3D", "papel"), ("bar", "Bar do Vaso 3D", "arroto")] {
+                    if scenes.iter().any(|s| s.get("background").and_then(Value::as_str) == Some(bg)) {
+                        continue;
+                    }
+                    let mut nova = sala.clone();
+                    if let Some(n) = nova.as_object_mut() {
+                        n.insert("name".into(), nome.into());
+                        n.insert("background".into(), bg.into());
+                        n.insert("transicao".into(), tr.into());
+                    }
+                    scenes.push(nova);
+                }
+            }
+        }
+        if let Some(hk) = obj.get_mut("hotkeys").and_then(Value::as_object_mut) {
+            for (k, a, arg) in [("Ctrl+Alt+Z", "pausa", ""), ("Ctrl+Alt+V", "tv", "proximo"), ("Ctrl+Alt+B", "tv", "verde"), ("Ctrl+Alt+E", "evento", "aleatorio")] {
+                if !hk.contains_key(k) {
+                    hk.insert(k.into(), serde_json::json!({ "action": a, "arg": arg }));
+                }
+            }
+        }
+    }
     // 0.4.5: nova cena "Ilha tropical 3D" (cópia da cena da sala, com o fundo da ilha)
     if obj.get("migr045").and_then(Value::as_bool) != Some(true) {
         obj.insert("migr045".into(), Value::Bool(true));

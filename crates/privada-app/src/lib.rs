@@ -268,6 +268,14 @@ pub fn native_action(app: &AppHandle, action: &str, arg: Option<&Value>) {
 
 /* ------------------------------------------------------------- commands */
 
+/// erros do JavaScript das janelas (para o crash.log; o JS já limita a quantidade)
+#[tauri::command]
+fn log_js(label: String, msg: String) -> bool {
+    let msg: String = msg.chars().take(2000).collect();
+    crash_log(&format!("JS[{label}] {msg}"));
+    true
+}
+
 #[tauri::command]
 fn load_config() -> Option<Value> {
     config::load()
@@ -584,6 +592,7 @@ pub fn run() {
         .manage(Ready::default())
         .manage(cache::Preloaded::default())
         .invoke_handler(tauri::generate_handler![
+            log_js,
             load_config,
             save_config,
             set_hotkeys,

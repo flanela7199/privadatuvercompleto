@@ -13,24 +13,22 @@
 //   c.editar(on?)             -> abre/fecha o editor da sala dentro da janela do personagem
 import * as THREE from 'three';
 import { MaterialLib } from '../rig/materials.js';
-import { CATALOGO, MOLDURAS, construir } from './objetos.js';
-import { criarSala, criarFeixe, criarPoeira, PAREDES, SALA } from './sala.js';
+import { CATALOGO, MOLDURAS, construir, aplicarTela } from './objetos.js';
 import { CENA_PADRAO, MIGRAR_POS } from './cena-padrao.js';
-import { CENA_ILHA } from './cena-ilha.js';
-import { criarIlha, SOL_DIR as SOL_ILHA, ILHA } from './ilha.js';
+import { AMBIENTES } from './ambientes.js';
+import { criarEventos, NOMES_EVENTOS } from './eventos.js';
 import * as TX from './texturas.js';
+import { CANAIS, IDS_CANAIS } from './canais.js';
 
-// ambientes: cada um tem o seu layout salvo, a sua cena padrão e o seu "mundo" (sala de concreto / ilha)
-const AMBIENTES = {
-  sala: { chave: 'privada_sala3d_v1', cache: 'sala3d-layout', padrao: CENA_PADRAO, nome: 'Sala 3D', env: 0.32, far: 40 },
-  ilha: { chave: 'privada_ilha3d_v1', cache: 'ilha3d-layout', padrao: CENA_ILHA, nome: 'Ilha tropical', env: 0.75, far: 220 },
-};
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const D2R = Math.PI / 180;
+// relógio do ciclo dia/noite, compartilhado pelos ambientes (começa de manhã, ~7h)
+const relogio = { fase: 0.3 };
 const QUAL = { baixa: { sombra: 1024, sombraLampada: false, cada: 3 }, media: { sombra: 2048, sombraLampada: false, cada: 2 }, alta: { sombra: 2048, sombraLampada: true, cada: 1 } };
 
 function normalizar(c, PADRAO = CENA_PADRAO) {
   c.efeitos = Object.assign({}, PADRAO.efeitos, c.efeitos || {});
+  c.efeitos.diaNoite ??= true; c.efeitos.eventos ??= true;
   c.camera = Object.assign({}, PADRAO.camera, c.camera || {});
   c.personagem = Object.assign({}, PADRAO.personagem, c.personagem || {});
   for (const it of c.itens) { it.escala ??= 1; it.rot ??= 0; it.visivel ??= true; it.p ??= {}; }
@@ -54,8 +52,8 @@ function normalizar(c, PADRAO = CENA_PADRAO) {
   return c;
 }
 
-export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw, ambiente = 'sala' }) {
-  const AMB = AMBIENTES[ambiente] || AMBIENTES.sala, PADRAO = AMB.padrao, ehIlha = ambiente === 'ilha';
+export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw, ambiente = 'sala', opcoes = {} }) {
+  const AMB = AMBIENTES[ambiente] || AMBIENTES.sala, PADRAO = AMB.padrao, LUZ = AMB.luz;
   const CHAVE = AMB.chave;
   /* ------------------------------------------------------------ layout salvo */
   let cena = null;
@@ -69,32 +67,33 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw,
   cena = normalizar(cands.find((c) => c && c.versao === 2 && Array.isArray(c.itens)) || clone(PADRAO), PADRAO);
 
   /* ------------------------------------------------------------ raiz da sala */
-  const raiz = new THREE.Group(); raiz.name = ehIlha ? 'ilha3d' : 'sala3d'; raiz.visible = false; raiz.userData.cenario = true;
+  const raiz = new THREE.Group(); raiz.name = ambiente + '3d'; raiz.visible = false; raiz.userData.cenario = true;
   const q = () => QUAL[cena.efeitos.qualidade] || QUAL.media;
   const ctx = { mats: new MaterialLib({}), animacoes: new Map(), animaveis: new Set(), qualidade: q() };
   // luzes próprias da sala (as do palco são desligadas enquanto a sala está ativa)
-  const hemi = ehIlha ? new THREE.HemisphereLight(0xcfe9ff, 0xf0d9a8, 1.15) : new THREE.HemisphereLight(0xdfe6ee, 0x6e665c, 0.55);
-  const dirSol = ehIlha ? SOL_ILHA.clone() : new THREE.Vector3(-1, -0.62, -0.42).normalize();
-  const SOL_BASE = ehIlha ? 3.6 : 5.5;
-  const sol = new THREE.DirectionalLight(ehIlha ? 0xfff1dc : 0xfff0d6, SOL_BASE);
-  const alvoSol = ehIlha ? new THREE.Vector3(0, 0.8, 0) : new THREE.Vector3(2.2, 1.4, -1.2);
+  const hemi = new THREE.HemisphereLight(LUZ.hemi[0], LUZ.hemi[1], LUZ.hemi[2]);
+  const dirSol = LUZ.sol.dir.clone().normalize();
+  const SOL_BASE = LUZ.sol.base;
+  const sol = new THREE.DirectionalLight(LUZ.sol.cor, SOL_BASE);
+  const alvoSol = LUZ.sol.alvo.clone();
   sol.position.copy(dirSol).multiplyScalar(-14).add(alvoSol);
   sol.target.position.copy(alvoSol);
   sol.castShadow = true; sol.shadow.mapSize.set(q().sombra, q().sombra);
-  Object.assign(sol.shadow.camera, ehIlha ? { left: -8, right: 8, top: 8, bottom: -6, near: 2, far: 32 } : { left: -6, right: 6, top: 5, bottom: -5, near: 4, far: 30 });
+  Object.assign(sol.shadow.camera, LUZ.sol.cam);
   sol.shadow.bias = -0.0004; sol.shadow.normalBias = 0.02; sol.shadow.radius = 3;
-  const prench = new THREE.DirectionalLight(0xd8e4ff, ehIlha ? 0.35 : 0.55); prench.position.set(-2, 3, 6);
-  const prench2 = new THREE.PointLight(0xffe2c0, ehIlha ? 0 : 1.6, 12, 2); prench2.position.set(-1, 2.6, 2.5);
+  const prench = new THREE.DirectionalLight(0xd8e4ff, LUZ.prench); prench.position.set(-2, 3, 6);
+  const prench2 = new THREE.PointLight(0xffe2c0, LUZ.prench2, 12, 2); prench2.position.set(-1, 2.6, 2.5);
   // luz suave de frente no personagem (para ele não ficar escuro no meio da sala)
   const luzPers = new THREE.SpotLight(0xfff3e4, 9, 14, 0.42, 0.9, 1.6);
   raiz.add(hemi, sol, sol.target, prench, prench2);
   scene.add(raiz);
   scene.add(luzPers, luzPers.target);
   luzPers.visible = false;
-  const mundo = ehIlha ? criarIlha(raiz) : null;
-  const salaG = ehIlha ? mundo.chao : criarSala(raiz, ctx);
-  const feixe = ehIlha ? null : criarFeixe(raiz, dirSol);
-  const poeira = ehIlha ? null : criarPoeira(raiz);
+  const mundo = AMB.mundo(raiz, ctx, dirSol);
+  const salaG = mundo.chao;
+  const feixe = mundo.feixe || null;
+  const poeira = mundo.poeira || null;
+  const PAREDES = mundo.paredes || {};
   // sombra de contato do personagem (o palco do avatar não tem chão)
   const sombraTex = TX.radial([[0, 'rgba(0,0,0,0.85)'], [0.45, 'rgba(0,0,0,0.4)'], [1, 'rgba(0,0,0,0)']], 'contato');
   const contato = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: sombraTex, transparent: true, depthWrite: false, opacity: 0.6, toneMapped: false }));
@@ -141,8 +140,81 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw,
   }
   function aplicarEfeitos() {
     const e = cena.efeitos;
-    sol.intensity = SOL_BASE * e.sol; if (feixe) feixe.material.uniforms.forca.value = 0.09 * e.sol; mundo?.aplicar(e);
+    diaAplicado = -1; mundo.aplicar?.(e);
     luzPers.intensity = 9 * (e.luzPersonagem ?? 1);
+  }
+
+  /* ------------------------------------------------------------ dia / noite */
+  // Um dia inteiro a cada 24 minutos (o relógio só anda com um cenário 3D na tela; no gameplay para).
+  // fase 0 = meia-noite, 0,25 = nascer do sol, 0,5 = meio-dia, 0,75 = pôr do sol.
+  let diaAplicado = -1, ultElev = 99;
+  const hemiCeu = new THREE.Color(LUZ.hemi[0]), hemiChao = new THREE.Color(LUZ.hemi[1]), corSol = new THREE.Color(LUZ.sol.cor);
+  const C_POR = new THREE.Color('#ff8a3d'), C_LUA = new THREE.Color('#8fa6ff'), C_NOITE = new THREE.Color('#2e3d6b'), C_FEIXE = new THREE.Color('#fff1d6'), C_FEIXE_POR = new THREE.Color('#ffb070');
+  const horiz = new THREE.Vector2(dirSol.x, dirSol.z).normalize(), elevBase = Math.asin(Math.min(1, -dirSol.y));
+  const _d = new THREE.Vector3();
+  function infoDia(fase) {
+    const el = Math.sin((fase - 0.25) * Math.PI * 2);
+    const sm = (a, b, v) => { const t = Math.min(1, Math.max(0, (v - a) / (b - a))); return t * t * (3 - 2 * t); };
+    return { fase, el, dia: sm(-0.1, 0.14, el), noite: 1 - sm(-0.22, 0.02, el), crepusculo: Math.max(0, 1 - Math.abs(el) / 0.3) };
+  }
+  function aplicarDia(i) {
+    const e = cena.efeitos;
+    // o sol anda ±40° de um lado para o outro e sobe/desce; de noite a "lua" ilumina de cima
+    const az = Math.max(-0.7, Math.min(0.7, (i.fase - 0.5) * 1.4));
+    const elev = i.el > 0 ? elevBase * (0.35 + 0.65 * Math.pow(i.el, 0.6)) : elevBase * 0.9;
+    const c = Math.cos(az), s2 = Math.sin(az), hx = horiz.x * c - horiz.y * s2, hz = horiz.x * s2 + horiz.y * c;
+    _d.set(hx * Math.cos(elev), -Math.sin(elev), hz * Math.cos(elev)).normalize();
+    sol.position.copy(_d).multiplyScalar(-14).add(alvoSol);
+    if (i.dia > 0.02) sol.color.copy(corSol).lerp(C_POR, i.crepusculo * 0.7); else sol.color.copy(C_LUA);
+    sol.intensity = SOL_BASE * e.sol * Math.max(i.dia * (1 - 0.35 * i.crepusculo), 0.1 * i.noite);
+    const ext = !!LUZ.externo;   // ao ar livre a noite é bem mais escura que dentro de casa
+    hemi.intensity = LUZ.hemi[2] * ((ext ? 0.16 : 0.32) + (ext ? 0.84 : 0.68) * i.dia);
+    hemi.color.copy(hemiCeu).lerp(C_NOITE, i.noite * 0.75); hemi.groundColor.copy(hemiChao).multiplyScalar(0.45 + 0.55 * i.dia);
+    prench.intensity = LUZ.prench * (0.55 + 0.45 * i.dia);
+    if (ativo) {
+      scene.environmentIntensity = AMB.env * ((ext ? 0.18 : 0.45) + (ext ? 0.82 : 0.55) * i.dia);
+      if (ext) renderer.toneMappingExposure = e.brilho * (pausado ? 0.55 : 1) * (0.72 + 0.28 * i.dia);
+    }
+    luzPers.intensity = 9 * (e.luzPersonagem ?? 1) * (ext ? 0.55 + 0.45 * i.dia : 1);
+    if (feixe) {
+      feixe.material.uniforms.forca.value = 0.09 * e.sol * (i.dia * (1 - 0.3 * i.crepusculo) + 0.22 * i.noite);
+      feixe.material.uniforms.cor.value.copy(i.dia > 0.05 ? C_FEIXE : C_LUA).lerp(C_FEIXE_POR, i.dia > 0.05 ? i.crepusculo * 0.8 : 0);
+      if (Math.abs(elev - ultElev) > 0.01 || i.dia < 0.05) { ultElev = elev; feixe.userData.dirigir?.(_d); }
+    }
+    i.dir = _d; mundo.diaNoite?.(i);
+  }
+  function aplicarDiaFixo() {   // ciclo desligado: a luz de sempre (sol na posição base)
+    const e = cena.efeitos;
+    sol.position.copy(dirSol).multiplyScalar(-14).add(alvoSol); sol.color.copy(corSol); sol.intensity = SOL_BASE * e.sol;
+    hemi.intensity = LUZ.hemi[2]; hemi.color.copy(hemiCeu); hemi.groundColor.copy(hemiChao); prench.intensity = LUZ.prench;
+    if (ativo) scene.environmentIntensity = AMB.env;
+    if (feixe) { feixe.material.uniforms.forca.value = 0.09 * e.sol; feixe.material.uniforms.cor.value.copy(C_FEIXE); feixe.userData.dirigir?.(dirSol); }
+    mundo.diaNoite?.({ ...infoDia(0.42), dir: dirSol });
+  }
+
+  /* ------------------------------------------------------------ eventos (objetos interativos) */
+  const _tp = new THREE.Vector3();
+  let ultTuberRef = null;
+  const eventos = criarEventos({
+    amb: AMB, raiz, mundo, objs,
+    itens: (tipo) => cena.itens.filter((it) => it.tipo === tipo && it.visivel !== false && objs.get(it.id)?.visible).map((it) => ({ it, g: objs.get(it.id) })),
+    som: (n, d) => opcoes.som?.(n, d), reagir: (n) => opcoes.reagir?.(n),
+    proximoCanal: () => trocarCanal(null), setCanal: (id) => trocarCanal(id),
+    tuberPos: (out) => (ultTuberRef?.body ? ultTuberRef.body.getWorldPosition(out) : out.set(0, 0, 0)),
+  });
+  let proxEvento = 60 + Math.random() * 90;
+  /** troca o canal de todas as TVs do ambiente (id = null: próximo da lista) */
+  function trocarCanal(id) {
+    const tvs = cena.itens.filter((it) => it.tipo === 'tv' && objs.get(it.id));
+    if (!tvs.length) return false;
+    for (const it of tvs) {
+      const atual = it.p.tela || 'chuvisco', lista = CANAIS.map(([v]) => v).filter((v) => v !== 'verde');
+      it.p.tela = id || lista[(lista.indexOf(atual) + 1) % lista.length] || 'jornal';
+      const tm = objs.get(it.id).getObjectByName('tela'); if (tm) aplicarTela(tm, it.p, ctx);
+    }
+    opcoes.som?.('toc', { v: 0.5 });
+    salvar();
+    return true;
   }
 
   /* ------------------------------------------------------------ ativar / desativar */
@@ -155,12 +227,14 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw,
     guardado = { env: scene.environmentIntensity, tone: renderer.toneMappingExposure, auto: renderer.shadowMap.autoUpdate, luzes: luzesPalco().map((l) => [l, l.visible]) };
     for (const [l] of guardado.luzes) l.visible = false;
     scene.environmentIntensity = AMB.env;
-    renderer.toneMappingExposure = cena.efeitos.brilho;
+    renderer.toneMappingExposure = cena.efeitos.brilho * (pausado ? 0.55 : 1);
+    diaAplicado = -1;
     renderer.shadowMap.autoUpdate = false; renderer.shadowMap.needsUpdate = true;
     raiz.visible = true; luzPers.visible = true; contato.visible = true;
   }
   function desativar() {
     if (!ativo) return; ativo = false;
+    eventos.limpar();
     if (sentado && ultTuber) { ultTuber.sitHeight = 0; sentado = false; spotSofa = null; }
     chaveMoveis = '';
     raiz.visible = false; luzPers.visible = false; contato.visible = false;
@@ -194,7 +268,14 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw,
     for (const t of ctx.animaveis) t.userData.atualizar(tempo);
     if (poeira) { poeira.visible = e.poeira; if (poeira.visible) poeira.userData.anima(tempo); }
     if (feixe) feixe.visible = e.feixe;
-    mundo?.animar(tempo);
+    mundo.animar?.(tempo, dt);
+    eventos.frame(dt);
+    ultTuberRef = tuber;
+    // dia/noite: recalcula ~4x/s (a luz anda devagar; não precisa todo quadro)
+    if (e.diaNoite !== false) { relogio.fase = (relogio.fase + dt / (24 * 60)) % 1; if (Math.abs(relogio.fase - diaAplicado) > 1 / (24 * 60 * 4)) { diaAplicado = relogio.fase; aplicarDia(infoDia(relogio.fase)); } }
+    else if (diaAplicado !== -2) { diaAplicado = -2; aplicarDiaFixo(); }
+    // eventos sozinhos de vez em quando (1 a 3 minutos)
+    if (e.eventos !== false && !editando) { proxEvento -= dt; if (proxEvento <= 0) { proxEvento = 60 + Math.random() * 120; eventos.disparar('aleatorio'); } }
     // câmera (coordenadas da sala -> mundo)
     camLocal.pos.fromArray(cena.camera.pos); camLocal.alvo.fromArray(cena.camera.alvo);
     {
@@ -394,7 +475,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw,
     let n = 1; while (cena.itens.some((i) => i.id === `${tipo}_${n}`)) n++;
     const it = { id: `${tipo}_${n}`, tipo, nome: def.nome, pos: [cena.personagem.pos[0] + 0.9, 0, cena.personagem.pos[1] + 0.3], rot: 0, escala: 1, visivel: true, p: {} };
     if (def.tipo === 'parede') { it.pos = [-0.3, 2.0, -2.44]; it.p.parede = 'fundo'; if (tipo === 'bandeira') it.pos[1] = 3; }
-    if (def.tipo === 'teto') it.pos = [0.3, SALA.alto, 0];
+    if (def.tipo === 'teto') it.pos = [0.3, AMB.alto, 0];
     if (tipo === 'quadro') Object.assign(it.p, { moldura: 'dourada', largura: 0.5, altura: 0.65 });
     if (tipo === 'livro') it.p.capa = 'capital';
     cena.itens.push(it); montar(it); selecionar(it.id); confirmar();
@@ -480,7 +561,7 @@ export async function criarCenario({ renderer, scene, camera, invoke, invokeRaw,
 <h2>Luz e efeitos</h2>
 <div class="campo"><div class="rot"><span>Sol da janela</span></div><input type="range" data-ef="sol" min="0" max="2.5" step="0.05"></div>
 <div class="campo"><div class="rot"><span>Brilho geral</span></div><input type="range" data-ef="brilho" min="0.3" max="2.5" step="0.05"></div>
-${ehIlha ? '' : '<div class="linha"><label><input type="checkbox" data-efc="feixe"> Feixe de luz</label><label><input type="checkbox" data-efc="poeira"> Poeira</label></div>'}
+${feixe ? '<div class="linha"><label><input type="checkbox" data-efc="feixe"> Feixe de luz</label>' + (poeira ? '<label><input type="checkbox" data-efc="poeira"> Poeira</label>' : '') + '</div>' : ''}<div class="linha"><label><input type="checkbox" data-efc="diaNoite"> Dia/noite (24 min)</label><label><input type="checkbox" data-efc="eventos"> Eventos sozinhos</label></div>
 <div class="linha"><label>Qualidade da sala <select data-qual><option value="baixa">Leve</option><option value="media">Média</option><option value="alta">Alta</option></select></label></div>
 <div class="linha"><label><input type="checkbox" data-grudar checked> Ao soltar, assentar em cima do que estiver embaixo</label></div>
 <h2>Salvar</h2>
@@ -515,7 +596,7 @@ ${ehIlha ? '' : '<div class="linha"><label><input type="checkbox" data-efc="feix
       if (a === 'add') {
         const r = b.getBoundingClientRect(); menu.style.left = Math.max(8, r.left - 10) + 'px'; menu.style.top = r.bottom + 6 + 'px';
         const rem = cena.itens.filter((i) => !i.visivel);
-        menu.innerHTML = '<div class="dica">Novo objeto:</div>' + Object.entries(CATALOGO).filter(([, d]) => !ehIlha || d.tipo === 'piso').map(([k, d]) => `<button data-novo="${k}">${d.nome}</button>`).join('') +
+        menu.innerHTML = '<div class="dica">Novo objeto:</div>' + Object.entries(CATALOGO).filter(([, d]) => d.tipo === 'piso' || (d.tipo === 'parede' && mundo.paredes) || (d.tipo === 'teto' && AMB.alto > 0)).map(([k, d]) => `<button data-novo="${k}">${d.nome}</button>`).join('') +
           (rem.length ? '<div class="dica" style="margin-top:8px">Trazer de volta:</div>' + rem.map((i) => `<button data-volta="${i.id}">↩ ${esc(i.nome)}</button>`).join('') : '');
         menu.style.display = menu.style.display === 'block' ? 'none' : 'block'; e.stopPropagation();
       }
@@ -594,7 +675,7 @@ ${ehIlha ? '' : '<div class="linha"><label><input type="checkbox" data-efc="feix
         h += `<div class="campo"><div class="rot"><span>Capa</span></div><select data-p="capa" style="width:100%"><option value="capital" ${p.capa === 'capital' ? 'selected' : ''}>O Capital</option><option value="amarelo" ${p.capa === 'amarelo' ? 'selected' : ''}>O Livro Amarelo</option></select></div>`;
         h += campoImg('Capa personalizada', 'imagem') + `<div class="campo"><div class="rot"><span>Cor da lombada</span></div><input type="color" data-p="cor" value="${p.cor || (p.capa === 'amarelo' ? '#f1c21b' : '#8e1418')}"></div>`;
       }
-      if (it.tipo === 'tv') h += `<div class="campo"><div class="rot"><span>Tela</span></div><select data-p="tela" style="width:100%"><option value="chuvisco" ${p.tela === 'chuvisco' ? 'selected' : ''}>Chuvisco (fora do ar)</option><option value="original" ${p.tela === 'original' ? 'selected' : ''}>Imagem original</option>${p.tela && !['chuvisco', 'original'].includes(p.tela) ? '<option value="' + esc(p.tela) + '" selected>Imagem enviada</option>' : ''}</select></div>` + campoImg('Pôr imagem na tela', 'tela');
+      if (it.tipo === 'tv') h += `<div class="campo"><div class="rot"><span>Tela</span></div><select data-p="tela" style="width:100%">${CANAIS.map(([v, n]) => `<option value="${v}" ${(p.tela || 'chuvisco') === v ? 'selected' : ''}>${n}</option>`).join('')}<option value="original" ${p.tela === 'original' ? 'selected' : ''}>Imagem original</option>${p.tela && !IDS_CANAIS.includes(p.tela) && p.tela !== 'original' ? '<option value="' + esc(p.tela) + '" selected>Imagem enviada</option>' : ''}</select></div>` + campoImg('Pôr imagem na tela', 'tela');
       if (['mesa_vermelha', 'cadeira_skol', 'mesa_bar', 'rodo'].includes(it.tipo)) h += `<div class="campo"><div class="rot"><span>Cor</span></div><input type="color" data-p="cor" value="${p.cor || ({ mesa_vermelha: '#c8121b', rodo: '#d0151d' }[it.tipo] || '#f7d417')}"></div>`;
       if (it.tipo === 'lampada') h += rng('Intensidade', 'intensidade', p.intensidade ?? 7, 0, 20, 0.1) + rng('Balanço', 'balanco', p.balanco ?? 1, 0, 4, 0.05) + rng('Comprimento do fio', 'fio', p.fio ?? 1, 0.2, 2.5, 0.01);
       if (it.tipo === 'entulho') h += rng('Quantidade', 'qtd', p.qtd ?? 22, 3, 80, 1) + rng('Espalhar', 'raio', p.raio ?? 1.2, 0.2, 3, 0.05) + rng('Sorteio', 'semente', p.semente ?? 3, 1, 50, 1);
@@ -608,9 +689,44 @@ ${ehIlha ? '' : '<div class="linha"><label><input type="checkbox" data-efc="feix
     painelLeve();
   }
 
+  /* ------------------------------------------------------------ pausa ("Volto já"): cena mais escura */
+  let pausado = false;
+  function pausa(on) {
+    pausado = !!on;
+    if (ativo) renderer.toneMappingExposure = cena.efeitos.brilho * (pausado ? 0.55 : 1);
+  }
+  /** libera a GPU/memória deste ambiente (quando ninguém usa mais) */
+  function destruir() {
+    desativar(); eventos.limpar();
+    scene.remove(raiz, luzPers, luzPers.target, contato);
+    const mats = new Set();
+    raiz.traverse((o) => { if (o.geometry) o.geometry.dispose(); if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => mats.add(m)); });
+    for (const m of mats) m.dispose();   // texturas do cache (TX) são compartilhadas entre ambientes: ficam
+    sol.shadow.map?.dispose();
+    ui?.root.remove(); ui?.menu.remove(); ui?.toast.remove();
+    ctx.animacoes.clear(); ctx.animaveis.clear(); objs.clear();
+  }
+
   return {
     get ativo() { return ativo; }, get editando() { return editando; },
-    ativar, desativar, frame, miniatura, editar,
+    ativar, desativar, frame, miniatura, editar, pausa, destruir,
     get layout() { return cena; },
+    get nome() { return AMB.nome; },
+    /** dispara um evento interativo ('aleatorio' = qualquer um deste ambiente) */
+    evento: (nome) => ativo && eventos.disparar(nome),
+    /** hora do dia (0..1, 0,5 = meio-dia); sem argumento devolve a atual */
+    fase(v) { if (v != null) { relogio.fase = ((+v % 1) + 1) % 1; diaAplicado = -1; } return relogio.fase; },
+    eventos: () => eventos.disponiveis().map((n) => [n, NOMES_EVENTOS[n] || n]),
+    /** TV: null = próximo canal; 'verde' alterna a tela verde (volta ao canal anterior) */
+    canal(id) {
+      if (id === 'verde') {
+        const tv = cena.itens.find((it) => it.tipo === 'tv');
+        if (!tv) return false;
+        if (tv.p.tela === 'verde') return trocarCanal(tv.p._antes || 'jornal');
+        tv.p._antes = tv.p.tela || 'chuvisco';
+        return trocarCanal('verde');
+      }
+      return trocarCanal(id || null);
+    },
   };
 }

@@ -1,6 +1,7 @@
 import React from 'react';
 import { useStore, allOutfits } from '../state/config';
 import { clone, sceneDefaults } from '../lib/catalog';
+const AMB3D = ['sala', 'ilha', 'banheiro', 'prisao', 'bar'];
 import { Section, Field, Fields, Note } from '../components/Section';
 import { Button } from '../components/Button';
 import { Select, TextField } from '../components/Select';
@@ -64,7 +65,7 @@ export function Cenas() {
           )}
           {sc.mode !== 'overlay' && (
             <Field label="Transição ao entrar" tip="Efeito quando você troca PARA esta cena (atalho ou painel). Descarga: a cena anterior é sugada girando para dentro da privada (ou a sala sai girando de dentro dela). Use o mesmo tamanho de janela nas cenas entre as quais vai trocar.">
-              <Select value={sc.transicao || 'descarga'} options={[['descarga', '🌀 Descarga (redemoinho no vaso)'], ['fade', 'Dissolver'], ['nenhuma', 'Nenhuma (corte seco)']]} onChange={(v) => set('transicao', v)} />
+              <Select value={sc.transicao || 'descarga'} options={[['descarga', '😮 Vaso engole / cospe o cenário'], ['agua', '🌊 Descarga com água'], ['arroto', '💨 Arroto (onda de choque)'], ['papel', '🧻 Cortina de papel higiênico'], ['fade', 'Dissolver'], ['nenhuma', 'Nenhuma (corte seco)']]} onChange={(v) => set('transicao', v)} />
             </Field>
           )}
           <Field label="Visual da cena"><Select value={sc.outfit || ''} options={[['', '(manter visual atual)'], ...allOutfits(s)]} onChange={(v) => set('outfit', v || null)} /></Field>
@@ -72,14 +73,31 @@ export function Cenas() {
           <Field label="Posição Y" tip="Onde fica o pé da privada (0 = topo, 1 = base)"><Slider value={sc.y} min={0} max={1} step={0.005} onChange={(v) => set('y', v)} /></Field>
           <Field label="Tamanho"><Slider value={sc.scale} min={0.3} max={3} step={0.01} fmt="x" onChange={(v) => set('scale', v)} /></Field>
           <Field label="Fundo">
-            <Select value={sc.background} options={[['transparent', 'Transparente'], ['color', 'Cor sólida / chroma'], ['sala', 'Sala 3D (cenário completo)'], ['ilha', '🏝 Ilha tropical 3D']]} onChange={(v) => set('background', v)} />
+            <Select value={sc.background} options={[['transparent', 'Transparente'], ['color', 'Cor sólida / chroma'], ['sala', 'Sala 3D (cenário completo)'], ['ilha', '🏝 Ilha tropical 3D'], ['banheiro', '🚻 Banheiro da rodoviária 3D'], ['prisao', '🔒 Cela da prisão 3D'], ['bar', '🍺 Bar do Vaso 3D']]} onChange={(v) => set('background', v)} />
             <ColorField value={sc.bgColor} fallback="#00ff00" disabled={sc.background !== 'color'} onChange={(v) => set('bgColor', v)} />
           </Field>
-          {(sc.background === 'sala' || sc.background === 'ilha') && (
+          {AMB3D.includes(sc.background) && (
             <Field label="Cenário 3D" tip="O fundo 3D é desenhado junto com a privada, na mesma janela. Posição X/Y e Tamanho não se aplicam: use o editor da sala (lugar do personagem e câmera).">
               <Button size="sm" disabled={!live} onClick={() => { runAction('sala:editar'); toast(<>Editor da sala aberto na janela da <b>Privada Tuber</b></>); }}>✏ Editar o cenário</Button>
             </Field>
           )}
+          {AMB3D.includes(sc.background) && (
+            <Field label="TV e eventos" tip="TV: troca o canal (jornal, futebol, novela...) ou liga a tela verde (no OBS, Chroma Key na janela e ponha o que quiser atrás). Evento: um objeto interativo do cenário (lâmpada pisca, coco cai, sirene...). Tudo também tem atalho em Atalhos.">
+              <div className="btns">
+                <Button size="sm" disabled={!live} onClick={() => runAction('tv:proximo')}>📺 Próximo canal</Button>
+                <Button size="sm" disabled={!live} onClick={() => runAction('tv:verde')}>🟩 Tela verde</Button>
+                <Button size="sm" disabled={!live} onClick={() => runAction('evento:aleatorio')}>🎲 Evento</Button>
+              </div>
+            </Field>
+          )}
+          <Field label="Modo pausa (Volto já)" tip="O vaso dorme no cenário atual: olhos fechados, Zzz, ronco e uma placa de madeira com o texto abaixo. O cenário 3D escurece. Atalho padrão: Ctrl+Alt+Z.">
+            <div className="btns">
+              <Button size="sm" disabled={!live} onClick={() => runAction('pausa:')}>⏸ Liga/desliga</Button>
+              <input className="input" style={{ width: 130 }} value={s.cfg.pausa?.texto ?? 'VOLTO JÁ'} maxLength={14} onChange={(e) => update((d) => { d.cfg.pausa = { ...(d.cfg.pausa || {}), texto: e.target.value }; })} />
+              <input className="input" style={{ width: 190 }} value={s.cfg.pausa?.sub ?? 'fui ali e já volto'} maxLength={32} onChange={(e) => update((d) => { d.cfg.pausa = { ...(d.cfg.pausa || {}), sub: e.target.value }; })} />
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Ronco <Toggle checked={s.cfg.pausa?.ronco !== false} onChange={(v) => update((d) => { d.cfg.pausa = { ...(d.cfg.pausa || {}), ronco: v }; })} /></label>
+            </div>
+          </Field>
           {sc.background === 'sala' && (
             <Field label="Vaso no sofá" tip="Senta o vaso no sofá da sala. Fica salvo na aparência atual (também em Visual → 🏠 Sala 3D).">
               <Toggle checked={!!s.work?.salaSofa} onChange={(v) => update((d) => { if (v) d.work.salaSofa = true; else delete d.work.salaSofa; }, { fork: true })} />
@@ -93,7 +111,7 @@ export function Cenas() {
           </Field>
         </Fields>
         <div style={{ marginTop: 16 }}>
-          {(sc.background === 'sala' || sc.background === 'ilha') && <Note>🏠 <b>Sala 3D</b>: o cenário inteiro sai na própria janela da Privada Tuber (um programa só, sem fonte de navegador no OBS). Deixe a janela em 16:9 (ex.: 1280×720 ou 1920×1080). Para mexer nos móveis, quadros e câmera: ative a cena e clique em <b>✏ Editar a sala</b> (ou use o atalho "Abrir/fechar editor da Sala 3D").</Note>}
+          {AMB3D.includes(sc.background) && <Note>🏠 <b>Cenário 3D</b>: o dia vira noite a cada 24 minutos (só enquanto o cenário aparece; desligue no editor em Efeitos). A tela verde da TV usa verde puro: no OBS, Chroma Key com similaridade baixa para não apagar outras coisas verdes. O cenário inteiro sai na própria janela da Privada Tuber (um programa só, sem fonte de navegador no OBS). Deixe a janela em 16:9 (ex.: 1280×720 ou 1920×1080). Para mexer nos móveis, quadros e câmera: ative a cena e clique em <b>✏ Editar a sala</b> (ou use o atalho "Abrir/fechar editor da Sala 3D").</Note>}
           <Note>💡 Para OBS: use <b>Captura de janela</b> na janela <b>Privada Tuber</b> (funciona mesmo atrás de outras janelas). Com fundo transparente ative <b>Permitir transparência</b> se houver; senão use fundo de cor + filtro <b>Chroma Key</b>.</Note>
         </div>
         <div className="btns" style={{ marginTop: 16 }}>

@@ -10,6 +10,7 @@ import { buildAccessory } from '../accessories/index.js';
 import '../accessories/furniture.js';
 import * as TX from './texturas.js';
 import { FOTOS } from './fotos.js';
+import { IDS_CANAIS, texturaCanal } from './canais.js';
 
 /* ------------------------------------------------------------ utilidades */
 export const mat = (o) => {
@@ -270,12 +271,22 @@ function tv(p, ctx) {
   return g;
 }
 export function aplicarTela(tm, p, ctx) {
-  const M2 = tm.material;
-  if (M2.map && M2.map.userData.atualizar) ctx.animaveis.delete(M2.map);
-  let t;
-  if ((p.tela || 'chuvisco') === 'chuvisco') { t = TX.chuvisco(); ctx.animaveis.add(t); }
-  else t = texturaFoto(p.tela === 'original' ? 'tv_tela' : p.tela, 0.66, 0.44);
-  M2.map = t; M2.emissiveMap = t; M2.needsUpdate = true;
+  const padrao = (tm.userData.matPadrao ||= tm.material);
+  const velho = tm.material.map;
+  if (velho && velho.userData.atualizar) ctx.animaveis.delete(velho);
+  if (velho && velho.userData.canal) velho.dispose();
+  const tela = p.tela || 'chuvisco';
+  if (tela === 'verde') {
+    // chroma key: verde puro, sem tonemapping/luz/reflexo (no OBS a cor fica exatamente 0,255,0)
+    tm.material = (tm.userData.matVerde ||= new THREE.MeshBasicMaterial({ color: 0x00ff00, toneMapped: false }));
+    return;
+  }
+  tm.material = padrao;
+  let t = null;
+  if (tela === 'chuvisco') { t = TX.chuvisco(); ctx.animaveis.add(t); }
+  else if (IDS_CANAIS.includes(tela)) { t = texturaCanal(tela); t.userData.canal = true; ctx.animaveis.add(t); }
+  else t = texturaFoto(tela === 'original' ? 'tv_tela' : tela, 0.66, 0.44);
+  padrao.map = t; padrao.emissiveMap = t; padrao.needsUpdate = true;
 }
 
 /* ============================================================ MESINHA (madeira escura) */
@@ -553,7 +564,7 @@ function bandeira(p, ctx) {
   }
   const seed = Math.random() * 100;
   const anima = (tempo) => {
-    const pa = geo.attributes.position, A = p.vento ?? 1, T = tempo + seed;
+    const pa = geo.attributes.position, A = (p.vento ?? 1) * (1 + (g.userData.vento || 0)), T = tempo + seed;   // userData.vento: rajada de evento
     // rajada: força que sobe e desce devagar (nunca para totalmente)
     const raj = 0.55 + 0.3 * Math.sin(T * 0.37) * Math.sin(T * 0.13 + 1) + 0.15 * Math.sin(T * 1.7) * Math.max(0, Math.sin(T * 0.21));
     for (let i = 0; i < pa.count; i++) {
@@ -615,7 +626,7 @@ function lampada(p, ctx) {
   luz.shadow.mapSize.set(512, 512); luz.shadow.bias = -0.002; luz.shadow.radius = 4;
   pend.add(luz); g.userData.luz = luz;
   const t0 = Math.random() * 10;
-  ctx.animacoes.set(g, (t) => { const a = (p.balanco ?? 1); pend.rotation.z = Math.sin(t * 1.1 + t0) * 0.05 * a; pend.rotation.x = Math.sin(t * 0.8 + t0) * 0.03 * a; luz.intensity = (p.intensidade ?? 7) * (1 + (p.piscar ? (Math.random() < 0.03 ? -0.6 : 0) : 0)); });
+  ctx.animacoes.set(g, (t) => { const a = (p.balanco ?? 1); pend.rotation.z = Math.sin(t * 1.1 + t0) * 0.05 * a; pend.rotation.x = Math.sin(t * 0.8 + t0) * 0.03 * a; luz.intensity = (p.intensidade ?? 7) * (g.userData.fator ?? 1) * (1 + (p.piscar ? (Math.random() < 0.03 ? -0.6 : 0) : 0)); vidro.emissiveIntensity = 3 * (g.userData.fator ?? 1); });
   return g;
 }
 
@@ -664,6 +675,185 @@ function escada(p) {
 }
 
 /* ============================================================ catálogo */
+/* ============================================================ MÓVEIS DOS AMBIENTES NOVOS */
+const porcelana = () => (M2.porc ||= mat({ color: '#f3f2ee', roughness: 0.18, clearcoat: 0.8, clearcoatRoughness: 0.08 }));
+const M2 = {};
+function texRabisco(seed) {
+  return canvasTex(256, 512, (x, W, H) => {
+    x.fillStyle = '#c9b48a'; x.fillRect(0, 0, W, H);
+    const r = TX.rng(seed);
+    for (let k = 0; k < 900; k++) { x.fillStyle = `rgba(90,70,40,${r() * 0.05})`; x.fillRect(r() * W, r() * H, 2, 2); }
+    const frases = ['VASCO', 'GALO', 'Ana ♥ Zé', 'TEL 9999-0000', 'NÃO TEM PAPEL', 'olha pra cima ↑', 'X', '2008', 'PIX?', 'tô atrasado'];
+    for (let k = 0; k < 7; k++) {
+      x.save(); x.translate(20 + r() * (W - 60), 40 + r() * (H - 80)); x.rotate((r() - 0.5) * 0.6);
+      x.fillStyle = ['#1b1b1b', '#1f3fa0', '#b3172a', '#2b2b2b'][k % 4]; x.font = `${18 + r() * 18}px "Comic Sans MS", cursive`;
+      x.fillText(frases[Math.floor(r() * frases.length)], 0, 0); x.restore();
+    }
+    x.strokeStyle = 'rgba(0,0,0,.6)'; x.lineWidth = 2; x.beginPath(); for (let k = 0; k < 5; k++) x.lineTo(30 + r() * 180, 300 + r() * 160); x.stroke();
+  });
+}
+function cabines(p, ctx) {
+  const g = grupo('cabines'), n = p.n ?? 4, w = 0.98, d = 1.5, h = 2.05, y0 = 0.16, m = mats();
+  const formica = mat({ color: '#cbb68c', roughness: 0.45, clearcoat: 0.3 });
+  const borda = mat({ color: '#9a9b9c', metalness: 0.9, roughness: 0.35 });
+  const L = n * w, x0 = -L / 2;
+  const portas = [];
+  for (let i = 0; i <= n; i++) {   // divisórias
+    mesh(new THREE.BoxGeometry(0.03, h, d), formica, g, x0 + i * w, y0 + h / 2, -d / 2);
+    mesh(new THREE.CylinderGeometry(0.018, 0.018, y0, 8), borda, g, x0 + i * w, y0 / 2, -0.05);
+  }
+  mesh(new THREE.BoxGeometry(L + 0.04, 0.05, 0.05), borda, g, 0, y0 + h + 0.03, 0.02);   // travessa de cima
+  const abertas = p.abertas ?? [1];
+  for (let i = 0; i < n; i++) {
+    const piv = new THREE.Group(); piv.position.set(x0 + i * w + 0.03, 0, 0.0); g.add(piv);
+    const porta = mesh(new THREE.BoxGeometry(w - 0.06, h - 0.05, 0.03), [formica, formica, formica, formica, mat({ map: texRabisco(i * 7 + 3), roughness: 0.5 }), formica], piv, (w - 0.06) / 2, y0 + h / 2, 0);
+    mesh(new THREE.BoxGeometry(0.06, 0.03, 0.03), borda, piv, w - 0.16, y0 + h * 0.5, 0.025);
+    piv.rotation.y = abertas.includes(i) ? -1.15 : 0;
+    piv.userData.base = piv.rotation.y; portas.push(piv);
+    // vaso "rival" dentro das cabines abertas
+    if (abertas.includes(i)) {
+      const v = grupo('vasoRival'); v.position.set(x0 + i * w + w / 2, 0, -d + 0.35); g.add(v);
+      mesh(new THREE.CylinderGeometry(0.17, 0.12, 0.4, 20), porcelana(), v, 0, 0.2, 0.05);
+      mesh(new THREE.TorusGeometry(0.17, 0.035, 10, 24), mat({ color: '#1d1d1d', roughness: 0.4 }), v, 0, 0.42, 0.05, Math.PI / 2);
+      mesh(new THREE.BoxGeometry(0.4, 0.38, 0.17), porcelana(), v, 0, 0.62, -0.14);
+    }
+  }
+  g.userData.portas = portas;
+  return g;
+}
+function pias(p) {
+  const g = grupo('pias'), n = p.n ?? 3, L = n * 0.8, m = mats();
+  const granito = mat({ map: canvasTex(256, 128, (x, W, H) => { x.fillStyle = '#3d3a37'; x.fillRect(0, 0, W, H); for (let k = 0; k < 2500; k++) { const v = 40 + Math.random() * 120; x.fillStyle = `rgb(${v},${v * 0.97},${v * 0.92})`; x.fillRect(Math.random() * W, Math.random() * H, 1.5, 1.5); } }), roughness: 0.2, clearcoat: 0.8 });
+  mesh(new THREE.BoxGeometry(L, 0.05, 0.56), granito, g, 0, 0.86, 0.28);
+  mesh(new THREE.BoxGeometry(L, 0.18, 0.03), granito, g, 0, 0.78, 0.55);
+  for (let i = 0; i < n; i++) {
+    const x = -L / 2 + 0.4 + i * 0.8;
+    mesh(new THREE.CylinderGeometry(0.2, 0.15, 0.12, 24, 1, true), porcelana(), g, x, 0.82, 0.3).material.side = THREE.DoubleSide;
+    mesh(new THREE.CircleGeometry(0.15, 20), mat({ color: '#d9d8d2', roughness: 0.3 }), g, x, 0.765, 0.3, -Math.PI / 2);
+    mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.18, 10), m.cromo, g, x, 0.97, 0.06);
+    mesh(new THREE.CylinderGeometry(0.01, 0.01, 0.12, 10), m.cromo, g, x, 1.05, 0.11, Math.PI / 2);
+    mesh(new THREE.BoxGeometry(0.05, 0.03, 0.03), m.cromo, g, x, 1.03, 0.04);
+  }
+  // espelho grande (prata polida) com moldura de alumínio e manchas
+  const esp = mat({ color: '#c9d2d6', metalness: 1, roughness: 0.06 });
+  mesh(new THREE.BoxGeometry(L - 0.1, 0.95, 0.015), esp, g, 0, 1.65, 0.012);
+  mesh(new THREE.BoxGeometry(L - 0.04, 1.0, 0.01), m.galvanizado, g, 0, 1.65, 0.004);
+  // saboneteira e toalheiro de papel
+  mesh(rbox(0.16, 0.24, 0.1, 0.02), mat({ color: '#e9e7e0', roughness: 0.4 }), g, L / 2 - 0.1, 1.35, 0.06);
+  mesh(rbox(0.3, 0.38, 0.14, 0.02), m.galvanizado, g, -L / 2 - 0.3, 1.45, 0.08);
+  return g;
+}
+function mictorios(p) {
+  const g = grupo('mictorios'), n = p.n ?? 3;
+  for (let i = 0; i < n; i++) {
+    const x = (i - (n - 1) / 2) * 0.75, u = grupo('mictorio'); u.position.set(x, 0, 0); g.add(u);
+    const corpo = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.45, 8, 20), porcelana()); corpo.scale.set(1, 1, 0.75); corpo.position.set(0, 0.95, 0.15); corpo.castShadow = true; u.add(corpo);
+    const boca = new THREE.Mesh(new THREE.CircleGeometry(0.14, 24), mat({ color: '#dcdad2', roughness: 0.25 })); boca.scale.set(1, 1.7, 1); boca.position.set(0, 0.9, 0.305); u.add(boca);
+    mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.5, 8), mats().cromo, u, 0, 1.55, 0.04);
+    if (i < n - 1) mesh(new THREE.BoxGeometry(0.03, 0.8, 0.45), mat({ color: '#cbb68c', roughness: 0.45 }), g, x + 0.375, 1.05, 0.25);
+  }
+  return g;
+}
+function lixeira(p) {
+  const g = grupo('lixeira');
+  mesh(new THREE.CylinderGeometry(0.2, 0.17, 0.6, 20, 1, true), mat({ color: p.cor || '#8a8d90', metalness: 0.8, roughness: 0.45, side: THREE.DoubleSide }), g, 0, 0.3, 0);
+  mesh(new THREE.CircleGeometry(0.17, 20), mats().pretoFosco, g, 0, 0.02, 0, -Math.PI / 2);
+  const r = TX.rng(4);
+  for (let k = 0; k < 14; k++) { const b = mesh(new THREE.IcosahedronGeometry(0.05 + r() * 0.04, 0), mats().papel, g, (r() - 0.5) * 0.28, 0.58 + r() * 0.12, (r() - 0.5) * 0.28); b.rotation.set(r() * 3, r() * 3, 0); }
+  for (let k = 0; k < 4; k++) { const b = mesh(new THREE.IcosahedronGeometry(0.045, 0), mats().papel, g, 0.3 + r() * 0.3, 0.04, (r() - 0.5) * 0.4); b.scale.y = 0.7; }
+  return g;
+}
+function beliche(p) {
+  const g = grupo('beliche'), L = 1.95, W = 0.85, m = mats();
+  const ferro = mat({ color: p.cor || '#4f5f57', metalness: 0.7, roughness: 0.5 });
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) mesh(new THREE.BoxGeometry(0.05, 1.75, 0.05), ferro, g, sx * L / 2, 0.875, sz * W / 2);
+  const colchao = mat({ map: canvasTex(256, 64, (x, Wc, H) => { for (let k = 0; k < 16; k++) { x.fillStyle = k % 2 ? '#e8e2d2' : '#8ea0b8'; x.fillRect(k * Wc / 16, 0, Wc / 16 + 1, H); } sujar2(x, Wc, H); }), roughness: 0.95, sheen: 0.6 });
+  const manta = mat({ color: '#6f6f68', roughness: 1, sheen: 0.8, sheenColor: new THREE.Color('#9a9a90') });
+  for (const y of [0.38, 1.35]) {
+    mesh(new THREE.BoxGeometry(L, 0.05, W), ferro, g, 0, y, 0);
+    mesh(rbox(L - 0.06, 0.12, W - 0.06, 0.04), colchao, g, 0, y + 0.085, 0);
+    const mt = mesh(rbox(L * 0.62, 0.05, W - 0.02, 0.025, 2), manta, g, 0.3, y + 0.165, 0.01); mt.rotation.z = 0.01;
+    mesh(rbox(0.38, 0.1, 0.5, 0.05, 3), mats().manta, g, -L / 2 + 0.28, y + 0.2, 0);
+  }
+  for (let k = 0; k < 4; k++) mesh(new THREE.BoxGeometry(0.04, 0.03, W), ferro, g, -L / 2 + 0.02, 1.5 + k * 0.06, 0);
+  // escadinha
+  for (let k = 0; k < 4; k++) mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.32, 8), ferro, g, L / 2 - 0.25, 0.55 + k * 0.25, W / 2 + 0.02, 0, 0, Math.PI / 2);
+  return g;
+}
+function sujar2(x, W, H) { for (let k = 0; k < 20; k++) { const px = Math.random() * W, py = Math.random() * H, r = 6 + Math.random() * 20, gr = x.createRadialGradient(px, py, 0, px, py, r); gr.addColorStop(0, 'rgba(90,70,40,.18)'); gr.addColorStop(1, 'rgba(90,70,40,0)'); x.fillStyle = gr; x.fillRect(px - r, py - r, r * 2, r * 2); } }
+function piaInox() {
+  const g = grupo('pia_inox'), inox = mat({ color: '#c3c8cc', metalness: 1, roughness: 0.28 });
+  mesh(rbox(0.5, 0.18, 0.38, 0.04), inox, g, 0, 0.85, 0.19);
+  mesh(new THREE.CylinderGeometry(0.04, 0.04, 0.85, 12), inox, g, 0, 0.42, 0.1);
+  mesh(new THREE.BoxGeometry(0.38, 0.5, 0.01), mat({ color: '#b9bfc3', metalness: 1, roughness: 0.18 }), g, 0, 1.5, 0.006);
+  mesh(new THREE.CylinderGeometry(0.035, 0.03, 0.09, 14), mat({ color: '#9aa0a4', metalness: 1, roughness: 0.3 }), g, 0.15, 0.985, 0.22);
+  mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.1, 16), mats().papel, g, -0.17, 0.99, 0.22, 0, 0, Math.PI / 2);
+  return g;
+}
+function balcao(p) {
+  const g = grupo('balcao'), L = p.comprimento ?? 3.4, m = mats();
+  const madeira = m.madeiraEsc, inox = mat({ color: '#c8cdd0', metalness: 1, roughness: 0.25 });
+  mesh(rbox(L, 1.0, 0.62, 0.02), madeira, g, 0, 0.5, 0);
+  mesh(new THREE.BoxGeometry(L + 0.06, 0.04, 0.72), inox, g, 0, 1.02, 0.02);
+  mesh(new THREE.BoxGeometry(L, 0.08, 0.04), m.pretoFosco, g, 0, 0.05, 0.31);
+  // estufa de salgados (vidro + luz quente)
+  const ex = -L / 2 + 0.7;
+  const vidro = mat({ color: '#e6f3f6', roughness: 0.05, transparent: true, opacity: 0.18, depthWrite: false });
+  mesh(new THREE.BoxGeometry(1.1, 0.42, 0.5), vidro, g, ex, 1.25, 0).castShadow = false;
+  mesh(new THREE.BoxGeometry(1.12, 0.03, 0.52), inox, g, ex, 1.47, 0);
+  const quente = new THREE.PointLight(0xffb060, 1.2, 1.2, 2); quente.position.set(ex, 1.4, 0); g.add(quente);
+  const coxinha = mat({ color: '#c97a2b', roughness: 0.75, emissive: new THREE.Color('#3a1a00'), emissiveIntensity: 0.3 });
+  const pastel = mat({ color: '#e0b25a', roughness: 0.6 });
+  for (let k = 0; k < 7; k++) { const c = mesh(new THREE.ConeGeometry(0.045, 0.1, 14), coxinha, g, ex - 0.42 + k * 0.13, 1.1, -0.08 + (k % 2) * 0.12); c.scale.set(1, 1, 1); }
+  for (let k = 0; k < 3; k++) mesh(rbox(0.16, 0.03, 0.1, 0.012), pastel, g, ex + 0.1 + k * 0.17, 1.1, 0.12);
+  // caixa registradora e porta-guardanapo
+  mesh(rbox(0.36, 0.2, 0.3, 0.03), mat({ color: '#2f3236', roughness: 0.5 }), g, L / 2 - 0.4, 1.14, -0.05);
+  mesh(rbox(0.12, 0.1, 0.06, 0.01), m.galvanizado, g, 0.2, 1.09, 0.1);
+  return g;
+}
+function prateleiraBebidas(p) {
+  const g = grupo('prateleira_bebidas'), L = p.comprimento ?? 2.6, m = mats();
+  mesh(new THREE.BoxGeometry(L, 1.35, 0.02), mat({ color: '#b9c2c6', metalness: 1, roughness: 0.1 }), g, 0, 0.67, 0.012);   // espelho atrás
+  const r = TX.rng(p.semente ?? 5), cores = ['#5a3a12', '#2f6b2f', '#c9c9b5', '#7a1220', '#d8a51a', '#1f3f6b', '#e3e0d0'];
+  for (const y of [0.05, 0.52, 0.99]) {
+    mesh(new THREE.BoxGeometry(L, 0.035, 0.26), m.madeiraEsc, g, 0, y, 0.14);
+    for (let x = -L / 2 + 0.08; x < L / 2 - 0.05; x += 0.08 + r() * 0.05) {
+      const h = 0.22 + r() * 0.12, cor = cores[Math.floor(r() * cores.length)], vidro = mat({ color: cor, roughness: 0.08, clearcoat: 1, transparent: true, opacity: 0.85 });
+      const pf = [[0, 0], [0.034, 0], [0.034, h * 0.62], [0.012, h * 0.82], [0.011, h], [0, h]].map(([a, b]) => new THREE.Vector2(a, b));
+      mesh(new THREE.LatheGeometry(pf, 12), vidro, g, x, y + 0.018, 0.14 + (r() - 0.5) * 0.06);
+      if (r() < 0.6) mesh(new THREE.CylinderGeometry(0.035, 0.035, h * 0.25, 12, 1, true), mat({ color: ['#f2e6c8', '#e9d36a', '#fff'][Math.floor(r() * 3)], roughness: 0.6, side: THREE.DoubleSide }), g, x, y + 0.018 + h * 0.3, 0.14);
+    }
+  }
+  return g;
+}
+function engradado(p) {
+  const g = grupo('engradado'), n = p.n ?? 3, cor = p.cor || '#c8121b';
+  const plast = mat({ color: cor, roughness: 0.5, clearcoat: 0.3 }), garr = mat({ color: '#4a2a0c', roughness: 0.1, clearcoat: 1, transparent: true, opacity: 0.9 });
+  for (let k = 0; k < n; k++) {
+    const y = k * 0.29, c = grupo('caixa'); c.position.set((k % 2) * 0.03, y, 0); c.rotation.y = (k % 2 ? 0.06 : -0.04); g.add(c);
+    for (const [w, h, d, x, z] of [[0.62, 0.28, 0.02, 0, 0.21], [0.62, 0.28, 0.02, 0, -0.21], [0.02, 0.28, 0.42, 0.31, 0], [0.02, 0.28, 0.42, -0.31, 0], [0.62, 0.02, 0.42, 0, 0]]) mesh(new THREE.BoxGeometry(w, h, d), plast, c, x, w === 0.62 && h === 0.02 ? 0.01 : 0.14, z);
+    if (k === n - 1) for (let i = 0; i < 6; i++) for (let j = 0; j < 4; j++) mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.3, 10), garr, c, -0.25 + i * 0.1, 0.17, -0.15 + j * 0.1);
+  }
+  return g;
+}
+function ventiladorTeto(p, ctx) {
+  const g = grupo('ventilador_teto'), m = mats(), haste = p.haste ?? 0.45;
+  mesh(new THREE.CylinderGeometry(0.012, 0.012, haste, 8), m.pretoFosco, g, 0, -haste / 2, 0);
+  mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.12, 20), mat({ color: '#e9e5da', roughness: 0.4 }), g, 0, -haste - 0.06, 0);
+  const rotor = grupo('rotor'); rotor.position.y = -haste - 0.1; g.add(rotor);
+  const pa = mat({ color: '#8a6a43', roughness: 0.6 });
+  for (let k = 0; k < 4; k++) { const b = mesh(new THREE.BoxGeometry(0.62, 0.012, 0.13), pa, rotor, 0, 0, 0); b.position.set(Math.cos(k * Math.PI / 2) * 0.4, 0, Math.sin(k * Math.PI / 2) * 0.4); b.rotation.y = -k * Math.PI / 2; b.rotation.x = 0.12; }
+  g.userData.vel = p.velocidade ?? 3.2;
+  ctx?.animacoes.set(g, (t) => { rotor.rotation.y = t * g.userData.vel; });
+  return g;
+}
+function suporteTv(p) {
+  const g = grupo('suporte_tv'), m = mats();
+  mesh(new THREE.BoxGeometry(1.3, 0.04, 0.7), m.madeiraEsc, g, 0, 0, 0.35);
+  for (const sx of [-0.5, 0.5]) { mesh(new THREE.BoxGeometry(0.04, 0.4, 0.04), m.prataEsc, g, sx, -0.2, 0.03); mesh(new THREE.BoxGeometry(0.04, 0.04, 0.6), m.prataEsc, g, sx, -0.04, 0.32).rotation.x = 0.55; }
+  return g;
+}
+
 export const CATALOGO = {
   sofa: { nome: 'Sofá velho', fn: sofa, tipo: 'piso' },
   mesa_vermelha: { nome: 'Mesa de bar vermelha', fn: mesaVermelha, tipo: 'piso', campos: ['cor', 'rotulo'] },
@@ -688,6 +878,17 @@ export const CATALOGO = {
   garrafa: { nome: "Garrafa d'água", fn: garrafa, tipo: 'piso' },
   entulho: { nome: 'Entulho no chão', fn: entulho, tipo: 'piso' },
   escada: { nome: 'Escada de concreto', fn: escada, tipo: 'piso' },
+  cabines: { nome: 'Cabines de banheiro', fn: cabines, tipo: 'piso' },
+  pias: { nome: 'Pias com espelho', fn: pias, tipo: 'piso' },
+  mictorios: { nome: 'Mictórios', fn: mictorios, tipo: 'piso' },
+  lixeira: { nome: 'Lixeira cheia', fn: lixeira, tipo: 'piso', campos: ['cor'] },
+  beliche: { nome: 'Beliche de ferro', fn: beliche, tipo: 'piso', campos: ['cor'] },
+  pia_inox: { nome: 'Pia de inox da cela', fn: piaInox, tipo: 'piso' },
+  balcao: { nome: 'Balcão do bar', fn: balcao, tipo: 'piso' },
+  prateleira_bebidas: { nome: 'Prateleira de bebidas', fn: prateleiraBebidas, tipo: 'piso' },
+  engradado: { nome: 'Engradados de cerveja', fn: engradado, tipo: 'piso', campos: ['cor'] },
+  ventilador_teto: { nome: 'Ventilador de teto', fn: ventiladorTeto, tipo: 'teto' },
+  suporte_tv: { nome: 'Suporte de TV na parede', fn: suporteTv, tipo: 'piso' },
 };
 export function construir(item, ctx) {
   const def = CATALOGO[item.tipo];

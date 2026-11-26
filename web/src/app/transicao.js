@@ -37,9 +37,70 @@ void main(){
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v));
 const suave = (v) => { v = clamp01(v); return v * v * (3 - 2 * v); };
+// composições das transições novas (velha = foto da cena antiga, nova = cena nova ao vivo, ambas com o vaso)
+const FS_MIX = /* glsl */`
+uniform sampler2D velha, nova; uniform float x, aspect, tempo, escVelha; uniform vec2 dreno; uniform int tipo;
+varying vec2 vUv;
+mat2 rot(float a){ float c = cos(a), s = sin(a); return mat2(c, -s, s, c); }
+vec4 V(vec2 uv){ vec4 c = texture2D(velha, clamp(uv, 0., 1.)); c.rgb *= escVelha; return c; }
+vec4 N(vec2 uv){ return texture2D(nova, clamp(uv, 0., 1.)); }
+void main(){
+  vec2 uv = vUv; vec4 c;
+  if (tipo == 1) {            // DESCARGA COM ÁGUA: a água sobe, gira e desce pelo ralo levando a cena antiga
+    const vec3 AG = vec3(.22, .52, .72);
+    if (x < .5) {
+      float nivel = smoothstep(0., .5, x) * 1.15 - .05;
+      float lin = nivel + sin(uv.x * 18. + tempo * 6.) * .012 + sin(uv.x * 7. - tempo * 3.) * .018;
+      float sob = step(uv.y, lin);
+      vec2 ref = uv + vec2(sin(uv.y * 40. + tempo * 5.), cos(uv.x * 35. + tempo * 4.)) * .006 * sob;
+      vec4 b = V(ref);
+      vec3 col = mix(b.rgb, AG, .45 * sob) + vec3(.8) * smoothstep(.014, 0., abs(uv.y - lin));
+      c = vec4(col, max(b.a, sob * .92));
+    } else {
+      float p = (x - .5) / .5;
+      vec2 d = uv - dreno; d.x *= aspect; float r = length(d);
+      float k = mix(1., .01, pow(p, .8));
+      float ang = 7. * p * (1. + 2. / (1. + r * 5. / max(k, .05)));
+      vec2 s = rot(-ang) * d / k; s.x /= aspect; vec2 u2 = dreno + s;
+      vec4 n = N(uv);
+      if (u2.x < 0. || u2.y < 0. || u2.x > 1. || u2.y > 1.) c = n;
+      else { vec4 b = V(u2); float a = 1. - smoothstep(.85, 1., p); c = vec4(mix(n.rgb, mix(b.rgb, AG, .5), a), max(n.a, a * .95)); }
+    }
+  } else if (tipo == 2) {     // ARROTO: onda de choque sai da boca e "empurra" a cena antiga
+    vec2 d = uv - dreno; d.x *= aspect; float r = length(d);
+    float R = pow(smoothstep(.1, .85, x), 1.15) * 1.9;
+    float anel = exp(-pow((r - R) * 12., 2.));
+    vec2 dir = r > 1e-4 ? d / r : vec2(0.); dir.x /= aspect;
+    vec2 desl = dir * anel * .07;
+    float dentro = smoothstep(R + .01, R - .01, r);
+    c = mix(V(uv - desl), N(uv - desl * .4), dentro);
+    c.rgb += vec3(.75, 1., .45) * anel * .3;
+    c.a = max(c.a, anel * .6);
+  } else {                    // CORTINA DE PAPEL HIGIÊNICO: desenrola de cima e enrola de volta revelando a nova
+    float borda = x < .5 ? 1.04 - smoothstep(0., .5, x) * 1.12 : -.08 + smoothstep(.5, 1., x) * 1.12;
+    vec4 fundo = x < .5 ? V(uv) : N(uv);
+    float off = uv.y - borda;
+    if (off > 0.) {
+      vec2 q = vec2(uv.x * aspect * 16., off * 16.);
+      float los = abs(fract(q.x + q.y) - .5) + abs(fract(q.x - q.y) - .5);
+      float picote = step(.985, fract(off * 2.4)) * step(.45, fract(uv.x * aspect * 42.));
+      vec3 papel = vec3(.97, .96, .93) - smoothstep(.3, .5, los) * .05 - picote * .3;
+      papel *= .86 + .14 * smoothstep(0., .12, off);
+      c = vec4(papel, 1.);
+    } else c = fundo;
+    if (abs(off) < .045) { float k = off / .045; c = vec4(vec3(.98, .97, .94) * (.5 + .5 * sqrt(max(0., 1. - k * k))), 1.); }
+    else if (off < -.045 && off > -.12) c.rgb *= .72 + .28 * smoothstep(-.045, -.12, off);
+  }
+  gl_FragColor = c;
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+const TIPO_MIX = { agua: 1, arroto: 2, papel: 3 };
+
 export const curvas = {
   /** abertura da boca (0..1) durante a transição */
-  boca(modo, x) {
+  boca(modo, x, tipo = 'descarga') {
+    if (tipo === 'arroto') return suave(x / 0.08) * (1 - suave((x - 0.42) / 0.14));
     if (modo === 'sai') {
       const aberta = suave(x / 0.14) * (1 - suave((x - 0.8) / 0.07));
       const mastiga = x > 0.87 ? 0.4 * Math.max(0, Math.sin(((x - 0.87) / 0.13) * Math.PI * 2)) : 0;
@@ -64,6 +125,11 @@ export function criarTransicao(renderer, scene, camera, { semVaso, soVaso, bocaM
   const qVelha = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mVelha), qNova = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mNova);
   qVelha.frustumCulled = qNova.frustumCulled = false; qNova.renderOrder = 1;
   quadScene.add(qVelha, qNova);
+  const mMix = new THREE.ShaderMaterial({
+    uniforms: { velha: { value: null }, nova: { value: null }, x: { value: 0 }, aspect: { value: 1 }, tempo: { value: 0 }, escVelha: { value: 1 }, dreno: { value: new THREE.Vector2(0.5, 0.4) }, tipo: { value: 1 } },
+    vertexShader: VS, fragmentShader: FS_MIX, transparent: true, depthTest: false, depthWrite: false, toneMapped: true,
+  });
+  const mixScene = new THREE.Scene(), qMix = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mMix); qMix.frustumCulled = false; mixScene.add(qMix);
   let t = null, expCap = 1;
   // câmera da cena antiga (A) -> câmera da cena nova (B): o vaso "voa" de um lugar para o outro
   const A = { pos: new THREE.Vector3(), q: new THREE.Quaternion(), fov: 40, view: null, near: 0.1, far: 200 };
@@ -109,12 +175,15 @@ export function criarTransicao(renderer, scene, camera, { semVaso, soVaso, bocaM
   }
   /** fotografa a cena atual (sem o vaso, se for a transição com boca) ANTES de trocar a cena */
   function capturar(tipo) {
-    try { garantirRT(true); renderEm(rtVelha, tipo === 'fade'); expCap = renderer.toneMappingExposure; guardar(A); return true; }
+    try { garantirRT(true); renderEm(rtVelha, tipo !== 'descarga'); expCap = renderer.toneMappingExposure; guardar(A); return true; }
     catch (e) { console.warn('[transição] captura falhou', e); return false; }
   }
   /** @param {object} o  { modo: 'sai'|'entra', tipo: 'descarga'|'fade', dur (s), fim() } */
   function iniciar(o) {
-    t = { t0: performance.now(), dur: (o.dur ?? window.__transDur ?? (o.tipo === 'fade' ? 0.9 : 2.1)) * 1000, modo: o.modo, tipo: o.tipo || 'descarga', fim: o.fim, x: 0 };
+    const durs = { fade: 0.9, descarga: 2.1, agua: 2.6, arroto: 1.7, papel: 2.3 };
+    t = { t0: performance.now(), dur: (o.dur ?? window.__transDur ?? durs[o.tipo] ?? 2.1) * 1000, modo: o.modo, tipo: o.tipo || 'descarga', fim: o.fim, x: 0 };
+    mMix.uniforms.velha.value = rtVelha.texture; mMix.uniforms.nova.value = rtNova.texture; mMix.uniforms.aspect.value = tam.x / Math.max(1, tam.y);
+    mMix.uniforms.tipo.value = TIPO_MIX[t.tipo] || 1;
     mVelha.uniforms.tex.value = rtVelha.texture; mNova.uniforms.tex.value = rtNova.texture;
     for (const m of [mVelha, mNova]) { m.uniforms.aspect.value = tam.x / Math.max(1, tam.y); m.uniforms.giro.value = o.modo === 'sai' ? 1.1 : -0.9; }
   }
@@ -127,6 +196,18 @@ export function criarTransicao(renderer, scene, camera, { semVaso, soVaso, bocaM
       stageRender();
       mVelha.uniforms.p.value = 0; mVelha.uniforms.fade.value = 1 - suave(x); qVelha.visible = true; qNova.visible = false;
       renderer.autoClear = false; renderer.render(quadScene, cam); renderer.autoClear = auto;
+      if (x >= 1) { const f = t.fim; t = null; f && f(); }
+      return;
+    }
+    if (TIPO_MIX[t.tipo]) {   // água / arroto / papel: compõe a foto antiga com a cena nova (vaso incluso)
+      const cc = renderer.getClearColor(new THREE.Color()), ca = renderer.getClearAlpha();
+      garantirRT(false); renderEm(rtNova, true);
+      const [u, v] = bocaUV();
+      const U = mMix.uniforms;
+      if (t.tipo === 'agua') U.dreno.value.set(u, Math.max(0.05, v - 0.06)); else U.dreno.value.set(u, v);
+      U.x.value = x; U.tempo.value = performance.now() / 1000; U.escVelha.value = expCap / Math.max(1e-3, renderer.toneMappingExposure);
+      renderer.setRenderTarget(null); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.setClearColor(cc, ca);
+      renderer.autoClear = false; renderer.render(mixScene, cam); renderer.autoClear = auto;
       if (x >= 1) { const f = t.fim; t = null; f && f(); }
       return;
     }

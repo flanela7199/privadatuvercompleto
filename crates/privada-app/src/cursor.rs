@@ -100,7 +100,8 @@ pub fn start(app: AppHandle) {
                     since_emit += 1;
                     // emit on any change (cursor or window moved), and ~2x/s for late listeners
                     if last != Some(ev) || since_emit >= 30 {
-                        let _ = app.emit("cursor", ev);
+                        // só a janela do personagem usa o cursor: não acorda o painel 60x/s
+                        let _ = app.emit_to("avatar", "cursor", ev);
                         last = Some(ev);
                         since_emit = 0;
                     }

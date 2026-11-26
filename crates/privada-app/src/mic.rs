@@ -154,6 +154,8 @@ fn mic_thread(app: AppHandle, rx: Receiver<AudioCfg>) {
     let mut cfg = AudioCfg::default();
     let mut last = Instant::now();
     let mut was_silent_emit = false;
+    let mut n_frame: u32 = 0;
+    let mut quieto = 0u32;   // quadros seguidos com a boca fechada (para não reenviar zeros sem parar)
     let frame = Duration::from_micros(16_667);
     loop {
         // apply the newest config, if any
@@ -191,10 +193,22 @@ fn mic_thread(app: AppHandle, rx: Receiver<AudioCfg>) {
             let chunk: Vec<f32> = std::mem::take(&mut *pending.lock().unwrap());
             analyzer.push(&chunk);
             let m = analyzer.update(dt);
-            let _ = app.emit("mouth", MouthEvent::from(m));
+            let ev = MouthEvent::from(m);
+            // boca parada (silêncio): manda só de vez em quando; falando: todo quadro para a janela do
+            // personagem e ~10x/s para o painel (o medidor não precisa de 60 Hz)
+            let parado = ev.open + ev.round + ev.wide + ev.sib < 1e-3;
+            quieto = if parado { quieto.saturating_add(1) } else { 0 };
+            n_frame = n_frame.wrapping_add(1);
+            if quieto < 3 || quieto % 30 == 0 {
+                let _ = app.emit_to("avatar", "mouth", &ev);
+                if n_frame % 6 == 0 || quieto == 1 {
+                    let _ = app.emit_to("control", "mouth", &ev);
+                }
+            }
             was_silent_emit = false;
         } else if !was_silent_emit {
-            let _ = app.emit("mouth", MouthEvent::from(Mouth::default()));
+            let _ = app.emit_to("avatar", "mouth", MouthEvent::from(Mouth::default()));
+            let _ = app.emit_to("control", "mouth", MouthEvent::from(Mouth::default()));
             was_silent_emit = true;
         }
         std::thread::sleep(frame.saturating_sub(now.elapsed()));

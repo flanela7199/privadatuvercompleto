@@ -229,7 +229,10 @@ export function chuvisco() {
   const [c, ctx] = cv(160, 120), img = ctx.createImageData(160, 120);
   const t = texCanvas(c, true, false);
   t.minFilter = THREE.LinearFilter;
+  let ult = -1;
   t.userData.atualizar = (tempo) => {
+    if (tempo - ult < 1 / 20 && tempo > ult) return;   // 20 quadros/s (o chuvisco não precisa de 60)
+    ult = tempo;
     const d = img.data;
     for (let y = 0; y < 120; y++) {
       const faixa = 0.75 + 0.25 * Math.sin(y * 0.5 + tempo * 18) + (Math.abs(((tempo * 40) % 140) - y) < 6 ? 0.25 : 0);

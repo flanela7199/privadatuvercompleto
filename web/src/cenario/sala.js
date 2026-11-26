@@ -86,6 +86,7 @@ export function criarSala(scene, ctx) {
   vidro.rotation.y = -Math.PI / 2; vidro.position.set(jx, (y0 + y1) / 2, (z0 + z1) / 2); g.add(vidro);
   const fora = new THREE.Mesh(new THREE.PlaneGeometry(jw * 2.2, jh * 1.8), new THREE.MeshBasicMaterial({ map: textoCanvasJanela(), toneMapped: false }));
   fora.rotation.y = -Math.PI / 2; fora.position.set(dir + 1.2, (y0 + y1) / 2, (z0 + z1) / 2); g.add(fora);
+  g.userData.fora = fora.material;
   // fio elétrico na parede do fundo (detalhe de obra)
   const fio = new THREE.Mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([[-4.2, 3.6], [-2.5, 3.72], [-0.5, 3.6], [1.0, 3.75], [3.0, 3.62], [4.2, 3.7]].map(([x, y]) => new THREE.Vector3(x, y, fundo + 0.13))), 60, 0.008, 6), new THREE.MeshStandardMaterial({ color: '#222', roughness: 0.6 }));
   fio.castShadow = true; g.add(fio);
@@ -103,28 +104,39 @@ export function criarSala(scene, ctx) {
   return g;
 }
 
-/** feixe de sol: volume aditivo do vão da janela até o chão, na direção do sol */
-export function criarFeixe(scene, dirSol) {
-  const { z0, z1, y0, y1 } = JANELA, x = SALA.dir - 0.1;
-  const cantos = [[x, y0, z0], [x, y0, z1], [x, y1, z1], [x, y1, z0]].map((v) => new THREE.Vector3(...v));
-  const d = dirSol.clone().normalize();
-  const longe = cantos.map((c) => c.clone().addScaledVector(d, Math.min(9, c.y / -d.y)));
-  const pos = [], alfa = [];
-  for (let i = 0; i < 4; i++) {
-    const a = cantos[i], b = cantos[(i + 1) % 4], c = longe[(i + 1) % 4], e = longe[i];
-    pos.push(...a.toArray(), ...b.toArray(), ...c.toArray(), ...a.toArray(), ...c.toArray(), ...e.toArray());
-    alfa.push(1, 1, 0, 1, 0, 0);
+/** feixe de sol: volume aditivo do vão da janela até o chão, na direção do sol.
+ *  `janela` = vão na parede direita ({ z0, z1, y0, y1, x? }); ou `cantos` = 4 cantos prontos.
+ *  userData.dirigir(dir) refaz o volume quando o sol anda (ciclo dia/noite). */
+export function criarFeixe(scene, dirSol, janela = null, cantos = null) {
+  if (!cantos) {
+    const { z0, z1, y0, y1 } = janela || JANELA, x = janela?.x ?? SALA.dir - 0.1;
+    cantos = [[x, y0, z0], [x, y0, z1], [x, y1, z1], [x, y1, z0]].map((v) => new THREE.Vector3(...v));
   }
   const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  const pos = new Float32Array(4 * 6 * 3), alfa = [];
+  for (let i = 0; i < 4; i++) alfa.push(1, 1, 0, 1, 0, 0);
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('alfa', new THREE.Float32BufferAttribute(alfa, 1));
+  const _l = cantos.map(() => new THREE.Vector3());
+  function dirigir(dir) {
+    const d = dir.clone().normalize(); if (d.y > -0.05) d.y = -0.05;
+    cantos.forEach((c, i) => _l[i].copy(c).addScaledVector(d, Math.min(9, c.y / -d.y)));
+    let k = 0;
+    for (let i = 0; i < 4; i++) {
+      const a = cantos[i], b = cantos[(i + 1) % 4], c = _l[(i + 1) % 4], e = _l[i];
+      for (const v of [a, b, c, a, c, e]) { pos[k++] = v.x; pos[k++] = v.y; pos[k++] = v.z; }
+    }
+    geo.attributes.position.needsUpdate = true; geo.computeBoundingSphere();
+  }
+  dirigir(dirSol);
   const m = new THREE.ShaderMaterial({
     uniforms: { cor: { value: new THREE.Color('#fff1d6') }, forca: { value: 0.09 } },
-    vertexShader: 'attribute float alfa; varying float vA; varying vec3 vN; varying vec3 vV; void main(){ vA=alfa; vec4 mv=modelViewMatrix*vec4(position,1.); vV=normalize(-mv.xyz); gl_Position=projectionMatrix*mv; }',
+    vertexShader: 'attribute float alfa; varying float vA; void main(){ vA=alfa; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }',
     fragmentShader: 'uniform vec3 cor; uniform float forca; varying float vA; void main(){ gl_FragColor=vec4(cor*forca*pow(vA,1.4),1.); }',
     transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
   });
-  const feixe = new THREE.Mesh(geo, m); feixe.renderOrder = 5; feixe.name = 'feixe';
+  const feixe = new THREE.Mesh(geo, m); feixe.renderOrder = 5; feixe.name = 'feixe'; feixe.frustumCulled = false;
+  feixe.userData.dirigir = dirigir;
   scene.add(feixe);
   return feixe;
 }

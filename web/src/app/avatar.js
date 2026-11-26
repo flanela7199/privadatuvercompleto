@@ -103,6 +103,17 @@ camera.fov = FOV;
 camera.near = 0.1; camera.far = 200;
 renderer.setClearColor(0x000000, 0);
 // transição entre cenas (descarga): a cena que sai é sugada para dentro do vaso / a que entra sai dele
+// ---- robustez: erros do JS vão para o crash.log; se a placa de vídeo resetar (driver/jogo pesado),
+// o WebGL é recriado recarregando a página em vez de a janela ficar preta/congelada na live
+let nLogs = 0;
+function logJS(msg) { if (OUTPUT || nLogs++ > 40) return; console.warn('[avatar]', msg); invoke('log_js', { label: 'avatar', msg: String(msg) }).catch(() => {}); }
+addEventListener('error', (e) => logJS(`${e.message} @ ${e.filename}:${e.lineno}`));
+addEventListener('unhandledrejection', (e) => logJS(`promise: ${e.reason?.stack || e.reason}`));
+renderer.domElement.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault(); logJS('webgl: contexto perdido (reset da placa de vídeo)');
+  setTimeout(() => { if (renderer.getContext().isContextLost()) location.reload(); }, 2500);
+});
+renderer.domElement.addEventListener('webglcontextrestored', () => { logJS('webgl: contexto restaurado, recarregando'); location.reload(); });
 const _pv = new THREE.Vector3(), _pv2 = new THREE.Vector3();
 const trans = criarTransicao(renderer, scene, camera, {
   // cenário sem o vaso (para a foto que ele engole / a sala que ele cospe)
@@ -265,19 +276,29 @@ function applyLookLimits() {
 // Cena com fundo "sala": o fundo 3D completo é desenhado na MESMA cena/renderer do personagem
 // (web/src/cenario). Carregado só quando alguma cena usa (não pesa para quem não usa).
 // Dois ambientes: 'sala' (porão de concreto) e 'ilha' (ilha tropical). Cada um é criado só na 1ª vez.
-const cenarios = {}, cenarioJobs = {};
+const AMBS = ['sala', 'ilha', 'banheiro', 'prisao', 'bar'];   // fundos 3D (scene.background)
+const cenarios = {}, cenarioJobs = {}, usoCen = [];
 let cenario = null;   // o último ativado (editor / miniaturas)
-const ambDe = (sc) => (sc?.background === 'ilha' ? 'ilha' : 'sala');
+const ambDe = (sc) => (AMBS.includes(sc?.background) ? sc.background : 'sala');
 function garantirCenario(amb = ambDe(scene0())) {
   if (cenarios[amb]) return Promise.resolve(cenarios[amb]);
   if (!cenarioJobs[amb]) cenarioJobs[amb] = import('../cenario/cenario.js')
-    .then((m) => m.criarCenario({ renderer, scene, camera, invoke, invokeRaw, ambiente: amb }))
-    .then((c) => (cenarios[amb] = c))
+    .then((m) => m.criarCenario({ renderer, scene, camera, invoke, invokeRaw, ambiente: amb, opcoes: { som: (n, d) => sfx.play(n, d), reagir: (n) => { try { tuber.play(n); } catch { /* */ } } } }))
+    .then((c) => { cenarios[amb] = c; c.pausa?.(pausado); return c; })
     .catch((e) => { console.warn('[avatar] cenário 3D indisponível:', amb, e); cenarioJobs[amb] = null; return null; });
   return cenarioJobs[amb];
 }
-const cenarioAtivo = () => Object.values(cenarios).find((c) => c.ativo) || null;
-const usaSala = (sc) => !OUTPUT && (sc?.background === 'sala' || sc?.background === 'ilha');
+/** no máximo 2 ambientes montados na memória (o atual + o anterior, para a troca ser instantânea) */
+function liberarCenarios(atual) {
+  const i = usoCen.indexOf(atual); if (i >= 0) usoCen.splice(i, 1); usoCen.unshift(atual);
+  for (const amb of usoCen.slice(2)) {
+    const c = cenarios[amb]; if (!c || c.ativo) continue;
+    try { c.destruir?.(); } catch (e) { console.warn('[avatar] liberar', amb, e); }
+    delete cenarios[amb]; delete cenarioJobs[amb]; usoCen.splice(usoCen.indexOf(amb), 1);
+  }
+}
+const cenarioAtivo = () => { for (const k in cenarios) if (cenarios[k].ativo) return cenarios[k]; return null; };
+const usaSala = (sc) => !OUTPUT && AMBS.includes(sc?.background);
 
 /* ------------------------------------------------------------- scenes */
 let follow = true, micOn = true, scale = 1, charPx = BASE_PX, mode = 'window';
@@ -288,7 +309,7 @@ function applySettings() {
   if (st.soundVolume != null) sfx.volume = +st.soundVolume;   // honoured if sfx.js supports a volume
   sfx.enabled = st.soundsEnabled !== false;
   const r = config.render || {};
-  renderer.setPixelRatio(Math.min(devicePixelRatio, r.pixelRatio ?? 1.5));
+  if (prPronto) { prAtual = 0; conferirPR(); } else renderer.setPixelRatio(Math.min(devicePixelRatio, r.pixelRatio ?? 1.5));
   const sh = !!r.shadows;
   if (renderer.shadowMap.enabled !== sh) {
     renderer.shadowMap.enabled = sh;
@@ -332,7 +353,7 @@ function applyScene(i, { save = false } = {}) {
     if (usaSala(sc)) {
       const amb = ambDe(sc);
       for (const [k, c] of Object.entries(cenarios)) if (k !== amb) c.desativar();
-      garantirCenario(amb).then((c) => { if (c && usaSala(scene0()) && ambDe(scene0()) === amb) { c.ativar(); cenario = c; } });
+      garantirCenario(amb).then((c) => { if (c && usaSala(scene0()) && ambDe(scene0()) === amb) { c.ativar(); cenario = c; liberarCenarios(amb); } });
     } else for (const c of Object.values(cenarios)) c.desativar();
     // tamanho fixo da janela (ex.: 1920x1080 para o OBS). Em pixels reais da tela: o Tauri recebe
     // tamanho lógico, então divide pela escala do Windows (125%, 150%...). Só reaplica quando a cena
@@ -358,7 +379,7 @@ function applyScene(i, { save = false } = {}) {
     fundoJanela(solid && !ehEntra);
     trans.engoliu = false;
     trans.iniciar({ ...tr, fim: () => { if (cenaAtual === idx) fundoJanela(solid); } });
-    if (tr.tipo === 'descarga') sfx.play('whoosh');
+    sfx.play({ descarga: 'whoosh', agua: 'flush', arroto: 'arroto', papel: 'rolo' }[tr.tipo] || '');
   } else if (!trans.ativa) fundoJanela(solid);
   document.body.classList.toggle('windowed', mode !== 'overlay');
   document.body.classList.toggle('solidbg', !!solid);
@@ -440,6 +461,9 @@ function act(action, arg) {
     case 'scene': applyScene(+arg, { save: true }); break;
     case 'viseme': fake.hold(arg, 0.6); break;
     case 'sala': garantirCenario(ambDe(scene0())).then((c) => c?.editar(arg || 'toggle')); break;   // abre/fecha o editor da sala 3D
+    case 'evento': cenarioAtivo()?.evento(arg || 'aleatorio'); break;                                  // objetos interativos do cenário 3D
+    case 'tv': cenarioAtivo()?.canal(arg && arg !== 'proximo' ? arg : null); break;                      // TV: próximo canal / 'verde' / id
+    case 'pausa': setPausa(arg === 'on' ? true : arg === 'off' ? false : !pausado); break;                // "Volto já" 
     case 'say': fake.say(arg || ''); break;
     case 'toggle':
       if (arg === 'clickthrough') {
@@ -722,8 +746,66 @@ function idleThumbs() {
   idle(() => { idleScheduled = false; th.wantOne = true; });
 }
 
+/* --------------------------------------------------------------- pausa ("Volto já") */
+// O vaso dorme no ambiente em que estiver: olhos fechados, respiração, Zzz subindo, ronco e uma placa
+// de madeira "VOLTO JÁ" fincada do lado dele. O cenário 3D fica mais escuro.
+var pausado = false;
+const pz = { grupo: null, zs: [], ronco: 0, placa: null, texto: '' };
+function texPlaca(texto, sub) {
+  const c = document.createElement('canvas'); c.width = 768; c.height = 384; const x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, 0, 384); g.addColorStop(0, '#a8743f'); g.addColorStop(1, '#7c5128'); x.fillStyle = g; x.fillRect(0, 0, 768, 384);
+  for (let k = 0; k < 60; k++) { x.strokeStyle = `rgba(60,35,15,${0.08 + Math.random() * 0.12})`; x.lineWidth = 1 + Math.random() * 2; x.beginPath(); const y = Math.random() * 384; x.moveTo(0, y); x.bezierCurveTo(250, y + 8, 500, y - 8, 768, y + 3); x.stroke(); }
+  x.strokeStyle = '#4a2c12'; x.lineWidth = 16; x.strokeRect(8, 8, 752, 368);
+  x.fillStyle = '#fff6dc'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.shadowColor = 'rgba(0,0,0,.45)'; x.shadowBlur = 8; x.shadowOffsetY = 4;
+  x.font = 'bold 132px Georgia, serif'; x.fillText(texto, 384, sub ? 160 : 192, 700);
+  if (sub) { x.font = 'italic 46px Georgia, serif'; x.fillText(sub, 384, 290, 700); }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+}
+function montarPausa() {
+  const texto = (config.pausa?.texto || 'VOLTO JÁ').toUpperCase(), sub = config.pausa?.sub ?? 'fui ali e já volto';
+  const chave = texto + '|' + sub;
+  if (pz.grupo && pz.texto === chave) return;
+  if (pz.grupo) { scene.remove(pz.grupo, pz.grupo.userData.zz); pz.grupo.userData.zz.traverse((o) => o.material?.dispose()); pz.grupo.traverse((o) => { o.geometry?.dispose(); for (const m of [].concat(o.material || [])) { m.map?.dispose(); m.dispose(); } }); }
+  pz.texto = chave;
+  const g = new THREE.Group(); g.name = 'pausa';
+  const mad = new THREE.MeshStandardMaterial({ color: '#7c5128', roughness: 0.8 });
+  const estaca = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.25, 0.06), mad); estaca.position.y = 0.62; estaca.castShadow = true; g.add(estaca);
+  const placa = new THREE.Group(); placa.position.y = 1.18; g.add(placa);
+  const tab = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.46, 0.04), [mad, mad, mad, mad, new THREE.MeshStandardMaterial({ map: texPlaca(texto, sub), roughness: 0.7 }), mad]);
+  tab.castShadow = true; placa.add(tab); pz.placa = placa;
+  const zTex = (() => { const c = document.createElement('canvas'); c.width = c.height = 128; const x = c.getContext('2d'); x.font = 'bold 110px Georgia'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.lineWidth = 10; x.strokeStyle = '#1b2a4a'; x.strokeText('Z', 64, 64); x.fillStyle = '#eaf2ff'; x.fillText('Z', 64, 64); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t; })();
+  const zz = new THREE.Group(); zz.name = 'zzz'; g.userData.zz = zz;
+  pz.zs = [0, 1, 2].map((i) => { const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: zTex, transparent: true, depthWrite: false })); sp.userData.f = i / 3; zz.add(sp); return sp; });
+  pz.grupo = g; g.visible = false; zz.visible = false; scene.add(g, zz);
+}
+function setPausa(on) {
+  pausado = !!on;
+  if (pausado) montarPausa();
+  if (pz.grupo) { pz.grupo.visible = pausado; pz.grupo.userData.zz.visible = pausado; }
+  for (const k in cenarios) cenarios[k].pausa?.(pausado);
+  emit('pausa', pausado);
+}
+function animarPausa(dt) {
+  // olhos fechados: "esmaga" os olhos na vertical depois do update do rig
+  for (const e of tuber.eyes || []) if (e.eye) e.eye.scale.y = e.eye.scale.x * 0.08;
+  montarPausa();   // refaz a placa só se o texto mudou no painel
+  if (!pz.grupo) return;
+  if (!pz.grupo.visible) { pz.grupo.visible = true; pz.grupo.userData.zz.visible = true; }
+  // placa à esquerda do vaso (no mundo o vaso está sempre na origem), virada para a câmera
+  pz.grupo.position.set(-0.95, 0, 0.3);
+  pz.grupo.rotation.y = Math.atan2(camera.position.x - pz.grupo.position.x, camera.position.z - pz.grupo.position.z) * 0.8;
+  pz.placa.rotation.z = Math.sin(performance.now() / 900) * 0.02;
+  const t = performance.now() / 1000;
+  for (const sp of pz.zs) {
+    const k = (t * 0.33 + sp.userData.f) % 1;
+    sp.position.set(0.25 + 0.25 * k + Math.sin(k * 6) * 0.05, 1.75 + k * 0.7, 0);
+    const sz = 0.12 + k * 0.16; sp.scale.set(sz, sz, 1);
+    sp.material.opacity = Math.sin(k * Math.PI);
+  }
+}
+
 /* --------------------------------------------------------------- loop */
-let last = performance.now(), lastRaf = performance.now(), lastFrame = 0;
+let last = performance.now(), lastRaf = performance.now(), lastFrame = 0, nFrame = 0;
 function frame(now) {
   const minDt = 1000 / clamp(config.render?.fps ?? 60, 10, 240) - 1;
   if (now - lastFrame < minDt) return;
@@ -732,12 +814,14 @@ function frame(now) {
 
   const [sx, sy] = restPoint();
   // durante a transição o vaso "engole" a cena (dá uma inchada quando engole)
-  const comBoca = trans.ativa && trans.tipo !== 'fade';
-  charPx = BASE_PX * scale * (1 + (comBoca ? curvas.gole(trans.modo, trans.progresso) : 0));
-  if (comBoca && trans.modo === 'sai' && trans.progresso > 0.8 && !trans.engoliu) { trans.engoliu = true; sfx.play('gole'); }
+  const comBoca = trans.ativa && (trans.tipo === 'descarga' || trans.tipo === 'arroto');
+  charPx = BASE_PX * scale * (1 + (trans.ativa && trans.tipo === 'descarga' ? curvas.gole(trans.modo, trans.progresso) : 0) + (pausado ? Math.sin(now / 1000 * 1.6) * 0.008 : 0));
+  if (comBoca && trans.tipo === 'descarga' && trans.modo === 'sai' && trans.progresso > 0.8 && !trans.engoliu) { trans.engoliu = true; sfx.play('gole'); }
   const cAtivo = cenarioAtivo();
-  if (cAtivo) cAtivo.frame(dt, tuber);   // sala 3D: câmera da sala (o personagem fica no "lugar" dele)
+  if (cAtivo) cAtivo.frame(dt, tuber);   // cenário 3D: câmera do cenário (o personagem fica no "lugar" dele)
   else placeCamera(sx, sy);
+  if ((nFrame++ & 31) === 0) conferirPR();
+  if ((nFrame & 127) === 1) semTransmissao();
   if (DBG) debugCamera();
 
   let look = { x: 0, y: 0 };
@@ -751,7 +835,13 @@ function frame(now) {
   const test = mouthTest && now - mouthTestT < 2000 && (mouthTest.cornerL || mouthTest.cornerR) ? mouthTest : null;
   const rawMouth = maxMouth(mic, fake.update(dt), test);   // maxMouth keeps the signed corner channels
   let mouth = DBG ? { ...zeroMouth(), ...(DBG_EXPR[DBG.expr] || {}) } : shapeMouth(rawMouth);
-  if (comBoca) { const b = curvas.boca(trans.modo, trans.progresso); if (b > 0.01) mouth = { ...zeroMouth(), open: b * 0.85, wide: b * 0.6, round: b * 0.15 }; }
+  if (comBoca) { const b = curvas.boca(trans.modo, trans.progresso, trans.tipo); if (b > 0.01) mouth = { ...zeroMouth(), open: b * 0.85, wide: b * 0.6, round: b * 0.15 }; }
+  if (pausado) {   // dormindo: respira devagar com a boca, olha para baixo e ronca de vez em quando
+    const t = now / 1000, resp = 0.5 + 0.5 * Math.sin(t * 1.6);
+    mouth = { ...zeroMouth(), open: 0.06 + 0.16 * resp, round: 0.3 * resp };
+    look = { x: Math.sin(t * 0.2) * 0.1, y: -0.45 };
+    if (config.pausa?.ronco !== false && t - pz.ronco > 3.9) { pz.ronco = t; sfx.play('ronco'); }
+  }
 
   if (settings().autoBlink === false || DBG) tuber.blinkTimer = 1e9;
   else if (tuber.blinkTimer > 1e8) tuber.blinkTimer = 2;
@@ -759,6 +849,7 @@ function frame(now) {
   // the JS rig clamps look to [-1, 1]; extra range beyond it is added after the update
   const lx = clamp(look.x, -1, 1), ly = clamp(look.y, -1, 1);
   if (!DBG?.freeze) tuber.update(dt, { look: { x: lx, y: ly }, mouth });
+  if (pausado) animarPausa(dt);
   if (!rigHasLimits) {
     const L = lookCfg();
     const yaw = THREE.MathUtils.degToRad(L.maxYawDeg), pitch = THREE.MathUtils.degToRad(L.maxPitchDeg);
@@ -822,23 +913,59 @@ function shapeMouth(m) {
 
 // rAF normally; a worker ticker takes over when hidden/occluded (OBS captures it behind other
 // windows and rAF pauses then). Never pauses on blur.
-renderer.setAnimationLoop(() => { lastRaf = performance.now(); frame(lastRaf); });
+let errosQuadro = 0;
+function frameSeguro(now) {
+  try { frame(now); errosQuadro = 0; }
+  catch (e) { if (errosQuadro++ < 3) logJS(`quadro: ${e?.stack || e}`); }   // um erro num quadro não para o loop
+}
+renderer.setAnimationLoop(() => { lastRaf = performance.now(); frameSeguro(lastRaf); });
 const tickSrc = `let id=0;onmessage=(e)=>{clearInterval(id);id=setInterval(()=>postMessage(0),e.data)}`;
 const ticker = new Worker(URL.createObjectURL(new Blob([tickSrc], { type: 'text/javascript' })));
 function setTick() { ticker.postMessage(Math.max(4, Math.floor(1000 / clamp(config.render?.fps ?? 60, 10, 240)))); }
 ticker.onmessage = () => {
   const now = performance.now();
-  if (document.visibilityState !== 'visible' || now - lastRaf > 100) frame(now);
+  if (document.visibilityState !== 'visible' || now - lastRaf > 100) frameSeguro(now);
 };
 
+// resolução de render: no cenário 3D (tela cheia) nunca passa de 1920x1080 pixels reais — numa tela
+// com escala 125/150% isso corta 35-55% do trabalho da placa sem diferença no OBS (que é 1080p)
+function prAlvo() {
+  const base = Math.min(devicePixelRatio, config.render?.pixelRatio ?? 1.5);
+  if (!cenarioAtivo()) return base;
+  return Math.max(0.5, Math.min(base, 1920 / Math.max(1, innerWidth), 1080 / Math.max(1, innerHeight)));
+}
+// Vidro/água com "transmission" fazem o three.js desenhar a cena INTEIRA de novo numa textura todo
+// quadro (a água da bacia está sempre lá, a cadeira Skol também tinha). Troca por transparência comum:
+// visual quase igual e ~metade do trabalho da placa. config.render.vidro = true mantém o vidro real.
+const _semTx = new WeakSet();
+function semTransmissao() {
+  if (config.render?.vidro) return;
+  scene.traverse((o) => {
+    const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : null;
+    if (!ms) return;
+    for (const m of ms) {
+      if (!m || _semTx.has(m) || !(m.transmission > 0)) continue;
+      _semTx.add(m);
+      const t = m.transmission;
+      m.userData.transmissionOrig = t;
+      m.transmission = 0;
+      if (t >= 0.45) { const jaTransp = m.transparent && m.opacity < 1; m.transparent = true; m.opacity = jaTransp ? Math.min(0.85, m.opacity + 0.12) : 0.62; m.depthWrite = false; }
+      m.needsUpdate = true;
+    }
+  });
+}
+var prAtual = 0, prPronto = false;   // var: applySettings() roda antes desta linha na carga
+function conferirPR() { const p = prAlvo(); if (Math.abs(p - prAtual) > 1e-3) fitCanvas(); }
 function fitCanvas() {
-  renderer.setPixelRatio(Math.min(devicePixelRatio, config.render?.pixelRatio ?? 1.5));
+  prAtual = prAlvo();
+  renderer.setPixelRatio(prAtual);
   renderer.setSize(innerWidth, innerHeight, false);       // CSS (100vw/100vh) owns the element size
-  stage.composer?.setPixelRatio?.(Math.min(devicePixelRatio, config.render?.pixelRatio ?? 1.5));
+  stage.composer?.setPixelRatio?.(prAtual);
   stage.composer?.setSize?.(innerWidth, innerHeight);
   layout();
 }
 addEventListener('resize', fitCanvas);
+prPronto = true;
 (function watchDpr() {   // devicePixelRatio changes (moving between monitors with different scaling)
   const mq = matchMedia(`(resolution: ${devicePixelRatio}dppx)`);
   mq.addEventListener('change', () => { fitCanvas(); watchDpr(); }, { once: true });
