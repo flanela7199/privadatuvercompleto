@@ -999,7 +999,9 @@ function fitCanvas() {
 }
 addEventListener('resize', fitCanvas);
 prPronto = true;
-setTimeout(() => sfx.aquecer?.(), 2000);
+// som pelo processo do app (o OBS acha na "Captura de áudio de aplicativo"); no navegador, como antes
+if (isTauri && !OUTPUT && config.settings?.somNativo !== false) sfx.usarSaidaNativa({ invoke, invokeRaw }).then((ok) => { if (!ok) sfx.aquecer?.(); });
+else setTimeout(() => sfx.aquecer?.(), 2000);
 (function watchDpr() {   // devicePixelRatio changes (moving between monitors with different scaling)
   const mq = matchMedia(`(resolution: ${devicePixelRatio}dppx)`);
   mq.addEventListener('change', () => { fitCanvas(); watchDpr(); }, { once: true });

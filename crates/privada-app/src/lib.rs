@@ -12,6 +12,7 @@
 //! Closing avatar/control only hides them; quit from the tray ("Sair").
 //! Everything native keeps running while the app is unfocused / behind other windows.
 
+pub mod audio_out;
 pub mod cache;
 pub mod config;
 pub mod cursor;
@@ -601,6 +602,8 @@ pub fn run() {
         .manage(cache::Preloaded::default())
         .invoke_handler(tauri::generate_handler![
             log_js,
+            audio_out::audio_info,
+            audio_out::audio_push,
             load_config,
             save_config,
             set_hotkeys,

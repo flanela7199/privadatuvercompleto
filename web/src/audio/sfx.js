@@ -49,6 +49,27 @@ function tone(f0, f1, sec, peak = 0.2, type = 'sine', at = 0) {
 export const sfx = {
   enabled: true,
   volume: 1,
+  /**
+   * Saída nativa (para a "Captura de áudio de aplicativo" do OBS): a mixagem dos efeitos vai por um
+   * AudioWorklet para o processo do PrivadaTuber, que toca pelo dispositivo padrão (audio_out.rs).
+   * Se algo falhar, volta a tocar pelo WebView como antes. Chamar ANTES de qualquer som.
+   */
+  async usarSaidaNativa({ invoke, invokeRaw }) {
+    try {
+      const info = await invoke('audio_info');
+      if (!live) live = new AudioContext({ sampleRate: info?.sampleRate || 48000, latencyHint: 'interactive' });
+      await live.audioWorklet.addModule(new URL('./captura-worklet.js', import.meta.url));
+      const node = new AudioWorkletNode(live, 'captura-vaso', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], channelCount: 2, channelCountMode: 'explicit' });
+      const mudo = live.createGain(); mudo.gain.value = 0; node.connect(mudo).connect(live.destination);   // mantém o nó "puxado"
+      const g = out(live);
+      let falhas = 0;
+      const voltar = () => { try { g.disconnect(); } catch { /* */ } g.connect(live.destination); node.port.onmessage = null; console.warn('[sfx] saída nativa falhou: tocando pelo WebView'); };
+      node.port.onmessage = (e) => { invokeRaw('audio_push', new Uint8Array(e.data), { 'x-sr': String(live.sampleRate) }).then(() => { falhas = 0; }, () => { if (++falhas === 5) voltar(); }); };
+      g.disconnect(); g.connect(node);
+      if (live.state === 'suspended') live.resume().catch(() => {});
+      return true;
+    } catch (e) { console.warn('[sfx] saída nativa indisponível', e); return false; }
+  },
   /** cria o AudioContext já na carga (o 1º som da live não "engasga" criando ele) */
   aquecer() { try { const a = ac(); out(a); } catch { /* */ } },
   play(name, data) {

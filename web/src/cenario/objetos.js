@@ -780,8 +780,13 @@ function beliche(p) {
     mesh(rbox(0.38, 0.1, 0.5, 0.05, 3), mats().manta, g, -L / 2 + 0.28, y + 0.2, 0);
   }
   for (let k = 0; k < 4; k++) mesh(new THREE.BoxGeometry(0.04, 0.03, W), ferro, g, -L / 2 + 0.02, 1.5 + k * 0.06, 0);
-  // escadinha
-  for (let k = 0; k < 4; k++) mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.32, 8), ferro, g, L / 2 - 0.25, 0.55 + k * 0.25, W / 2 + 0.02, 0, 0, Math.PI / 2);
+  // escadinha: dois montantes presos nas duas camas + degraus entre eles (antes os degraus flutuavam)
+  const ex = L / 2 - 0.25, ez = W / 2 + 0.03, y0 = 0.36, y1 = 1.62;
+  for (const dx of [-0.17, 0.17]) {
+    mesh(new THREE.BoxGeometry(0.035, y1 - y0, 0.035), ferro, g, ex + dx, (y0 + y1) / 2, ez);
+    for (const y of [0.38, 1.35]) mesh(new THREE.BoxGeometry(0.035, 0.035, 0.06), ferro, g, ex + dx, y, ez - 0.03);   // presilhas na cama
+  }
+  for (let k = 0; k < 4; k++) mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.34, 8), ferro, g, ex, 0.6 + k * 0.25, ez, 0, 0, Math.PI / 2);
   return g;
 }
 function sujar2(x, W, H) { for (let k = 0; k < 20; k++) { const px = Math.random() * W, py = Math.random() * H, r = 6 + Math.random() * 20, gr = x.createRadialGradient(px, py, 0, px, py, r); gr.addColorStop(0, 'rgba(90,70,40,.18)'); gr.addColorStop(1, 'rgba(90,70,40,0)'); x.fillStyle = gr; x.fillRect(px - r, py - r, r * 2, r * 2); } }
